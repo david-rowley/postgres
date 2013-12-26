@@ -66,16 +66,17 @@ static char *shellprog = SHELLPROG;
 #endif
 
 /*
- * On Windows we use -w in diff switches to avoid problems with inconsistent
- * newline representation.	The actual result files will generally have
- * Windows-style newlines, but the comparison files might or might not.
+ * Since the expected result files most likely terminate lines with a line feed
+ * and windows will generate the actual outputs with both carriage return and
+ * line feed then we need to pass slightly different options to diff for windows
+ * builds.
  */
 #ifndef WIN32
 const char *basic_diff_opts = "";
 const char *pretty_diff_opts = "-C3";
 #else
-const char *basic_diff_opts = "-w";
-const char *pretty_diff_opts = "-w -C3";
+const char *basic_diff_opts = "--strip-trailing-cr";
+const char *pretty_diff_opts = "--strip-trailing-cr -C3";
 #endif
 
 /* options settable from command line */
