@@ -132,6 +132,63 @@ CREATE AGGREGATE avg (float8)
   </note>
 
   <para>
+   An aggregate function can also specify an inverse transition function.
+   <productname>PostgreSQL</productname> can use these when the aggregate
+   is used in the context of a <literal>WINDOW</>, this can save from having to
+   recalculate the aggregate value when a row moves out of the scope in the
+   window frame. Internally <productname>PostgreSQL</productname> uses these
+   for various aggregates functions, this can improve performance significantly
+   even moderate number of rows.
+  </para>
+
+  <para>
+   For safety <productname>PostgreSQL</productname> chooses to omit the inverse
+   transition function in some cases where it might appear that they should be
+   implemented. The <function>sum</> function with the types
+   <literal>double precision</> and <literal>float</> are examples of this.
+   The inverse transition function was not implemented with these types on
+   purpose due to the limited numerical precision of these types. It is
+   possible, however, to create a user defined aggregate which implements an
+   inverse transition function for these types. Such an aggregate will likely
+   be more efficient when used in the context of a <literal>WINDOW</> where
+   the window frame's head is not fixed. A faster but unsafe version of
+   <function>sum</> for <literal>double precision</> might be implemented as:
+
+<programlisting>
+CREATE AGGREGATE sumdouble (float8)
+(
+    stype = float8,
+    sfunc = float8pl,
+    invfunc = float8mi
+);
+</programlisting>
+
+   The above aggregate can give incorrect results due to the limited precision
+   of floating point types. As an example consider the result of the following
+   expression <literal>1e20::float + 1 - 1e20</>, you may expect the result of
+   this to be 1, but the result is actually 0. The reason for this is due to how
+   floating point types work. Note that this is a limitation of floating point
+   types in general and not a limitation of
+   <productname>PostgreSQL</productname>.
+  </para>
+
+  <para>
+  <note>
+   You may be able achieve higher precision by using an aggregate similar to
+   the above if your data is stored in a column with the type <literal>float</>
+   by first casting the value to <literal>double precision</>. Though it should
+   be noted that your query results could still be incorrect. Evaluating an
+   expression which adds the smallest possible value that can be stored in type
+   <literal>float</> to the biggest value then removes the biggest value,
+   you may expect that widening the type to <literal>double precision</> may
+   allow the precision to be maintained, though this may not be the case.
+   <literal>3.4e38::float8 + 1.4e-45 - 3.4e38</> demonstrates this, as the
+   result is <literal>0</> instead of <literal>1.4e-45</>. The only way to
+   maintain complete precision is to use a <literal>numeric</> type.
+  </note>
+  </para>
+
+  <para>
    Aggregate functions can use polymorphic
    state transition functions or final functions, so that the same functions
    can be used to implement multiple aggregates.
