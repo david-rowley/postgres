@@ -60,7 +60,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 	AclResult	aclresult;
 	char		aggKind = AGGKIND_NORMAL;
 	List	   *transfuncName = NIL;
-	List	   *invtransfuncName = NIL;
 	List	   *finalfuncName = NIL;
 	List	   *sortoperatorName = NIL;
 	TypeName   *baseType = NULL;
@@ -113,8 +112,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 			transfuncName = defGetQualifiedName(defel);
 		else if (pg_strcasecmp(defel->defname, "sfunc1") == 0)
 			transfuncName = defGetQualifiedName(defel);
-		else if (pg_strcasecmp(defel->defname, "invfunc") == 0)
-			invtransfuncName = defGetQualifiedName(defel);
 		else if (pg_strcasecmp(defel->defname, "finalfunc") == 0)
 			finalfuncName = defGetQualifiedName(defel);
 		else if (pg_strcasecmp(defel->defname, "sortop") == 0)
@@ -286,7 +283,6 @@ DefineAggregate(List *name, List *args, bool oldstyle, List *parameters,
 						   parameterDefaults,
 						   variadicArgType,
 						   transfuncName,		/* step function name */
-						   invtransfuncName,	/* inverse trans function name */
 						   finalfuncName,		/* final function name */
 						   sortoperatorName,	/* sort operator name */
 						   transTypeId, /* transition data type */

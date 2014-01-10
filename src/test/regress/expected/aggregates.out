@@ -1580,25 +1580,3 @@ select least_agg(variadic array[q1,q2]) from int8_tbl;
  -4567890123456789
 (1 row)
 
--- built in aggregate function transition function args must match the inverse
--- transition function arguments.
-SELECT ptrns.proname, pinvtrns.proname
-  FROM pg_aggregate agg
-  INNER JOIN pg_proc As ptrns ON agg.aggtransfn = ptrns.oid
-  INNER JOIN pg_proc AS pinvtrns ON agg.agginvtransfn = pinvtrns.oid
-  WHERE agg.agginvtransfn <> 0 AND ptrns.proargtypes <> pinvtrns.proargtypes;
- proname | proname 
----------+---------
-(0 rows)
-
--- built in aggregate function transition function strict setting must match
--- the inverse transition strict setting.
-SELECT ptrns.proname, pinvtrns.proname
-  FROM pg_aggregate agg
-  INNER JOIN pg_proc As ptrns ON agg.aggtransfn = ptrns.oid
-  INNER JOIN pg_proc AS pinvtrns ON agg.agginvtransfn = pinvtrns.oid
-  WHERE agg.agginvtransfn <> 0 AND ptrns.proisstrict <> pinvtrns.proisstrict;
- proname | proname 
----------+---------
-(0 rows)
-

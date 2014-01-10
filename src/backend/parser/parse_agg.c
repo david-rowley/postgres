@@ -1203,10 +1203,8 @@ build_aggregate_fnexprs(Oid *agg_input_types,
 						Oid agg_result_type,
 						Oid agg_input_collation,
 						Oid transfn_oid,
-						Oid invtransfn_oid,
 						Oid finalfn_oid,
 						Expr **transfnexpr,
-						Expr **invtransfnexpr,
 						Expr **finalfnexpr)
 {
 	Param	   *argp;
@@ -1250,19 +1248,6 @@ build_aggregate_fnexprs(Oid *agg_input_types,
 						 COERCE_EXPLICIT_CALL);
 	fexpr->funcvariadic = agg_variadic;
 	*transfnexpr = (Expr *) fexpr;
-
-
-	if (OidIsValid(invtransfn_oid))
-	{
-		*invtransfnexpr = (Expr *) makeFuncExpr(invtransfn_oid,
-												agg_result_type,
-												args,
-												InvalidOid,
-												agg_input_collation,
-												COERCE_EXPLICIT_CALL);
-	}
-	else
-		*invtransfnexpr	= NULL;
 
 	/* see if we have a final function */
 	if (!OidIsValid(finalfn_oid))

@@ -1679,7 +1679,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		Oid			transfn_oid,
 					finalfn_oid;
 		Expr	   *transfnexpr,
-				   *invtransfnexpr, /* needed but never used */
 				   *finalfnexpr;
 		Datum		textInitVal;
 		int			i;
@@ -1799,10 +1798,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 								aggref->aggtype,
 								aggref->inputcollid,
 								transfn_oid,
-								InvalidOid, /* invtrans is not needed here */
 								finalfn_oid,
 								&transfnexpr,
-								&invtransfnexpr,
 								&finalfnexpr);
 
 		/* set up infrastructure for calling the transfn and finalfn */

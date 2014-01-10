@@ -11510,7 +11510,6 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	char	   *aggsig_tag;
 	PGresult   *res;
 	int			i_aggtransfn;
-	int			i_agginvtransfn;
 	int			i_aggfinalfn;
 	int			i_aggsortop;
 	int			i_hypothetical;
@@ -11519,7 +11518,6 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	int			i_agginitval;
 	int			i_convertok;
 	const char *aggtransfn;
-	const char *agginvtransfn;
 	const char *aggfinalfn;
 	const char *aggsortop;
 	bool		hypothetical;
@@ -11544,7 +11542,7 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	/* Get aggregate-specific details */
 	if (fout->remoteVersion >= 90400)
 	{
-		appendPQExpBuffer(query, "SELECT aggtransfn, agginvtransfn, "
+		appendPQExpBuffer(query, "SELECT aggtransfn, "
 						  "aggfinalfn, aggtranstype::pg_catalog.regtype, "
 						  "aggsortop::pg_catalog.regoperator, "
 						  "(aggkind = 'h') as hypothetical, "
@@ -11627,7 +11625,6 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	res = ExecuteSqlQueryForSingleRow(fout, query->data);
 
 	i_aggtransfn = PQfnumber(res, "aggtransfn");
-	i_agginvtransfn = PQfnumber(res, "agginvtransfn");
 	i_aggfinalfn = PQfnumber(res, "aggfinalfn");
 	i_aggsortop = PQfnumber(res, "aggsortop");
 	i_hypothetical = PQfnumber(res, "hypothetical");
@@ -11637,7 +11634,6 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	i_convertok = PQfnumber(res, "convertok");
 
 	aggtransfn = PQgetvalue(res, 0, i_aggtransfn);
-	agginvtransfn = PQgetvalue(res, 0, i_agginvtransfn);
 	aggfinalfn = PQgetvalue(res, 0, i_aggfinalfn);
 	aggsortop = PQgetvalue(res, 0, i_aggsortop);
 	hypothetical = (PQgetvalue(res, 0, i_hypothetical)[0] == 't');
@@ -11706,12 +11702,6 @@ dumpAgg(Archive *fout, AggInfo *agginfo)
 	{
 		appendPQExpBufferStr(details, ",\n    INITCOND = ");
 		appendStringLiteralAH(details, agginitval, fout);
-	}
-
-	if (strcmp(agginvtransfn, "-") != 0)
-	{
-		appendPQExpBuffer(details, ",\n    INVFUNC = %s",
-			agginvtransfn);
 	}
 
 	if (strcmp(aggfinalfn, "-") != 0)
