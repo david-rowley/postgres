@@ -626,6 +626,19 @@ float4larger(PG_FUNCTION_ARGS)
 }
 
 Datum
+float4larger_inv(PG_FUNCTION_ARGS)
+{
+	float4		arg1 = PG_GETARG_FLOAT4(0);
+	float4		arg2 = PG_GETARG_FLOAT4(1);
+
+	if (isnan(arg1) || isnan(arg2))
+		PG_RETURN_NULL();
+	else if (float4_cmp_internal(arg1, arg2) > 0)
+		PG_RETURN_FLOAT4(arg1);
+	PG_RETURN_NULL();
+}
+
+Datum
 float4smaller(PG_FUNCTION_ARGS)
 {
 	float4		arg1 = PG_GETARG_FLOAT4(0);
@@ -637,6 +650,19 @@ float4smaller(PG_FUNCTION_ARGS)
 	else
 		result = arg2;
 	PG_RETURN_FLOAT4(result);
+}
+
+Datum
+float4smaller_inv(PG_FUNCTION_ARGS)
+{
+	float4		arg1 = PG_GETARG_FLOAT4(0);
+	float4		arg2 = PG_GETARG_FLOAT4(1);
+
+	if (isnan(arg1) || isnan(arg2))
+		PG_RETURN_NULL();
+	else if (float4_cmp_internal(arg1, arg2) < 0)
+		PG_RETURN_FLOAT4(arg1);
+	PG_RETURN_NULL();
 }
 
 /*
@@ -693,6 +719,19 @@ float8larger(PG_FUNCTION_ARGS)
 }
 
 Datum
+float8larger_inv(PG_FUNCTION_ARGS)
+{
+	float8		arg1 = PG_GETARG_FLOAT8(0);
+	float8		arg2 = PG_GETARG_FLOAT8(1);
+
+	if (isnan(arg1) || isnan(arg2))
+		PG_RETURN_NULL();
+	else if (float8_cmp_internal(arg1, arg2) > 0)
+		PG_RETURN_FLOAT8(arg1);
+	PG_RETURN_NULL();
+}
+
+Datum
 float8smaller(PG_FUNCTION_ARGS)
 {
 	float8		arg1 = PG_GETARG_FLOAT8(0);
@@ -706,6 +745,18 @@ float8smaller(PG_FUNCTION_ARGS)
 	PG_RETURN_FLOAT8(result);
 }
 
+Datum
+float8smaller_inv(PG_FUNCTION_ARGS)
+{
+	float8		arg1 = PG_GETARG_FLOAT8(0);
+	float8		arg2 = PG_GETARG_FLOAT8(1);
+
+	if (isnan(arg1) || isnan(arg2))
+		PG_RETURN_NULL();
+	else if (float8_cmp_internal(arg1, arg2) < 0)
+		PG_RETURN_FLOAT8(arg1);
+	PG_RETURN_NULL();
+}
 
 /*
  *		====================

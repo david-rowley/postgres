@@ -284,3 +284,197 @@ SELECT nth_value_def(n := 2, val := ten) OVER (PARTITION BY four), ten, four
 
 SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four
   FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) s;
+
+-- test inverse transition funtions handle NULLs properly
+SELECT i,AVG(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v);
+
+SELECT i,SUM(v::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
+
+SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
+
+SELECT i,SUM(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
+
+SELECT i,SUM(v::money) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,'1.10'),(2,'2.20'),(3,NULL),(4,NULL)) t(i,v);
+
+SELECT i,SUM(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v);
+
+SELECT i,COUNT(v) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
+
+SELECT i,COUNT(*) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
+
+-- test that inverse transition functions work with various frame options
+SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
+
+SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
+
+SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN 1 PRECEDING AND 1 FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,3),(4,4)) t(i,v);
+
+-- it might be tempting for someone to add an inverse trans function for
+-- float and double precision. This should not be done as it  can give incorrect
+-- results. This test should fail if anyone ever does this without thinking too
+-- hard about it.
+SELECT to_char(SUM(n::float8) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING),'999999999999999999999D9')
+  FROM (VALUES(1,1e20),(2,1)) n(i,n);
+
+-- inverse transition function with filter
+SELECT i,SUM(v::int) FILTER (WHERE i < 4) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,4)) t(i,v);
+
+-- ensure aggregate context properly recovers from having NaN values
+SELECT a, b,
+       SUM(b) OVER(ORDER BY A ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+FROM (VALUES(1,1::numeric),(2,2),(3,'NaN'),(4,3),(5,4)) t(a,b);
+
+-- Test each inverse transition function used for max() and min() aggregates
+SELECT int8larger_inv(3,2),int8larger_inv(3,3),int8larger_inv(3,4);
+
+SELECT int4larger_inv(3,2),int4larger_inv(3,3),int4larger_inv(3,4);
+
+SELECT int2larger_inv(3::SMALLINT,2::SMALLINT),
+       int2larger_inv(3::SMALLINT,3::SMALLINT),
+       int2larger_inv(3::SMALLINT,4::SMALLINT);
+
+SELECT oidlarger_inv(3,2),oidlarger_inv(3,3),oidlarger_inv(3,4);
+
+SELECT float4larger_inv(3,2.999999),
+       float4larger_inv(3,3),
+       float4larger_inv(3,3.000001);
+
+SELECT float8larger_inv(3,2.999999),
+       float8larger_inv(3,3),
+       float8larger_inv(3,3.000001);
+
+SELECT date_larger_inv('2000-01-01','1999-12-31'),
+       date_larger_inv('2000-01-01','2000-01-01'),
+       date_larger_inv('2000-01-01','2000-01-02');
+
+SELECT time_larger_inv('12:00:00','11:59:59'),
+       time_larger_inv('12:00:00','12:00:00'),
+       time_larger_inv('12:00:00','12:00:01');
+
+SELECT timetz_larger_inv('12:00:00+10','11:59:59+10'),
+       timetz_larger_inv('12:00:00+10','12:00:00+10'),
+       timetz_larger_inv('12:00:00+10','12:00:01+10');
+
+SELECT cashlarger_inv(3::MONEY,2::MONEY),
+       cashlarger_inv(3::MONEY,3::MONEY),
+       cashlarger_inv(3::MONEY,4::MONEY);
+
+SELECT timestamp_larger_inv('2000-01-01 00:00:00','1999-12-31 00:00:00'),
+       timestamp_larger_inv('2000-01-01 00:00:00','2000-01-01 00:00:00'),
+       timestamp_larger_inv('2000-01-01 00:00:00','2000-01-02 00:00:00');
+
+SELECT interval_larger_inv('3 sec','2 sec'),
+       interval_larger_inv('3 sec','3 sec'),
+       interval_larger_inv('3 sec','4 sec');
+
+SELECT text_larger_inv('C','B'),
+       text_larger_inv('C','C'),
+       text_larger_inv('C','D');
+
+SELECT numeric_larger_inv(3::NUMERIC,2::NUMERIC),
+       numeric_larger_inv(3::NUMERIC,2::NUMERIC),
+       numeric_larger_inv(3::NUMERIC,4::NUMERIC);
+
+SELECT numeric_larger_inv('NaN'::NUMERIC,2::NUMERIC),
+       numeric_larger_inv(3::NUMERIC,'NaN'::NUMERIC);
+
+SELECT array_larger_inv('{3,3}'::int[],'{2,2}'::int[]),
+       array_larger_inv('{3,3}'::int[],'{3,3}'::int[]),
+       array_larger_inv('{3,3}'::int[],'{4,4}'::int[]);
+
+SELECT bpchar_larger_inv('C'::BPCHAR,'B'::BPCHAR),
+       bpchar_larger_inv('C'::BPCHAR,'C'::BPCHAR),
+       bpchar_larger_inv('C'::BPCHAR,'D'::BPCHAR);
+
+SELECT tidlarger_inv('(3,3)'::tid,'(2,2)'::tid),
+       tidlarger_inv('(3,3)'::tid,'(3,3)'::tid),
+       tidlarger_inv('(3,3)'::tid,'(4,0)'::tid);
+
+CREATE TYPE enum_abc AS ENUM ('B','C','D');
+
+SELECT enum_larger_inv('C'::enum_abc,'B'::enum_abc),
+       enum_larger_inv('C'::enum_abc,'C'::enum_abc),
+       enum_larger_inv('C'::enum_abc,'D'::enum_abc);
+
+SELECT int8smaller_inv(3,2),int8smaller_inv(3,3),int8smaller_inv(3,4);
+
+SELECT int4smaller_inv(3,2),int4smaller_inv(3,3),int4smaller_inv(3,4);
+
+SELECT int2smaller_inv(3::SMALLINT,2::SMALLINT),
+       int2smaller_inv(3::SMALLINT,3::SMALLINT),
+       int2smaller_inv(3::SMALLINT,4::SMALLINT);
+
+SELECT oidsmaller_inv(3,2),oidsmaller_inv(3,3),oidsmaller_inv(3,4);
+
+SELECT float4smaller_inv(3,2.999999),
+       float4smaller_inv(3,3),
+       float4smaller_inv(3,3.000001);
+
+SELECT float8smaller_inv(3,2.999999),
+       float8smaller_inv(3,3),
+       float8smaller_inv(3,3.000001);
+
+SELECT date_smaller_inv('2000-01-01','1999-12-31'),
+       date_smaller_inv('2000-01-01','2000-01-01'),
+       date_smaller_inv('2000-01-01','2000-01-02');
+
+SELECT time_smaller_inv('12:00:00','11:59:59'),
+       time_smaller_inv('12:00:00','12:00:00'),
+       time_smaller_inv('12:00:00','12:00:01');
+
+SELECT timetz_smaller_inv('12:00:00+10','11:59:59+10'),
+       timetz_smaller_inv('12:00:00+10','12:00:00+10'),
+       timetz_smaller_inv('12:00:00+10','12:00:01+10');
+
+SELECT cashsmaller_inv(3::MONEY,2::MONEY),
+       cashsmaller_inv(3::MONEY,3::MONEY),
+       cashsmaller_inv(3::MONEY,4::MONEY);
+
+SELECT timestamp_smaller_inv('2000-01-01 00:00:00','1999-12-31 00:00:00'),
+       timestamp_smaller_inv('2000-01-01 00:00:00','2000-01-01 00:00:00'),
+       timestamp_smaller_inv('2000-01-01 00:00:00','2000-01-02 00:00:00');
+
+SELECT interval_smaller_inv('3 sec','2 sec'),
+       interval_smaller_inv('3 sec','3 sec'),
+       interval_smaller_inv('3 sec','4 sec');
+
+SELECT text_smaller_inv('C','B'),
+       text_smaller_inv('C','C'),
+       text_smaller_inv('C','D');
+
+SELECT numeric_smaller_inv(3::NUMERIC,2::NUMERIC),
+       numeric_smaller_inv(3::NUMERIC,2::NUMERIC),
+       numeric_smaller_inv(3::NUMERIC,4::NUMERIC);
+
+SELECT numeric_smaller_inv('NaN'::NUMERIC,2::NUMERIC),
+       numeric_smaller_inv(3::NUMERIC,'NaN'::NUMERIC);
+
+SELECT array_smaller_inv('{3,3}'::int[],'{2,2}'::int[]),
+       array_smaller_inv('{3,3}'::int[],'{3,3}'::int[]),
+       array_smaller_inv('{3,3}'::int[],'{4,4}'::int[]);
+
+SELECT bpchar_smaller_inv('C'::BPCHAR,'B'::BPCHAR),
+       bpchar_smaller_inv('C'::BPCHAR,'C'::BPCHAR),
+       bpchar_smaller_inv('C'::BPCHAR,'D'::BPCHAR);
+
+SELECT tidsmaller_inv('(3,3)'::tid,'(2,2)'::tid),
+       tidsmaller_inv('(3,3)'::tid,'(3,3)'::tid),
+       tidsmaller_inv('(3,3)'::tid,'(4,0)'::tid);
+
+SELECT enum_smaller_inv('C'::enum_abc,'B'::enum_abc),
+       enum_smaller_inv('C'::enum_abc,'C'::enum_abc),
+       enum_smaller_inv('C'::enum_abc,'D'::enum_abc);
+
+DROP TYPE enum_abc;

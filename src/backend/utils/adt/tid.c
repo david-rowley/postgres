@@ -237,6 +237,17 @@ tidlarger(PG_FUNCTION_ARGS)
 }
 
 Datum
+tidlarger_inv(PG_FUNCTION_ARGS)
+{
+	ItemPointer arg1 = PG_GETARG_ITEMPOINTER(0);
+	ItemPointer arg2 = PG_GETARG_ITEMPOINTER(1);
+
+	if (ItemPointerCompare(arg1, arg2) > 0)
+		PG_RETURN_ITEMPOINTER(arg1);
+	PG_RETURN_NULL();
+}
+
+Datum
 tidsmaller(PG_FUNCTION_ARGS)
 {
 	ItemPointer arg1 = PG_GETARG_ITEMPOINTER(0);
@@ -245,6 +256,16 @@ tidsmaller(PG_FUNCTION_ARGS)
 	PG_RETURN_ITEMPOINTER(ItemPointerCompare(arg1, arg2) <= 0 ? arg1 : arg2);
 }
 
+Datum
+tidsmaller_inv(PG_FUNCTION_ARGS)
+{
+	ItemPointer arg1 = PG_GETARG_ITEMPOINTER(0);
+	ItemPointer arg2 = PG_GETARG_ITEMPOINTER(1);
+
+	if (ItemPointerCompare(arg1, arg2) < 0)
+		PG_RETURN_ITEMPOINTER(arg1);
+	PG_RETURN_NULL();
+}
 
 /*
  *	Functions to get latest tid of a specified tuple.

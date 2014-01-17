@@ -2393,6 +2393,17 @@ timestamp_smaller(PG_FUNCTION_ARGS)
 }
 
 Datum
+timestamp_smaller_inv(PG_FUNCTION_ARGS)
+{
+	Timestamp	dt1 = PG_GETARG_TIMESTAMP(0);
+	Timestamp	dt2 = PG_GETARG_TIMESTAMP(1);
+
+	if (timestamp_cmp_internal(dt1, dt2) < 0)
+		PG_RETURN_TIMESTAMP(dt1);
+	PG_RETURN_NULL();
+}
+
+Datum
 timestamp_larger(PG_FUNCTION_ARGS)
 {
 	Timestamp	dt1 = PG_GETARG_TIMESTAMP(0);
@@ -2406,6 +2417,16 @@ timestamp_larger(PG_FUNCTION_ARGS)
 	PG_RETURN_TIMESTAMP(result);
 }
 
+Datum
+timestamp_larger_inv(PG_FUNCTION_ARGS)
+{
+	Timestamp	dt1 = PG_GETARG_TIMESTAMP(0);
+	Timestamp	dt2 = PG_GETARG_TIMESTAMP(1);
+
+	if (timestamp_cmp_internal(dt1, dt2) > 0)
+		PG_RETURN_TIMESTAMP(dt1);
+	PG_RETURN_NULL();
+}
 
 Datum
 timestamp_mi(PG_FUNCTION_ARGS)
@@ -2849,6 +2870,17 @@ interval_smaller(PG_FUNCTION_ARGS)
 }
 
 Datum
+interval_smaller_inv(PG_FUNCTION_ARGS)
+{
+	Interval   *interval1 = PG_GETARG_INTERVAL_P(0);
+	Interval   *interval2 = PG_GETARG_INTERVAL_P(1);
+
+	if (interval_cmp_internal(interval1, interval2) < 0)
+		PG_RETURN_INTERVAL_P(interval1);
+	PG_RETURN_NULL();
+}
+
+Datum
 interval_larger(PG_FUNCTION_ARGS)
 {
 	Interval   *interval1 = PG_GETARG_INTERVAL_P(0);
@@ -2860,6 +2892,17 @@ interval_larger(PG_FUNCTION_ARGS)
 	else
 		result = interval2;
 	PG_RETURN_INTERVAL_P(result);
+}
+
+Datum
+interval_larger_inv(PG_FUNCTION_ARGS)
+{
+	Interval   *interval1 = PG_GETARG_INTERVAL_P(0);
+	Interval   *interval2 = PG_GETARG_INTERVAL_P(1);
+
+	if (interval_cmp_internal(interval1, interval2) > 0)
+		PG_RETURN_INTERVAL_P(interval1);
+	PG_RETURN_NULL();
 }
 
 Datum
@@ -3071,6 +3114,51 @@ interval_accum(PG_FUNCTION_ARGS)
 
 	PG_RETURN_ARRAYTYPE_P(result);
 }
+
+Datum
+interval_accum_inv(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray = PG_GETARG_ARRAYTYPE_P(0);
+	Interval   *newval = PG_GETARG_INTERVAL_P(1);
+	Datum	   *transdatums;
+	int			ndatums;
+	Interval	sumX,
+				N;
+	Interval   *newsum;
+	ArrayType  *result;
+
+	deconstruct_array(transarray,
+					  INTERVALOID, sizeof(Interval), false, 'd',
+					  &transdatums, NULL, &ndatums);
+	if (ndatums != 2)
+		elog(ERROR, "expected 2-element interval array");
+
+	/*
+	 * XXX memcpy, instead of just extracting a pointer, to work around buggy
+	 * array code: it won't ensure proper alignment of Interval objects on
+	 * machines where double requires 8-byte alignment. That should be fixed,
+	 * but in the meantime...
+	 *
+	 * Note: must use DatumGetPointer here, not DatumGetIntervalP, else some
+	 * compilers optimize into double-aligned load/store anyway.
+	 */
+	memcpy((void *) &sumX, DatumGetPointer(transdatums[0]), sizeof(Interval));
+	memcpy((void *) &N, DatumGetPointer(transdatums[1]), sizeof(Interval));
+
+	newsum = DatumGetIntervalP(DirectFunctionCall2(interval_mi,
+												   IntervalPGetDatum(&sumX),
+												 IntervalPGetDatum(newval)));
+	N.time -= 1;
+
+	transdatums[0] = IntervalPGetDatum(newsum);
+	transdatums[1] = IntervalPGetDatum(&N);
+
+	result = construct_array(transdatums, 2,
+							 INTERVALOID, sizeof(Interval), false, 'd');
+
+	PG_RETURN_ARRAYTYPE_P(result);
+}
+
 
 Datum
 interval_avg(PG_FUNCTION_ARGS)

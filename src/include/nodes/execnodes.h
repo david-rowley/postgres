@@ -1738,6 +1738,7 @@ typedef struct WindowAggState
 	List	   *funcs;			/* all WindowFunc nodes in targetlist */
 	int			numfuncs;		/* total number of window functions */
 	int			numaggs;		/* number that are plain aggregates */
+	int			numaggs_invtrans;	/* number that are invertible aggregates */
 
 	WindowStatePerFunc perfunc; /* per-window-function information */
 	WindowStatePerAgg peragg;	/* per-plain-aggregate information */

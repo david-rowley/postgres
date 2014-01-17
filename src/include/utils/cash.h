@@ -60,7 +60,9 @@ extern Datum int2_mul_cash(PG_FUNCTION_ARGS);
 extern Datum cash_div_int2(PG_FUNCTION_ARGS);
 
 extern Datum cashlarger(PG_FUNCTION_ARGS);
+extern Datum cashlarger_inv(PG_FUNCTION_ARGS);
 extern Datum cashsmaller(PG_FUNCTION_ARGS);
+extern Datum cashsmaller_inv(PG_FUNCTION_ARGS);
 
 extern Datum cash_words(PG_FUNCTION_ARGS);
 

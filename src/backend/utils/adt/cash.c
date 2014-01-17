@@ -877,6 +877,17 @@ cashlarger(PG_FUNCTION_ARGS)
 	PG_RETURN_CASH(result);
 }
 
+Datum
+cashlarger_inv(PG_FUNCTION_ARGS)
+{
+	Cash		c1 = PG_GETARG_CASH(0);
+	Cash		c2 = PG_GETARG_CASH(1);
+
+	if (c1 > c2)
+		PG_RETURN_CASH(c1);
+	PG_RETURN_NULL(); /* Unable to perform inverse transition */
+}
+
 /* cashsmaller()
  * Return smaller of two cash values.
  */
@@ -890,6 +901,17 @@ cashsmaller(PG_FUNCTION_ARGS)
 	result = (c1 < c2) ? c1 : c2;
 
 	PG_RETURN_CASH(result);
+}
+
+Datum
+cashsmaller_inv(PG_FUNCTION_ARGS)
+{
+	Cash		c1 = PG_GETARG_CASH(0);
+	Cash		c2 = PG_GETARG_CASH(1);
+
+	if (c1 < c2)
+		PG_RETURN_CASH(c1);
+	PG_RETURN_NULL(); /* Unable to perform inverse transition */
 }
 
 /* cash_words()
