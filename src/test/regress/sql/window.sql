@@ -446,6 +446,10 @@ SELECT timestamp_smaller_inv('2000-01-01 00:00:00','1999-12-31 00:00:00'),
        timestamp_smaller_inv('2000-01-01 00:00:00','2000-01-01 00:00:00'),
        timestamp_smaller_inv('2000-01-01 00:00:00','2000-01-02 00:00:00');
 
+SELECT timestamptz_smaller_inv('2000-01-01 00:00:00+10','1999-12-31 00:00:00+10'),
+       timestamptz_smaller_inv('2000-01-01 00:00:00+10','2000-01-01 00:00:00+10'),
+       timestamptz_smaller_inv('2000-01-01 00:00:00+10','2000-01-02 00:00:00+10');
+
 SELECT interval_smaller_inv('3 sec','2 sec'),
        interval_smaller_inv('3 sec','3 sec'),
        interval_smaller_inv('3 sec','4 sec');

@@ -1318,6 +1318,10 @@ DATA(insert OID = 1195 (  timestamptz_smaller PGNSP PGUID 12 1 0 0 0 f f f f t f
 DESCR("smaller of two");
 DATA(insert OID = 1196 (  timestamptz_larger  PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1184 "1184 1184" _null_ _null_ _null_ _null_ timestamp_larger _null_ _null_ _null_ ));
 DESCR("larger of two");
+DATA(insert OID = 8018 (  timestamptz_smaller_inv PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1184 "1184 1184" _null_ _null_ _null_ _null_ timestamp_smaller_inv _null_ _null_ _null_ ));
+DESCR("aggregate inverse transition function");
+DATA(insert OID = 8019 (  timestamptz_larger_inv  PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1184 "1184 1184" _null_ _null_ _null_ _null_ timestamp_larger_inv _null_ _null_ _null_ ));
+DESCR("aggregate inverse transition function");
 DATA(insert OID = 1197 (  interval_smaller	PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1186 "1186 1186" _null_ _null_ _null_ _null_	interval_smaller _null_ _null_ _null_ ));
 DESCR("smaller of two");
 DATA(insert OID = 1198 (  interval_larger	PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 1186 "1186 1186" _null_ _null_ _null_ _null_	interval_larger _null_ _null_ _null_ ));
