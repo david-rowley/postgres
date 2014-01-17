@@ -329,14 +329,18 @@ SELECT col FROM tab ORDER BY col USING sortop LIMIT 1;
       again in certain cases when the aggregate function is used in the
       context of a <literal>WINDOW</>. This function should remove the given
       value from aggregation and restore the state to what it was before the
-      value was aggregated.
+      value was aggregated. The inverse transition function may also return
+      NULL, this effectively tells <productname>PostgreSQL</productname> that
+      the function was unable to remove the row from aggregation. In this case
+      <productname>PostgreSQL</productname> will discard the aggregated results
+      and re-aggregate the rows in the new scope of the window frame.
      </para>
 
      <para>
       Note that the inverse transition function's return value and arguments
       must match the return value and arguments of the transition function.
-      The inverse transition function's strict propety must also match the
-      strict property of the transition function.
+      If the aggregate's transition function is strict then the inverse
+      transition function must also be strict.
      </para>
 
      <para>
@@ -349,12 +353,6 @@ SELECT col FROM tab ORDER BY col USING sortop LIMIT 1;
       over all rows in the window frame to calculate
       <function>count(*)</function> whenever a row moves out of scope in the
       window frame.
-     </para>
-
-     <para>
-      Note that <productname>PostgreSQL</productname> will not use inverse
-      transition functions if any other aggregate function in the window frame
-      does not have an inverse transition function set.
      </para>
 
      <para>

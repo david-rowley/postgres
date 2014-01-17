@@ -137,7 +137,7 @@ CREATE AGGREGATE avg (float8)
    is used in the context of a <literal>WINDOW</>, this can save from having to
    recalculate the aggregate value when a row moves out of the scope in the
    window frame. Internally <productname>PostgreSQL</productname> uses these
-   for various aggregates functions, this can improve performance significantly
+   for various aggregate functions, this can improve performance significantly
    even moderate number of rows.
   </para>
 
