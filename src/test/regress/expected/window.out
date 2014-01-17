@@ -1072,6 +1072,46 @@ SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four
 (10 rows)
 
 -- test inverse transition funtions handle NULLs properly
+SELECT i,AVG(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
+ i |        avg         
+---+--------------------
+ 1 | 1.5000000000000000
+ 2 | 2.0000000000000000
+ 3 |                   
+ 4 |                   
+(4 rows)
+
+SELECT i,AVG(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
+ i |        avg         
+---+--------------------
+ 1 | 1.5000000000000000
+ 2 | 2.0000000000000000
+ 3 |                   
+ 4 |                   
+(4 rows)
+
+SELECT i,AVG(v::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
+ i |        avg         
+---+--------------------
+ 1 | 1.5000000000000000
+ 2 | 2.0000000000000000
+ 3 |                   
+ 4 |                   
+(4 rows)
+
+SELECT i,AVG(v::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1.5),(2,2.5),(3,NULL),(4,NULL)) t(i,v);
+ i |        avg         
+---+--------------------
+ 1 | 2.0000000000000000
+ 2 | 2.5000000000000000
+ 3 |                   
+ 4 |                   
+(4 rows)
+
 SELECT i,AVG(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
   FROM (VALUES(1,'1 sec'),(2,'2 sec'),(3,NULL),(4,NULL)) t(i,v);
  i |    avg     
@@ -1132,6 +1172,25 @@ SELECT i,SUM(v::interval) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDE
  4 | 
 (4 rows)
 
+SELECT i,SUM(v::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1.1),(2,2.2),(3,NULL),(4,NULL)) t(i,v);
+ i | sum 
+---+-----
+ 1 | 3.3
+ 2 | 2.2
+ 3 |    
+ 4 |    
+(4 rows)
+
+SELECT SUM(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,1.01),(2,2),(3,3)) v(i,n);
+ sum  
+------
+ 6.01
+    5
+    3
+(3 rows)
+
 SELECT i,COUNT(v) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
   FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
  i | count 
@@ -1151,6 +1210,270 @@ SELECT i,COUNT(*) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOW
  3 |     2
  4 |     1
 (4 rows)
+
+SELECT VAR_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+        var_pop        
+-----------------------
+    21704.000000000000
+    13868.750000000000
+    11266.666666666667
+ 4225.0000000000000000
+                     0
+(5 rows)
+
+SELECT VAR_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+        var_pop        
+-----------------------
+    21704.000000000000
+    13868.750000000000
+    11266.666666666667
+ 4225.0000000000000000
+                     0
+(5 rows)
+
+SELECT VAR_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+        var_pop        
+-----------------------
+    21704.000000000000
+    13868.750000000000
+    11266.666666666667
+ 4225.0000000000000000
+                     0
+(5 rows)
+
+SELECT VAR_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+        var_pop        
+-----------------------
+    21704.000000000000
+    13868.750000000000
+    11266.666666666667
+ 4225.0000000000000000
+                     0
+(5 rows)
+
+SELECT VAR_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       var_samp        
+-----------------------
+    27130.000000000000
+    18491.666666666667
+    16900.000000000000
+ 8450.0000000000000000
+                      
+(5 rows)
+
+SELECT VAR_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       var_samp        
+-----------------------
+    27130.000000000000
+    18491.666666666667
+    16900.000000000000
+ 8450.0000000000000000
+                      
+(5 rows)
+
+SELECT VAR_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       var_samp        
+-----------------------
+    27130.000000000000
+    18491.666666666667
+    16900.000000000000
+ 8450.0000000000000000
+                      
+(5 rows)
+
+SELECT VAR_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       var_samp        
+-----------------------
+    27130.000000000000
+    18491.666666666667
+    16900.000000000000
+ 8450.0000000000000000
+                      
+(5 rows)
+
+SELECT VARIANCE(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       variance        
+-----------------------
+    27130.000000000000
+    18491.666666666667
+    16900.000000000000
+ 8450.0000000000000000
+                      
+(5 rows)
+
+SELECT VARIANCE(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       variance        
+-----------------------
+    27130.000000000000
+    18491.666666666667
+    16900.000000000000
+ 8450.0000000000000000
+                      
+(5 rows)
+
+SELECT VARIANCE(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       variance        
+-----------------------
+    27130.000000000000
+    18491.666666666667
+    16900.000000000000
+ 8450.0000000000000000
+                      
+(5 rows)
+
+SELECT VARIANCE(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       variance        
+-----------------------
+    27130.000000000000
+    18491.666666666667
+    16900.000000000000
+ 8450.0000000000000000
+                      
+(5 rows)
+
+SELECT STDDEV_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+     stddev_pop      
+---------------------
+    147.322774885623
+    117.765657133139
+    106.144555520604
+ 65.0000000000000000
+                   0
+(5 rows)
+
+SELECT STDDEV_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+     stddev_pop      
+---------------------
+    147.322774885623
+    117.765657133139
+    106.144555520604
+ 65.0000000000000000
+                   0
+(5 rows)
+
+SELECT STDDEV_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+     stddev_pop      
+---------------------
+    147.322774885623
+    117.765657133139
+    106.144555520604
+ 65.0000000000000000
+                   0
+(5 rows)
+
+SELECT STDDEV_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+     stddev_pop      
+---------------------
+    147.322774885623
+    117.765657133139
+    106.144555520604
+ 65.0000000000000000
+                   0
+(5 rows)
+
+SELECT STDDEV_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+     stddev_samp     
+---------------------
+    164.711869639076
+    135.984067694222
+    130.000000000000
+ 91.9238815542511782
+                    
+(5 rows)
+
+SELECT STDDEV_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+     stddev_samp     
+---------------------
+    164.711869639076
+    135.984067694222
+    130.000000000000
+ 91.9238815542511782
+                    
+(5 rows)
+
+SELECT STDDEV_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+     stddev_samp     
+---------------------
+    164.711869639076
+    135.984067694222
+    130.000000000000
+ 91.9238815542511782
+                    
+(5 rows)
+
+SELECT STDDEV_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+     stddev_samp     
+---------------------
+    164.711869639076
+    135.984067694222
+    130.000000000000
+ 91.9238815542511782
+                    
+(5 rows)
+
+SELECT STDDEV(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       stddev        
+---------------------
+    164.711869639076
+    135.984067694222
+    130.000000000000
+ 91.9238815542511782
+                    
+(5 rows)
+
+SELECT STDDEV(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       stddev        
+---------------------
+    164.711869639076
+    135.984067694222
+    130.000000000000
+ 91.9238815542511782
+                    
+(5 rows)
+
+SELECT STDDEV(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       stddev        
+---------------------
+    164.711869639076
+    135.984067694222
+    130.000000000000
+ 91.9238815542511782
+                    
+(5 rows)
+
+SELECT STDDEV(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
+  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+       stddev        
+---------------------
+    164.711869639076
+    135.984067694222
+    130.000000000000
+ 91.9238815542511782
+                    
+(5 rows)
 
 -- test that inverse transition functions work with various frame options
 SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW)

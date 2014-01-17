@@ -2504,8 +2504,10 @@ numeric_float4(PG_FUNCTION_ARGS)
 typedef struct NumericAggState
 {
 	bool		calcSumX2;		/* if true, calculate sumX2 */
-	bool		isNaN;			/* true if any processed number was NaN */
+	int			expectedScale;	/* stores the consistent dscale or -1 when
+								 * not initialized and -2 when inconsistent. */
 	MemoryContext agg_context;	/* context we're calculating in */
+	int64		NaNcount;		/* Count of NaN values that are aggregated */
 	int64		N;				/* count of processed numbers */
 	NumericVar	sumX;			/* sum of processed numbers */
 	NumericVar	sumX2;			/* sum of squares of processed numbers */
@@ -2530,6 +2532,8 @@ makeNumericAggState(FunctionCallInfo fcinfo, bool calcSumX2)
 	state = (NumericAggState *) palloc0(sizeof(NumericAggState));
 	state->calcSumX2 = calcSumX2;
 	state->agg_context = agg_context;
+	state->NaNcount = 0;
+	state->expectedScale = -1;
 
 	MemoryContextSwitchTo(old_context);
 
@@ -2547,14 +2551,24 @@ do_numeric_accum(NumericAggState *state, Numeric newval)
 	MemoryContext old_context;
 
 	/* result is NaN if any processed number is NaN */
-	if (state->isNaN || NUMERIC_IS_NAN(newval))
+	if (NUMERIC_IS_NAN(newval))
 	{
-		state->isNaN = true;
+		state->NaNcount++;
 		return;
 	}
 
 	/* load processed number in short-lived context */
 	init_var_from_num(newval, &X);
+
+	/* track if we got a consistent dscale through all
+	 * Numeric's that were aggregated, if the dscale
+	 * was the same each time then we can allow
+	 * an inverse transition later
+	 */
+	if (state->expectedScale == -1)
+		state->expectedScale = X.dscale;
+	else if (state->expectedScale != X.dscale)
+		state->expectedScale = -2;
 
 	/* if we need X^2, calculate that in short-lived context */
 	if (state->calcSumX2)
@@ -2596,14 +2610,7 @@ do_numeric_discard(NumericAggState *state, Numeric newval)
 	/* result is NaN if any processed number is NaN */
 	if (NUMERIC_IS_NAN(newval))
 	{
-		/*
-		 * currently do_numeric_discard is only called from
-		 * int8_avg_accum_inv() which builds the numeric type
-		 * from an int8. Since numerics cannot have NaN values
-		 * when they are created from int8 then we should never
-		 * get this error.
-		 */
-		elog(ERROR, "Unable to process NaN value");
+		state->NaNcount--;
 		return;
 	}
 
@@ -2660,6 +2667,33 @@ numeric_accum(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(state);
 }
 
+Datum
+numeric_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state;
+
+	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+
+	if (!PG_ARGISNULL(1))
+	{
+		/* Create the state data when we see the first non-null input. */
+		if (state == NULL)
+			state = makeNumericAggState(fcinfo, true);
+
+		/*
+		 * We can't perform the inverse transition if the dscale has not been
+		 * consistent between all aggregated values.
+		 */
+		if (state->expectedScale < 0)
+			PG_RETURN_NULL();
+
+		do_numeric_discard(state, PG_GETARG_NUMERIC(1));
+	}
+
+	PG_RETURN_POINTER(state);
+}
+
+
 /*
  * Generic transition function for numeric aggregates that don't require sumX2.
  */
@@ -2679,6 +2713,31 @@ numeric_avg_accum(PG_FUNCTION_ARGS)
 		do_numeric_accum(state, PG_GETARG_NUMERIC(1));
 	}
 
+	PG_RETURN_POINTER(state);
+}
+
+Datum
+numeric_avg_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state;
+
+	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+
+	if (!PG_ARGISNULL(1))
+	{
+		/* Create the state data when we see the first non-null input. */
+		if (state == NULL)
+			state = makeNumericAggState(fcinfo, false);
+
+		/*
+		 * We can't perform the inverse transition if the dscale has not been
+		 * consistent between all aggregated values.
+		 */
+		if (state->expectedScale < 0)
+			PG_RETURN_NULL();
+
+		do_numeric_discard(state, PG_GETARG_NUMERIC(1));
+	}
 	PG_RETURN_POINTER(state);
 }
 
@@ -2764,6 +2823,103 @@ int8_accum(PG_FUNCTION_ARGS)
 }
 
 /*
+ * inverse transition functions for int2, int4 and int8
+ * which perform the reverse of the above 3 functions
+ */
+Datum
+int2_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state;
+
+	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+
+	if (!PG_ARGISNULL(1))
+	{
+		Numeric		newval;
+
+		newval = DatumGetNumeric(DirectFunctionCall1(int2_numeric,
+			PG_GETARG_DATUM(1)));
+
+		/* Create the state data when we see the first non-null input. */
+		if (state == NULL)
+			state = makeNumericAggState(fcinfo, true);
+
+		/*
+		 * We can't perform the inverse transition if the dscale has not been
+		 * consistent between all aggregated values.
+		 */
+		if (state->expectedScale < 0)
+			PG_RETURN_NULL();
+
+		do_numeric_discard(state, newval);
+	}
+
+	PG_RETURN_POINTER(state);
+}
+
+Datum
+int4_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state;
+
+	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+
+	if (!PG_ARGISNULL(1))
+	{
+		Numeric		newval;
+
+		newval = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
+			PG_GETARG_DATUM(1)));
+
+		/* Create the state data when we see the first non-null input. */
+		if (state == NULL)
+			state = makeNumericAggState(fcinfo, true);
+
+		/*
+		 * We can't perform the inverse transition if the dscale has not been
+		 * consistent between all aggregated values.
+		 */
+		if (state->expectedScale < 0)
+			PG_RETURN_NULL();
+
+		do_numeric_discard(state, newval);
+	}
+
+	PG_RETURN_POINTER(state);
+}
+
+Datum
+int8_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state;
+
+	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
+
+	if (!PG_ARGISNULL(1))
+	{
+		Numeric		newval;
+
+		newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
+			PG_GETARG_DATUM(1)));
+
+		/* Create the state data when we see the first non-null input. */
+		if (state == NULL)
+			state = makeNumericAggState(fcinfo, true);
+
+		/*
+		 * We can't perform the inverse transition if the dscale has not been
+		 * consistent between all aggregated values.
+		 */
+		if (state->expectedScale < 0)
+			PG_RETURN_NULL();
+
+		do_numeric_discard(state, newval);
+	}
+
+	PG_RETURN_POINTER(state);
+}
+
+/*
  * Transition function for int8 input when we don't need sumX2.
  */
 Datum
@@ -2825,7 +2981,7 @@ numeric_avg(PG_FUNCTION_ARGS)
 	if (state == NULL)			/* there were no non-null inputs */
 		PG_RETURN_NULL();
 
-	if (state->isNaN)			/* there was at least one NaN input */
+	if (state->NaNcount > 0)			/* there was at least one NaN input */
 		PG_RETURN_NUMERIC(make_result(&const_nan));
 
 	N_datum = DirectFunctionCall1(int8_numeric, Int64GetDatum(state->N));
@@ -2843,7 +2999,7 @@ numeric_sum(PG_FUNCTION_ARGS)
 	if (state == NULL)			/* there were no non-null inputs */
 		PG_RETURN_NULL();
 
-	if (state->isNaN)			/* there was at least one NaN input */
+	if (state->NaNcount > 0)			/* there was at least one NaN input */
 		PG_RETURN_NUMERIC(make_result(&const_nan));
 
 	PG_RETURN_NUMERIC(make_result(&(state->sumX)));
@@ -2882,7 +3038,7 @@ numeric_stddev_internal(NumericAggState *state,
 
 	*is_null = false;
 
-	if (state->isNaN)
+	if (state->NaNcount > 0)
 		return make_result(&const_nan);
 
 	init_var(&vN);
@@ -3316,6 +3472,35 @@ int2_avg_accum(PG_FUNCTION_ARGS)
 }
 
 Datum
+int2_avg_accum_inv(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray;
+	int16		newval = PG_GETARG_INT16(1);
+	Int8TransTypeData *transdata;
+
+	/*
+	 * If we're invoked as an aggregate, we can cheat and modify our first
+	 * parameter in-place to reduce palloc overhead. Otherwise we need to make
+	 * a copy of it before scribbling on it.
+	 */
+	if (AggCheckCallContext(fcinfo, NULL))
+		transarray = PG_GETARG_ARRAYTYPE_P(0);
+	else
+		transarray = PG_GETARG_ARRAYTYPE_P_COPY(0);
+
+	if (ARR_HASNULL(transarray) ||
+		ARR_SIZE(transarray) != ARR_OVERHEAD_NONULLS(1) + sizeof(Int8TransTypeData))
+		elog(ERROR, "expected 2-element int8 array");
+
+	transdata = (Int8TransTypeData *) ARR_DATA_PTR(transarray);
+	transdata->count--;
+	transdata->sum -= newval;
+
+	PG_RETURN_ARRAYTYPE_P(transarray);
+}
+
+
+Datum
 int4_avg_accum(PG_FUNCTION_ARGS)
 {
 	ArrayType  *transarray;
@@ -3339,6 +3524,34 @@ int4_avg_accum(PG_FUNCTION_ARGS)
 	transdata = (Int8TransTypeData *) ARR_DATA_PTR(transarray);
 	transdata->count++;
 	transdata->sum += newval;
+
+	PG_RETURN_ARRAYTYPE_P(transarray);
+}
+
+Datum
+int4_avg_accum_inv(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray;
+	int32		newval = PG_GETARG_INT32(1);
+	Int8TransTypeData *transdata;
+
+	/*
+	 * If we're invoked as an aggregate, we can cheat and modify our first
+	 * parameter in-place to reduce palloc overhead. Otherwise we need to make
+	 * a copy of it before scribbling on it.
+	 */
+	if (AggCheckCallContext(fcinfo, NULL))
+		transarray = PG_GETARG_ARRAYTYPE_P(0);
+	else
+		transarray = PG_GETARG_ARRAYTYPE_P_COPY(0);
+
+	if (ARR_HASNULL(transarray) ||
+		ARR_SIZE(transarray) != ARR_OVERHEAD_NONULLS(1) + sizeof(Int8TransTypeData))
+		elog(ERROR, "expected 2-element int8 array");
+
+	transdata = (Int8TransTypeData *) ARR_DATA_PTR(transarray);
+	transdata->count--;
+	transdata->sum -= newval;
 
 	PG_RETURN_ARRAYTYPE_P(transarray);
 }
