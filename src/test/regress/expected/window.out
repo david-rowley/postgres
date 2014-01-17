@@ -1302,6 +1302,14 @@ SELECT timestamp_larger_inv('2000-01-01 00:00:00','1999-12-31 00:00:00'),
  Sat Jan 01 00:00:00 2000 |                      | 
 (1 row)
 
+SELECT timestamptz_larger_inv('2000-01-01 00:00:00+10','1999-12-31 00:00:00+10'),
+       timestamptz_larger_inv('2000-01-01 00:00:00+10','2000-01-01 00:00:00+10'),
+       timestamptz_larger_inv('2000-01-01 00:00:00+10','2000-01-02 00:00:00+10');
+    timestamptz_larger_inv    | timestamptz_larger_inv | timestamptz_larger_inv 
+------------------------------+------------------------+------------------------
+ Fri Dec 31 06:00:00 1999 PST |                        | 
+(1 row)
+
 SELECT interval_larger_inv('3 sec','2 sec'),
        interval_larger_inv('3 sec','3 sec'),
        interval_larger_inv('3 sec','4 sec');
@@ -1446,6 +1454,14 @@ SELECT timestamp_smaller_inv('2000-01-01 00:00:00','1999-12-31 00:00:00'),
  timestamp_smaller_inv | timestamp_smaller_inv |  timestamp_smaller_inv   
 -----------------------+-----------------------+--------------------------
                        |                       | Sat Jan 01 00:00:00 2000
+(1 row)
+
+SELECT timestamptz_smaller_inv('2000-01-01 00:00:00+10','1999-12-31 00:00:00+10'),
+       timestamptz_smaller_inv('2000-01-01 00:00:00+10','2000-01-01 00:00:00+10'),
+       timestamptz_smaller_inv('2000-01-01 00:00:00+10','2000-01-02 00:00:00+10');
+ timestamptz_smaller_inv | timestamptz_smaller_inv |   timestamptz_smaller_inv    
+-------------------------+-------------------------+------------------------------
+                         |                         | Fri Dec 31 06:00:00 1999 PST
 (1 row)
 
 SELECT interval_smaller_inv('3 sec','2 sec'),
