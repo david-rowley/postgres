@@ -1249,6 +1249,22 @@ int8and(PG_FUNCTION_ARGS)
 	PG_RETURN_INT64(arg1 & arg2);
 }
 
+/*
+ * int8and_inv inverse transition function for
+ * bit_or(). Note that this can only remove
+ * values with all bits set to on
+ */
+Datum
+int8and_inv(PG_FUNCTION_ARGS)
+{
+	int64		arg1 = PG_GETARG_INT64(0);
+	int64		arg2 = PG_GETARG_INT64(1);
+
+	if (arg2 == (int64) ~0)
+		PG_RETURN_INT64(arg1);
+	PG_RETURN_NULL();
+}
+
 Datum
 int8or(PG_FUNCTION_ARGS)
 {
@@ -1256,6 +1272,22 @@ int8or(PG_FUNCTION_ARGS)
 	int64		arg2 = PG_GETARG_INT64(1);
 
 	PG_RETURN_INT64(arg1 | arg2);
+}
+
+/*
+ * int8or_inv inverse transition function for
+ * bit_or(). Note that this can only remove
+ * values with all bits set to off
+ */
+Datum
+int8or_inv(PG_FUNCTION_ARGS)
+{
+	int64		arg1 = PG_GETARG_INT64(0);
+	int64		arg2 = PG_GETARG_INT64(1);
+
+	if (arg2 == 0)
+		PG_RETURN_INT64(arg1);
+	PG_RETURN_NULL();
 }
 
 Datum
