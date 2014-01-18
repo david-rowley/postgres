@@ -285,6 +285,31 @@ SELECT nth_value_def(n := 2, val := ten) OVER (PARTITION BY four), ten, four
 SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four
   FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) s;
 
+-- test that inverse tranition functions are used when allowed and that
+-- that are not used when the FILTER condition has a volatile function.
+BEGIN WORK;
+
+CREATE FUNCTION text_trans(text, text) RETURNS text AS
+$$SELECT COALESCE($1,'') || '+';$$
+LANGUAGE SQL;
+
+CREATE FUNCTION text_invtrans(text, text) RETURNS text AS
+$$SELECT COALESCE($1,'') || '-';$$
+STRICT LANGUAGE SQL;
+
+CREATE AGGREGATE text_trans (text)
+(
+    stype = text,
+    sfunc = text_trans,
+    invfunc = text_invtrans
+);
+
+SELECT text_trans(''::TEXT) OVER(ORDER BY n ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM generate_series(1,3) n;
+
+SELECT text_trans(''::TEXT) FILTER(WHERE random() >= 0) OVER(ORDER BY n ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) FROM generate_series(1,3) n;
+
+ROLLBACK;
+
 -- test inverse transition funtions handle NULLs properly
 SELECT i,AVG(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
   FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
