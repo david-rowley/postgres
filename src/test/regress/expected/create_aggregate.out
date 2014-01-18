@@ -97,7 +97,6 @@ CREATE AGGREGATE sumdouble (float8)
     sfunc = float8pl,
     invfunc = float8mi
 );
-ERROR:  a strict transfer function with a non-strict inverse is unsupported
 CREATE FUNCTION float8mi_n(float8, float8) RETURNS float8 AS
 $$ SELECT $1 - $2; $$
 LANGUAGE SQL;
@@ -107,6 +106,7 @@ CREATE AGGREGATE invalidsumdouble (float8)
     sfunc = float8pl,
     invfunc = float8mi_n
 );
+ERROR:  aggregate functions inverse transition function must strict if the forward transition function is
 CREATE FUNCTION intminus(int, int) RETURNS float8 AS
 $$ SELECT CAST($1 - $2 AS float8); $$
 LANGUAGE SQL;

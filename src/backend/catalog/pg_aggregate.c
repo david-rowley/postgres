@@ -239,8 +239,8 @@ AggregateCreate(const char *aggName,
 	}
 
 	/*
-	 * Remember if trans function is strict. We need to know this as later we
-	 * check that the inverse transition function has the same setting.
+	 * Remember if trans function is strict as we need to validate this
+	 * later if when we're dealing with the inverse transition function
 	 */
 	transIsStrict = proc->proisstrict;
 
@@ -276,14 +276,17 @@ AggregateCreate(const char *aggName,
 		proc = (Form_pg_proc) GETSTRUCT(tup);
 
 		/*
-		 * We currently don't allow pair of non-strict inverse but strict
-		 * forward transfer functions.
+		 * Allowing only the forward transition function to be strict would
+		 * require handling more special cases in advance_windowaggregate() and
+		 * retreat_windowaggregate(), for no discernible benefit. So we ensure
+		 * that if the forward transition function is strict that the inverse
+		 * transition function is also strict.
 		 */
-		if (!proc->proisstrict != transIsStrict)
+		if (transIsStrict && !proc->proisstrict)
 		{
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
-						errmsg("a strict transfer function with a non-strict inverse is unsupported"
+						errmsg("aggregate functions inverse transition function must strict if the forward transition function is"
 						)));
 		}
 		ReleaseSysCache(tup);

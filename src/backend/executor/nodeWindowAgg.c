@@ -2177,11 +2177,12 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 	}
 
 	/*
-	 * Allowing only the forward transition function to be strict would require
-	 * handling more special cases in advance_windowaggregate() and
-	 * retreat_windowaggregate(), for no discernible benefit. This should have
-	 * been checked at the aggregate function's definition time, but it's
-	 * better to be safe...
+	 * Allowing only the forward transition function to be strict would
+	 * require handling more special cases in advance_windowaggregate() and
+	 * retreat_windowaggregate(), for no discernible benefit. So we ensure
+	 * that if the forward transition function is strict that the inverse
+	 * transition function is also strict. This should have been checked at
+	 * the aggregate function's definition time, but it's better to be safe...
 	 */
 	if (OidIsValid(invtransfn_oid) &&
 		peraggstate->transfn.fn_strict && !peraggstate->invtransfn.fn_strict)
