@@ -2504,8 +2504,12 @@ numeric_float4(PG_FUNCTION_ARGS)
 typedef struct NumericAggState
 {
 	bool		calcSumX2;		/* if true, calculate sumX2 */
-	int			expectedScale;	/* stores the consistent dscale or -1 when
-								 * not initialized and -2 when inconsistent. */
+	bool		inverseTransValid;	/* are we still allowed to perform inverse
+									 * transitions on this aggregate? */
+	int			maxScale;		/* stores the maximum scale seen so far. */
+	int64		maxScaleCount;  /* tracks the number of values we've
+								 * seen with the maximum scale */
+
 	MemoryContext agg_context;	/* context we're calculating in */
 	int64		NaNcount;		/* Count of NaN values that are aggregated */
 	int64		N;				/* count of processed numbers */
@@ -2533,7 +2537,10 @@ makeNumericAggState(FunctionCallInfo fcinfo, bool calcSumX2)
 	state->calcSumX2 = calcSumX2;
 	state->agg_context = agg_context;
 	state->NaNcount = 0;
-	state->expectedScale = -1;
+
+	state->maxScale = 0;
+	state->maxScaleCount = 0;
+	state->inverseTransValid = true;
 
 	MemoryContextSwitchTo(old_context);
 
@@ -2560,15 +2567,19 @@ do_numeric_accum(NumericAggState *state, Numeric newval)
 	/* load processed number in short-lived context */
 	init_var_from_num(newval, &X);
 
-	/* track if we got a consistent dscale through all
-	 * Numeric's that were aggregated, if the dscale
-	 * was the same each time then we can allow
-	 * an inverse transition later
+	/*
+	 * Track the highest scale that we've seen as if we ever perform an inverse
+	 * transition and remove the last numeric with the highest scale that we've
+	 * seen then we can no longer perform inverse transitions without risking
+	 * having the wrong dscale in the result value.
 	 */
-	if (state->expectedScale == -1)
-		state->expectedScale = X.dscale;
-	else if (state->expectedScale != X.dscale)
-		state->expectedScale = -2;
+	if (state->maxScale == X.dscale)
+		state->maxScaleCount++;
+	else if (X.dscale > state->maxScale)
+	{
+		state->maxScale = X.dscale;
+		state->maxScaleCount = 1;
+	}
 
 	/* if we need X^2, calculate that in short-lived context */
 	if (state->calcSumX2)
@@ -2600,7 +2611,28 @@ do_numeric_accum(NumericAggState *state, Numeric newval)
 	MemoryContextSwitchTo(old_context);
 }
 
-static void
+/*
+ * do_numeric_discard
+ * Attempts to remove a value from the aggregated state.
+ * If the value cannot be removed then the function will return false.
+ *
+ * If we aggregate the values 1.01 and 2 then the result will be 3.01. If we
+ * are then asked to un-aggregate the 1.01 then we must reject this case as we
+ * won't be able to tell what the new aggregated value's dscale should be.
+ * We can't return 2.00 (dscale = 2) we really should return just 2, but since
+ * we're not tracking any previous highest scales then we must just fail to
+ * perform the inverse transition and just return false.
+ *
+ * Values that are no longer aggregated should not be able to effect the dscale
+ * of the result of the values that *are* still aggregated.
+ *
+ * Note it may be better to track the number of times we've aggregated a
+ * numeric with each scale, then if we ever remove final highest scaled value
+ * then we can step the result's dscale down to the next highest value. This is
+ * perhaps slightly more work than we can afford to do here, but doing it this
+ * way would mean that we could always perform the inverse transition.
+ */
+static bool
 do_numeric_discard(NumericAggState *state, Numeric newval)
 {
 	NumericVar	X;
@@ -2611,11 +2643,41 @@ do_numeric_discard(NumericAggState *state, Numeric newval)
 	if (NUMERIC_IS_NAN(newval))
 	{
 		state->NaNcount--;
-		return;
+		return true;
 	}
+
+	/*
+	 * if we've marked that we can't perform inverse transitions then we have
+	 * nothing to do here, so we exit as quickly.
+	 */
+	if (state->inverseTransValid == false)
+		return false;
 
 	/* load processed number in short-lived context */
 	init_var_from_num(newval, &X);
+
+	/*
+	 * If we're asked to remove a numeric value that has a scale the same
+	 * as the highest scale'd numeric we've seen we need to updated the
+	 * count on that as once we're on the last one we can no longer perform
+	 * inverse transitions without a danger that we introduce the possibility
+	 * that a value which leaves aggregation leaves us with an unnaturally high
+	 * dscale setting for the remaining numeric values.
+	 */
+	if (state->maxScale == X.dscale)
+	{
+		if (state->maxScaleCount == 1)
+		{
+			/*
+			 * Mark that we can no longer perform inverse transitions.
+			 * Note that this might get set to true again if we ever
+			 * end up with 0 values in aggregation
+			 */
+			state->inverseTransValid = false;
+			return false;
+		}
+		state->maxScaleCount--;
+	}
 
 	/* if we need X^2, calculate that in short-lived context */
 	if (state->calcSumX2)
@@ -2642,6 +2704,7 @@ do_numeric_discard(NumericAggState *state, Numeric newval)
 	}
 
 	MemoryContextSwitchTo(old_context);
+	return true;
 }
 
 
@@ -2680,14 +2743,9 @@ numeric_accum_inv(PG_FUNCTION_ARGS)
 		if (state == NULL)
 			state = makeNumericAggState(fcinfo, true);
 
-		/*
-		 * We can't perform the inverse transition if the dscale has not been
-		 * consistent between all aggregated values.
-		 */
-		if (state->expectedScale < 0)
+		/* can we perform an inverse transition? if not return NULL. */
+		if (!do_numeric_discard(state, PG_GETARG_NUMERIC(1)))
 			PG_RETURN_NULL();
-
-		do_numeric_discard(state, PG_GETARG_NUMERIC(1));
 	}
 
 	PG_RETURN_POINTER(state);
@@ -2729,14 +2787,9 @@ numeric_avg_accum_inv(PG_FUNCTION_ARGS)
 		if (state == NULL)
 			state = makeNumericAggState(fcinfo, false);
 
-		/*
-		 * We can't perform the inverse transition if the dscale has not been
-		 * consistent between all aggregated values.
-		 */
-		if (state->expectedScale < 0)
+		/* can we perform an inverse transition? if not return NULL. */
+		if (!do_numeric_discard(state, PG_GETARG_NUMERIC(1)))
 			PG_RETURN_NULL();
-
-		do_numeric_discard(state, PG_GETARG_NUMERIC(1));
 	}
 	PG_RETURN_POINTER(state);
 }
@@ -2845,13 +2898,11 @@ int2_accum_inv(PG_FUNCTION_ARGS)
 			state = makeNumericAggState(fcinfo, true);
 
 		/*
-		 * We can't perform the inverse transition if the dscale has not been
-		 * consistent between all aggregated values.
+		 * do_numeric_discard should never fail with numerics converted
+		 * from int types as the dscale should always be 0.
 		 */
-		if (state->expectedScale < 0)
-			PG_RETURN_NULL();
-
-		do_numeric_discard(state, newval);
+		if (!do_numeric_discard(state, newval))
+			elog(ERROR, "Unable to perform inverse transition on int type");
 	}
 
 	PG_RETURN_POINTER(state);
@@ -2876,13 +2927,11 @@ int4_accum_inv(PG_FUNCTION_ARGS)
 			state = makeNumericAggState(fcinfo, true);
 
 		/*
-		 * We can't perform the inverse transition if the dscale has not been
-		 * consistent between all aggregated values.
+		 * do_numeric_discard should never fail with numerics converted
+		 * from int types as the dscale should always be 0.
 		 */
-		if (state->expectedScale < 0)
-			PG_RETURN_NULL();
-
-		do_numeric_discard(state, newval);
+		if (!do_numeric_discard(state, newval))
+			elog(ERROR, "Unable to perform inverse transition on int type");
 	}
 
 	PG_RETURN_POINTER(state);
@@ -2907,13 +2956,11 @@ int8_accum_inv(PG_FUNCTION_ARGS)
 			state = makeNumericAggState(fcinfo, true);
 
 		/*
-		 * We can't perform the inverse transition if the dscale has not been
-		 * consistent between all aggregated values.
+		 * do_numeric_discard should never fail with numerics converted
+		 * from int types as the dscale should always be 0.
 		 */
-		if (state->expectedScale < 0)
-			PG_RETURN_NULL();
-
-		do_numeric_discard(state, newval);
+		if (!do_numeric_discard(state, newval))
+			elog(ERROR, "Unable to perform inverse transition on int type");
 	}
 
 	PG_RETURN_POINTER(state);
@@ -2953,6 +3000,7 @@ int8_avg_accum_inv(PG_FUNCTION_ARGS)
 
 	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
 
+
 	if (!PG_ARGISNULL(1))
 	{
 		Numeric		newval;
@@ -2964,7 +3012,12 @@ int8_avg_accum_inv(PG_FUNCTION_ARGS)
 		if (state == NULL)
 			state = makeNumericAggState(fcinfo, false);
 
-		do_numeric_discard(state, newval);
+		/*
+		 * do_numeric_discard should never fail with numerics converted
+		 * from int types as the dscale should always be 0.
+		 */
+		if (!do_numeric_discard(state, newval))
+			elog(ERROR, "Unable to perform inverse transition on int type");
 	}
 
 	PG_RETURN_POINTER(state);
