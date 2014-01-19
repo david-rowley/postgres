@@ -2739,9 +2739,8 @@ numeric_accum_inv(PG_FUNCTION_ARGS)
 
 	if (!PG_ARGISNULL(1))
 	{
-		/* Create the state data when we see the first non-null input. */
 		if (state == NULL)
-			state = makeNumericAggState(fcinfo, true);
+			elog(ERROR, "The transition function should be called before the inverse transition function");
 
 		/* can we perform an inverse transition? if not return NULL. */
 		if (!do_numeric_discard(state, PG_GETARG_NUMERIC(1)))
@@ -2781,7 +2780,6 @@ numeric_avg_accum_inv(PG_FUNCTION_ARGS)
 
 	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
 
-	/* the transition function should have initialized the state */
 	if (state == NULL)
 		elog(ERROR, "The transition function should be called before the inverse transition function");
 
@@ -2891,9 +2889,8 @@ int2_accum_inv(PG_FUNCTION_ARGS)
 		newval = DatumGetNumeric(DirectFunctionCall1(int2_numeric,
 			PG_GETARG_DATUM(1)));
 
-		/* Create the state data when we see the first non-null input. */
 		if (state == NULL)
-			state = makeNumericAggState(fcinfo, true);
+			elog(ERROR, "The transition function should be called before the inverse transition function");
 
 		/*
 		 * do_numeric_discard should never fail with numerics converted
@@ -2920,9 +2917,8 @@ int4_accum_inv(PG_FUNCTION_ARGS)
 		newval = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
 			PG_GETARG_DATUM(1)));
 
-		/* Create the state data when we see the first non-null input. */
 		if (state == NULL)
-			state = makeNumericAggState(fcinfo, true);
+			elog(ERROR, "The transition function should be called before the inverse transition function");
 
 		/*
 		 * do_numeric_discard should never fail with numerics converted
@@ -2949,9 +2945,8 @@ int8_accum_inv(PG_FUNCTION_ARGS)
 		newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
 			PG_GETARG_DATUM(1)));
 
-		/* Create the state data when we see the first non-null input. */
 		if (state == NULL)
-			state = makeNumericAggState(fcinfo, true);
+			elog(ERROR, "The transition function should be called before the inverse transition function");
 
 		/*
 		 * do_numeric_discard should never fail with numerics converted
@@ -3002,9 +2997,8 @@ int8_avg_accum_inv(PG_FUNCTION_ARGS)
 	newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
 		PG_GETARG_DATUM(1)));
 
-	/* XXX what to do here? Should we check we're being called from an aggregate context */
 	if (state == NULL)
-		state = makeNumericAggState(fcinfo, false);
+		elog(ERROR, "The transition function should be called before the inverse transition function");
 
 	/*
 	 * do_numeric_discard should never fail with numerics converted
