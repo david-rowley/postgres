@@ -232,9 +232,9 @@ DATA(insert ( 2828	n 0 float8_regr_accum		-		float8_covar_samp		0	1022	0	"{0,0,0
 DATA(insert ( 2829	n 0 float8_regr_accum		-		float8_corr				0	1022	0	"{0,0,0,0,0,0}" ));
 
 /* boolean-and and boolean-or */
-DATA(insert ( 2517	n 0 bool_accum		bool_accum_inv		bool_alltrue	0	2281		16	_null_ ));
-DATA(insert ( 2518	n 0 bool_accum		bool_accum_inv		bool_anytrue	0	2281		16	_null_ ));
-DATA(insert ( 2519	n 0 bool_accum		bool_accum_inv		bool_alltrue	0	2281		16	_null_ ));
+DATA(insert ( 2517	n 0 bool_accum		bool_accum_inv		bool_alltrue	58	2281		16	_null_ ));
+DATA(insert ( 2518	n 0 bool_accum		bool_accum_inv		bool_anytrue	59	2281		16	_null_ ));
+DATA(insert ( 2519	n 0 bool_accum		bool_accum_inv		bool_alltrue	58	2281		16	_null_ ));
 
 /* bitwise integer */
 DATA(insert ( 2236	n 0 int2and		-			-					0	21		0	_null_ ));
