@@ -285,6 +285,8 @@ boolge(PG_FUNCTION_ARGS)
 
 /* function for standard EVERY aggregate implementation conforming to SQL 2003.
  * must be strict. It is also named bool_and for homogeneity.
+ * Note: this is no longer used for the bool_and() and every() aggregate
+ * functions.
  */
 Datum
 booland_statefunc(PG_FUNCTION_ARGS)
@@ -294,9 +296,107 @@ booland_statefunc(PG_FUNCTION_ARGS)
 
 /* function for standard ANY/SOME aggregate conforming to SQL 2003.
  * must be strict. The name of the aggregate is bool_or. See the doc.
+ * Note: this is no longer used for the bool_or aggregate function.
  */
 Datum
 boolor_statefunc(PG_FUNCTION_ARGS)
 {
 	PG_RETURN_BOOL(PG_GETARG_BOOL(0) || PG_GETARG_BOOL(1));
+}
+
+typedef struct BoolAggState
+{
+	int64 aggcount; /* number of values aggregated */
+	int64 aggtrue; /* number of values aggregated which are true */
+} BoolAggState;
+
+static BoolAggState *
+makeBoolAggState(FunctionCallInfo fcinfo)
+{
+	BoolAggState *state;
+	MemoryContext agg_context;
+	MemoryContext old_context;
+
+	if (!AggCheckCallContext(fcinfo, &agg_context))
+		elog(ERROR, "aggregate function called in non-aggregate context");
+
+	old_context = MemoryContextSwitchTo(agg_context);
+
+	state = (BoolAggState *) palloc(sizeof(BoolAggState));
+	state->aggcount = 0;
+	state->aggtrue = 0;
+
+	MemoryContextSwitchTo(old_context);
+
+	return state;
+}
+
+Datum
+bool_accum(PG_FUNCTION_ARGS)
+{
+	BoolAggState *state;
+
+	state = PG_ARGISNULL(0) ? NULL : (BoolAggState *) PG_GETARG_POINTER(0);
+
+	/* Create the state data when we see the first non-null input. */
+	if (state == NULL)
+		state = makeBoolAggState(fcinfo);
+
+	if (!PG_ARGISNULL(1))
+	{
+		state->aggcount++;
+		if (PG_GETARG_BOOL(1))
+			state->aggtrue++;
+	}
+
+	PG_RETURN_POINTER(state);
+}
+
+/* bool_accum_inv
+ * removes a bool from aggregation
+ * Note that this function should be declared as strict
+ */
+Datum
+bool_accum_inv(PG_FUNCTION_ARGS)
+{
+	BoolAggState *state;
+	bool value = PG_GETARG_BOOL(1);
+
+	state = PG_ARGISNULL(0) ? NULL : (BoolAggState *) PG_GETARG_POINTER(0);
+
+	/* Create the state data when we see the first non-null input. */
+	if (state == NULL)
+		state = makeBoolAggState(fcinfo);
+	
+	state->aggcount--;
+	if (value)
+		state->aggtrue--;
+
+	PG_RETURN_POINTER(state);
+}
+
+Datum
+bool_alltrue(PG_FUNCTION_ARGS)
+{
+	BoolAggState *state;
+
+	state = PG_ARGISNULL(0) ? NULL : (BoolAggState *) PG_GETARG_POINTER(0);
+	if (state == NULL || state->aggcount == 0)			/* there were no non-null inputs */
+		PG_RETURN_NULL();
+
+	/* true if all values are true */
+	PG_RETURN_BOOL(state->aggcount == state->aggtrue);
+}
+
+Datum
+bool_anytrue(PG_FUNCTION_ARGS)
+{
+	BoolAggState *state;
+
+	state = PG_ARGISNULL(0) ? NULL : (BoolAggState *) PG_GETARG_POINTER(0);
+	if (state == NULL || state->aggcount == 0)			/* there were no non-null inputs */
+		PG_RETURN_NULL();
+
+	/* true if any value is true */
+	PG_RETURN_BOOL(state->aggtrue > 0);
 }
