@@ -2213,7 +2213,8 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 	/* We can use the inverse transition function only if the aggregate's
 	 * arguments don't contain calls to volatile functions. Otherwise,
 	 * the difference between restarting and not restarting the aggregation
-	 * would be user-visible.
+	 * would be user-visible. Note that this check also covers the case where
+	 * the FILTER's WHERE clause contains a volatile function.
 	 */
 	if (OidIsValid(invtransfn_oid) &&
 		!contain_volatile_functions((Node *) wfunc))
