@@ -3963,12 +3963,11 @@ DESCR("non-persistent series generator");
 DATA(insert OID = 939  (  generate_series PGNSP PGUID 12 1 1000 0 0 f f f f t t s 3 0 1184 "1184 1184 1186" _null_ _null_ _null_ _null_ generate_series_timestamptz _null_ _null_ _null_ ));
 DESCR("non-persistent series generator");
 
-DATA(insert OID = 2515 ( booland_statefunc			   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "16 16" _null_ _null_ _null_ _null_ booland_statefunc _null_ _null_ _null_ ));
-DESCR("true if both inputs are true");
-DATA(insert OID = 2516 ( boolor_statefunc			   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "16 16" _null_ _null_ _null_ _null_ boolor_statefunc _null_ _null_ _null_ ));
-DESCR("true if any inputs are true");
-
 /* boolean aggregates */
+DATA(insert OID = 2515 ( booland_statefunc			   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "16 16" _null_ _null_ _null_ _null_ booland_statefunc _null_ _null_ _null_ ));
+DESCR("aggregate transition function");
+DATA(insert OID = 2516 ( boolor_statefunc			   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 16 "16 16" _null_ _null_ _null_ _null_ boolor_statefunc _null_ _null_ _null_ ));
+DESCR("aggregate transition function");
 DATA(insert OID = 2517 ( bool_and					   PGNSP PGUID 12 1 0 0 0 t f f f f f i 1 0 16 "16" _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("boolean-and aggregate");
 /* ANY, SOME? These names conflict with subquery operators. See doc. */
@@ -3976,14 +3975,7 @@ DATA(insert OID = 2518 ( bool_or					   PGNSP PGUID 12 1 0 0 0 t f f f f f i 1 0
 DESCR("boolean-or aggregate");
 DATA(insert OID = 2519 ( every						   PGNSP PGUID 12 1 0 0 0 t f f f f f i 1 0 16 "16" _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("boolean-and aggregate");
-DATA(insert OID = 8033 ( bool_accum			   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2281 "2281 16" _null_ _null_ _null_ _null_ bool_accum _null_ _null_ _null_ ));
-DESCR("aggregate transition function");
-DATA(insert OID = 8034 ( bool_accum_inv		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2281 "2281 16" _null_ _null_ _null_ _null_ bool_accum_inv _null_ _null_ _null_ ));
-DESCR("aggregate inverse transition function");
-DATA(insert OID = 8035 ( bool_alltrue			   PGNSP PGUID 12 1 0 0 0 f f f f t f i 1 0 16 "2281" _null_ _null_ _null_ _null_ bool_alltrue _null_ _null_ _null_ ));
-DESCR("aggregate final function");
-DATA(insert OID = 8036 ( bool_anytrue			   PGNSP PGUID 12 1 0 0 0 f f f f t f i 1 0 16 "2281" _null_ _null_ _null_ _null_ bool_anytrue _null_ _null_ _null_ ));
-DESCR("aggregate final function");
+
 /* bitwise integer aggregates */
 DATA(insert OID = 2236 ( bit_and					   PGNSP PGUID 12 1 0 0 0 t f f f f f i 1 0 21 "21" _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));
 DESCR("bitwise-and smallint aggregate");
