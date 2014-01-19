@@ -421,10 +421,16 @@ if (AggCheckCallContext(fcinfo, NULL))
   </para>
   
   <para>
-   If the aggregate function's <literl>STRICT</> property is set then the
+   If the aggregate function's <literal>STRICT</> property is set then the
    inverse transition must also have the <literal>STRICT</> property set,
    though it is perfectly valid to have a strict inverse transition function
-   when the transition function is not strict.
+   when the transition function is not strict, however if the current aggregate
+   state is NULL when the inverse transition function is called then an error
+   will be raised. For most cases it is likely that the inverse transition
+   function should be marked as <literal>STRICT</>, it is only likely to be of
+   benefit to have a non-strict inverse transition function if you need to keep
+   track of the number of NULL values or values including NULL values that are
+   in your aggregate's context.
   </para>
   
   <
