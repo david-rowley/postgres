@@ -619,15 +619,20 @@ eval_windowaggregates(WindowAggState *winstate)
 	 * damage the running transition value, but we have the same assumption in
 	 * nodeAgg.c too (when it rescans an existing hash table).
 	 *
-	 * For other frame start rules, we, when one is set, use the aggregate
-	 * function's inverse transition function. This removes the tuple from
-	 * aggregation and restores the aggregate's current state to what it would
-	 * be if the removed row had never been aggregated in the first place.
-	 * When inverse transition functions are not available for *any* of the
-	 * aggregates in the window frame then we must discard the aggregate state
-	 * and re-run the aggregates whenever the frame head row moves.  We can
-	 * still optimize as above whenever successive rows share the same frame
-	 * head.
+	 * We can still optimize as above whenever successive rows share the same
+	 * frame head, but if the frame head moves beyond the aggregated base point
+	 * we use the aggregate function's inverse transition function. This
+	 * removes the tuple from aggregation and restores the aggregate's current
+	 * state to what it would be if the removed row had never been aggregated
+	 * in the first place. Inverse transition functions may optionally return
+	 * NULL, this indicates that the function was unable to remove the tuple
+	 * from aggregation, when this happens we must perform the aggregation all
+	 * over again for all tuples in the new frame boundary.
+	 *
+	 * If the aggregate function does not have a inverse transition function
+	 * and the frame head moves beyond the aggregated position then we must
+	 * discard the aggregated state and re-aggregate similar to how we would
+	 * have to if the inverse transition function had returned NULL.
 	 *
 	 * In many common cases, multiple rows share the same frame and hence the
 	 * same aggregate value. (In particular, if there's no ORDER BY in a RANGE
