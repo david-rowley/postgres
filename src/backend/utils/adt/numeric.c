@@ -2781,16 +2781,14 @@ numeric_avg_accum_inv(PG_FUNCTION_ARGS)
 
 	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
 
-	if (!PG_ARGISNULL(1))
-	{
-		/* Create the state data when we see the first non-null input. */
-		if (state == NULL)
-			state = makeNumericAggState(fcinfo, false);
+	/* XXX should we check if we're in aggregate context here? */
+	if (state == NULL)
+		state = makeNumericAggState(fcinfo, false);
 
 		/* can we perform an inverse transition? if not return NULL. */
-		if (!do_numeric_discard(state, PG_GETARG_NUMERIC(1)))
-			PG_RETURN_NULL();
-	}
+	if (!do_numeric_discard(state, PG_GETARG_NUMERIC(1)))
+		PG_RETURN_NULL();
+
 	PG_RETURN_POINTER(state);
 }
 
@@ -2997,28 +2995,23 @@ Datum
 int8_avg_accum_inv(PG_FUNCTION_ARGS)
 {
 	NumericAggState *state;
+	Numeric		newval;
 
 	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
 
+	newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
+		PG_GETARG_DATUM(1)));
 
-	if (!PG_ARGISNULL(1))
-	{
-		Numeric		newval;
+	/* XXX what to do here? Should we check we're being called from an aggregate context */
+	if (state == NULL)
+		state = makeNumericAggState(fcinfo, false);
 
-		newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
-			PG_GETARG_DATUM(1)));
-
-		/* Create the state data when we see the first non-null input. */
-		if (state == NULL)
-			state = makeNumericAggState(fcinfo, false);
-
-		/*
-		 * do_numeric_discard should never fail with numerics converted
-		 * from int types as the dscale should always be 0.
-		 */
-		if (!do_numeric_discard(state, newval))
-			elog(ERROR, "Unable to perform inverse transition on int type");
-	}
+	/*
+	 * do_numeric_discard should never fail with numerics converted
+	 * from int types as the dscale should always be 0.
+	 */
+	if (!do_numeric_discard(state, newval))
+		elog(ERROR, "Unable to perform inverse transition on int type");
 
 	PG_RETURN_POINTER(state);
 }
@@ -3287,26 +3280,15 @@ int2_sum(PG_FUNCTION_ARGS)
 	}
 }
 
+/* 
+ * int2_sum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
 Datum
 int2_sum_inv(PG_FUNCTION_ARGS)
 {
 	int64		newval;
-
-	if (PG_ARGISNULL(0))
-	{
-		/* No non-null input seen so far... */
-		if (PG_ARGISNULL(1))
-			PG_RETURN_NULL();	/* still no non-null */
-
-		/*
-		 * This is the first non-null input, so we'll return - input. When
-		 * called as an aggregate function this should not happen, but we
-		 * should probably get this right anyway when we're just being called
-		 * as a normal function.
-		 */
-		newval = (int64) - PG_GETARG_INT16(1);
-		PG_RETURN_INT64(newval);
-	}
 
 	/*
 	 * If we're invoked as an aggregate, we can cheat and modify our first
@@ -3320,9 +3302,7 @@ int2_sum_inv(PG_FUNCTION_ARGS)
 	{
 		int64	   *oldsum = (int64 *) PG_GETARG_POINTER(0);
 
-		/* Leave the running sum unchanged in the new input is null */
-		if (!PG_ARGISNULL(1))
-			*oldsum = *oldsum - (int64) PG_GETARG_INT16(1);
+		*oldsum = *oldsum - (int64) PG_GETARG_INT16(1);
 
 		PG_RETURN_POINTER(oldsum);
 	}
@@ -3330,10 +3310,6 @@ int2_sum_inv(PG_FUNCTION_ARGS)
 #endif
 	{
 		int64		oldsum = PG_GETARG_INT64(0);
-
-		/* Leave sum unchanged if new input is null. */
-		if (PG_ARGISNULL(1))
-			PG_RETURN_INT64(oldsum);
 
 		/* OK to do the subtraction. */
 		newval = oldsum - (int64) PG_GETARG_INT16(1);
@@ -3391,26 +3367,16 @@ int4_sum(PG_FUNCTION_ARGS)
 	}
 }
 
+/* 
+ * int4_sum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
 Datum
 int4_sum_inv(PG_FUNCTION_ARGS)
 {
 	int64		newval;
 
-	if (PG_ARGISNULL(0))
-	{
-		/* No non-null input seen so far... */
-		if (PG_ARGISNULL(1))
-			PG_RETURN_NULL();	/* still no non-null */
-
-		/*
-		 * This is the first non-null input, so we'll return - input. When
-		 * called as an aggregate function this should not happen, but we
-		 * should probably get this right anyway when we're just being called
-		 * as a normal function.
-		 */
-		newval = (int64) - PG_GETARG_INT32(1);
-		PG_RETURN_INT64(newval);
-	}
 	/*
 	 * If we're invoked as an aggregate, we can cheat and modify our first
 	 * parameter in-place to avoid palloc overhead. If not, we need to return
@@ -3423,9 +3389,7 @@ int4_sum_inv(PG_FUNCTION_ARGS)
 	{
 		int64	   *oldsum = (int64 *) PG_GETARG_POINTER(0);
 
-		/* Leave the running sum unchanged in the new input is null */
-		if (!PG_ARGISNULL(1))
-			*oldsum = *oldsum - (int64) PG_GETARG_INT32(1);
+		*oldsum = *oldsum - (int64) PG_GETARG_INT32(1);
 
 		PG_RETURN_POINTER(oldsum);
 	}
@@ -3433,10 +3397,6 @@ int4_sum_inv(PG_FUNCTION_ARGS)
 #endif
 	{
 		int64		oldsum = PG_GETARG_INT64(0);
-
-		/* Leave sum unchanged if new input is null. */
-		if (PG_ARGISNULL(1))
-			PG_RETURN_INT64(oldsum);
 
 		/* OK to do the subtraction. */
 		newval = oldsum - (int64) PG_GETARG_INT32(1);
