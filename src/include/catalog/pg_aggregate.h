@@ -237,12 +237,12 @@ DATA(insert ( 2518	n 0 boolor_statefunc		-		-			59	16		0	_null_ ));
 DATA(insert ( 2519	n 0 booland_statefunc		-		-			58	16		0	_null_ ));
 
 /* bitwise integer */
-DATA(insert ( 2236	n 0 int2and		int2and_inv	-					0	21		0	_null_ ));
-DATA(insert ( 2237	n 0 int2or		int2or_inv	-					0	21		0	_null_ ));
-DATA(insert ( 2238	n 0 int4and		int4and_inv	-					0	23		0	_null_ ));
-DATA(insert ( 2239	n 0 int4or		int4or_inv	-					0	23		0	_null_ ));
-DATA(insert ( 2240	n 0 int8and		int8and_inv	-					0	20		0	_null_ ));
-DATA(insert ( 2241	n 0 int8or		int8or_inv	-					0	20		0	_null_ ));
+DATA(insert ( 2236	n 0 int2and		-			-					0	21		0	_null_ ));
+DATA(insert ( 2237	n 0 int2or		-			-					0	21		0	_null_ ));
+DATA(insert ( 2238	n 0 int4and		-			-					0	23		0	_null_ ));
+DATA(insert ( 2239	n 0 int4or		-			-					0	23		0	_null_ ));
+DATA(insert ( 2240	n 0 int8and		-			-					0	20		0	_null_ ));
+DATA(insert ( 2241	n 0 int8or		-			-					0	20		0	_null_ ));
 DATA(insert ( 2242	n 0 bitand		-			-					0	1560	0	_null_ ));
 DATA(insert ( 2243	n 0 bitor		-			-					0	1560	0	_null_ ));
 

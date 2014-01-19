@@ -2625,20 +2625,6 @@ DATA(insert OID = 1913 (  float4up		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 1 0 
 DATA(insert OID = 1914 (  float8up		   PGNSP PGUID 12 1 0 0 0 f f f f t f i 1 0 701 "701" _null_ _null_ _null_ _null_ float8up _null_ _null_ _null_ ));
 DATA(insert OID = 1915 (  numeric_uplus    PGNSP PGUID 12 1 0 0 0 f f f f t f i 1 0 1700 "1700" _null_ _null_ _null_ _null_ numeric_uplus _null_ _null_ _null_ ));
 
-DATA(insert OID = 8020 (  int2and_inv	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 21 "21 21" _null_ _null_ _null_ _null_ int2and_inv _null_ _null_ _null_ ));
-DESCR("aggregate inverse transition function");
-DATA(insert OID = 8021 (  int2or_inv	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 21 "21 21" _null_ _null_ _null_ _null_ int2or_inv _null_ _null_ _null_ ));
-DESCR("aggregate inverse transition function");
-DATA(insert OID = 8022 (  int4and_inv	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 23 "23 23" _null_ _null_ _null_ _null_ int4and_inv _null_ _null_ _null_ ));
-DESCR("aggregate inverse transition function");
-DATA(insert OID = 8023 (  int4or_inv	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 23 "23 23" _null_ _null_ _null_ _null_ int4or_inv _null_ _null_ _null_ ));
-DESCR("aggregate inverse transition function");
-DATA(insert OID = 8024 (  int8and_inv	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 20 "20 20" _null_ _null_ _null_ _null_ int8and_inv _null_ _null_ _null_ ));
-DESCR("aggregate inverse transition function");
-DATA(insert OID = 8025 (  int8or_inv	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 20 "20 20" _null_ _null_ _null_ _null_ int8or_inv _null_ _null_ _null_ ));
-DESCR("aggregate inverse transition function");
-
-
 DATA(insert OID = 1922 (  has_table_privilege		   PGNSP PGUID 12 1 0 0 0 f f f f t f s 3 0 16 "19 25 25" _null_ _null_ _null_ _null_	has_table_privilege_name_name _null_ _null_ _null_ ));
 DESCR("user privilege on relation by username, rel name");
 DATA(insert OID = 1923 (  has_table_privilege		   PGNSP PGUID 12 1 0 0 0 f f f f t f s 3 0 16 "19 26 25" _null_ _null_ _null_ _null_	has_table_privilege_name_id _null_ _null_ _null_ ));

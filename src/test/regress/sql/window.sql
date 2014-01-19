@@ -601,18 +601,3 @@ SELECT enum_smaller_inv('C'::enum_abc,'B'::enum_abc),
        enum_smaller_inv('C'::enum_abc,'D'::enum_abc);
 
 DROP TYPE enum_abc;
-
--- tests for inverse transition functions for bitwire aggregates
-SELECT int2and_inv(1::smallint,~0::smallint),
-       int2and_inv(1::smallint,0::smallint);
-
-SELECT int4and_inv(1,~0),int4and_inv(1,0);
-
-SELECT int8and_inv(1,~0),int8and_inv(1,0);
-
-SELECT int2or_inv(1::smallint,~0::smallint),
-       int2or_inv(1::smallint,0::smallint);
-
-SELECT int4or_inv(1,~0),int4or_inv(1,0);
-
-SELECT int8or_inv(1,~0),int8or_inv(1,0);

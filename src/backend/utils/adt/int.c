@@ -1275,22 +1275,6 @@ int4and(PG_FUNCTION_ARGS)
 	PG_RETURN_INT32(arg1 & arg2);
 }
 
-/*
- * int4and_inv inverse transition function for
- * bit_and(). Note that this can only remove
- * values with all bits set to on
- */
-Datum
-int4and_inv(PG_FUNCTION_ARGS)
-{
-	int32		arg1 = PG_GETARG_INT32(0);
-	int32		arg2 = PG_GETARG_INT32(1);
-
-	if (arg2 == (int32) ~0)
-		PG_RETURN_INT32(arg1);
-	PG_RETURN_NULL();
-}
-
 Datum
 int4or(PG_FUNCTION_ARGS)
 {
@@ -1298,22 +1282,6 @@ int4or(PG_FUNCTION_ARGS)
 	int32		arg2 = PG_GETARG_INT32(1);
 
 	PG_RETURN_INT32(arg1 | arg2);
-}
-
-/*
- * int4or_inv inverse transition function for
- * bit_or(). Note that this can only remove
- * values with all bits set to off
- */
-Datum
-int4or_inv(PG_FUNCTION_ARGS)
-{
-	int32		arg1 = PG_GETARG_INT32(0);
-	int32		arg2 = PG_GETARG_INT32(1);
-
-	if (arg2 == 0)
-		PG_RETURN_INT32(arg1);
-	PG_RETURN_NULL();
 }
 
 Datum
@@ -1360,22 +1328,6 @@ int2and(PG_FUNCTION_ARGS)
 	PG_RETURN_INT16(arg1 & arg2);
 }
 
-/*
- * int2and_inv inverse transition function for
- * bit_and(). Note that this can only remove
- * values with all bits set to on
- */
-Datum
-int2and_inv(PG_FUNCTION_ARGS)
-{
-	int16		arg1 = PG_GETARG_INT16(0);
-	int16		arg2 = PG_GETARG_INT16(1);
-
-	if (arg2 == (int16) ~0)
-		PG_RETURN_INT16(arg1);
-	PG_RETURN_NULL();
-}
-
 Datum
 int2or(PG_FUNCTION_ARGS)
 {
@@ -1383,22 +1335,6 @@ int2or(PG_FUNCTION_ARGS)
 	int16		arg2 = PG_GETARG_INT16(1);
 
 	PG_RETURN_INT16(arg1 | arg2);
-}
-
-/*
- * int2or_inv inverse transition function for
- * bit_or(). Note that this can only remove
- * values with all bits set to off
- */
-Datum
-int2or_inv(PG_FUNCTION_ARGS)
-{
-	int16		arg1 = PG_GETARG_INT16(0);
-	int16		arg2 = PG_GETARG_INT16(1);
-
-	if (arg2 == 0)
-		PG_RETURN_INT16(arg1);
-	PG_RETURN_NULL();
 }
 
 Datum
