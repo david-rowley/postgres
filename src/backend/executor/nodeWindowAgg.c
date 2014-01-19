@@ -423,7 +423,7 @@ retreat_windowaggregate(WindowAggState *winstate,
 
 	if (peraggstate->ignore_nulls)
 	{
-		/* If we're ignoring NULLs, there's the state is unchanged */
+		/* If we're ignoring NULLs, then the state is unchanged */
 		for (i = 1; i <= numArguments; i++)
 		{
 			if (fcinfo->argnull[i])
