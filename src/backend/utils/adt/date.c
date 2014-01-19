@@ -401,6 +401,9 @@ date_larger_inv(PG_FUNCTION_ARGS)
 	DateADT		dateVal1 = PG_GETARG_DATEADT(0);
 	DateADT		dateVal2 = PG_GETARG_DATEADT(1);
 
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
 	if (dateVal1 > dateVal2)
 		PG_RETURN_DATEADT(dateVal1);
 	PG_RETURN_NULL(); /* Unable to perform inverse transition */
@@ -420,6 +423,9 @@ date_smaller_inv(PG_FUNCTION_ARGS)
 {
 	DateADT		dateVal1 = PG_GETARG_DATEADT(0);
 	DateADT		dateVal2 = PG_GETARG_DATEADT(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	if (dateVal1 < dateVal2)
 		PG_RETURN_DATEADT(dateVal1);
@@ -1490,6 +1496,9 @@ time_larger_inv(PG_FUNCTION_ARGS)
 	TimeADT		time1 = PG_GETARG_TIMEADT(0);
 	TimeADT		time2 = PG_GETARG_TIMEADT(1);
 
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
 	if (time1 > time2)
 		PG_RETURN_TIMEADT(time1);
 	PG_RETURN_NULL(); /* Unable to perform inverse transition */
@@ -1509,6 +1518,9 @@ time_smaller_inv(PG_FUNCTION_ARGS)
 {
 	TimeADT		time1 = PG_GETARG_TIMEADT(0);
 	TimeADT		time2 = PG_GETARG_TIMEADT(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	if (time1 < time2)
 		PG_RETURN_TIMEADT(time1);
@@ -2311,6 +2323,9 @@ timetz_larger_inv(PG_FUNCTION_ARGS)
 	TimeTzADT  *time1 = PG_GETARG_TIMETZADT_P(0);
 	TimeTzADT  *time2 = PG_GETARG_TIMETZADT_P(1);
 
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
 	if (timetz_cmp_internal(time1, time2) > 0)
 		PG_RETURN_TIMETZADT_P(time1);
 	PG_RETURN_NULL(); /* Unable to perform inverse transition */
@@ -2335,6 +2350,9 @@ timetz_smaller_inv(PG_FUNCTION_ARGS)
 {
 	TimeTzADT  *time1 = PG_GETARG_TIMETZADT_P(0);
 	TimeTzADT  *time2 = PG_GETARG_TIMETZADT_P(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	if (timetz_cmp_internal(time1, time2) < 0)
 		PG_RETURN_TIMETZADT_P(time1);

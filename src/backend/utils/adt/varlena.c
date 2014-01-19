@@ -1702,6 +1702,9 @@ text_larger_inv(PG_FUNCTION_ARGS)
 	text	   *arg1 = PG_GETARG_TEXT_PP(0);
 	text	   *arg2 = PG_GETARG_TEXT_PP(1);
 
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
 	if (text_cmp(arg1, arg2, PG_GET_COLLATION()) > 0)
 		PG_RETURN_TEXT_P(arg1);
 	PG_RETURN_NULL();
@@ -1724,6 +1727,9 @@ text_smaller_inv(PG_FUNCTION_ARGS)
 {
 	text	   *arg1 = PG_GETARG_TEXT_PP(0);
 	text	   *arg2 = PG_GETARG_TEXT_PP(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	if (text_cmp(arg1, arg2, PG_GET_COLLATION()) < 0)
 		PG_RETURN_TEXT_P(arg1);

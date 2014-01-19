@@ -1190,6 +1190,9 @@ int2larger_inv(PG_FUNCTION_ARGS)
 	int16		arg1 = PG_GETARG_INT16(0);
 	int16		arg2 = PG_GETARG_INT16(1);
 
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
 	if (arg1 > arg2)
 		PG_RETURN_INT16(arg1);
 	PG_RETURN_NULL(); /* Unable to perform inverse transition */
@@ -1209,6 +1212,9 @@ int2smaller_inv(PG_FUNCTION_ARGS)
 {
 	int16		arg1 = PG_GETARG_INT16(0);
 	int16		arg2 = PG_GETARG_INT16(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	if (arg1 < arg2)
 		PG_RETURN_INT16(arg1);
@@ -1230,6 +1236,9 @@ int4larger_inv(PG_FUNCTION_ARGS)
 	int32		arg1 = PG_GETARG_INT32(0);
 	int32		arg2 = PG_GETARG_INT32(1);
 
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
 	if (arg1 > arg2)
 		PG_RETURN_INT32(arg1);
 	PG_RETURN_NULL(); /* Unable to perform inverse transition */
@@ -1249,6 +1258,9 @@ int4smaller_inv(PG_FUNCTION_ARGS)
 {
 	int32		arg1 = PG_GETARG_INT32(0);
 	int32		arg2 = PG_GETARG_INT32(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	if (arg1 < arg2)
 		PG_RETURN_INT32(arg1);

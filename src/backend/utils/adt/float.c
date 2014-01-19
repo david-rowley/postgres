@@ -631,6 +631,9 @@ float4larger_inv(PG_FUNCTION_ARGS)
 	float4		arg1 = PG_GETARG_FLOAT4(0);
 	float4		arg2 = PG_GETARG_FLOAT4(1);
 
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
 	if (isnan(arg1) || isnan(arg2))
 		PG_RETURN_NULL();
 	else if (float4_cmp_internal(arg1, arg2) > 0)
@@ -657,6 +660,9 @@ float4smaller_inv(PG_FUNCTION_ARGS)
 {
 	float4		arg1 = PG_GETARG_FLOAT4(0);
 	float4		arg2 = PG_GETARG_FLOAT4(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	if (isnan(arg1) || isnan(arg2))
 		PG_RETURN_NULL();
@@ -724,6 +730,9 @@ float8larger_inv(PG_FUNCTION_ARGS)
 	float8		arg1 = PG_GETARG_FLOAT8(0);
 	float8		arg2 = PG_GETARG_FLOAT8(1);
 
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
 	if (isnan(arg1) || isnan(arg2))
 		PG_RETURN_NULL();
 	else if (float8_cmp_internal(arg1, arg2) > 0)
@@ -750,6 +759,9 @@ float8smaller_inv(PG_FUNCTION_ARGS)
 {
 	float8		arg1 = PG_GETARG_FLOAT8(0);
 	float8		arg2 = PG_GETARG_FLOAT8(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	if (isnan(arg1) || isnan(arg2))
 		PG_RETURN_NULL();

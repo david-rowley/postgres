@@ -883,6 +883,9 @@ cashlarger_inv(PG_FUNCTION_ARGS)
 	Cash		c1 = PG_GETARG_CASH(0);
 	Cash		c2 = PG_GETARG_CASH(1);
 
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
 	if (c1 > c2)
 		PG_RETURN_CASH(c1);
 	PG_RETURN_NULL(); /* Unable to perform inverse transition */
@@ -908,6 +911,9 @@ cashsmaller_inv(PG_FUNCTION_ARGS)
 {
 	Cash		c1 = PG_GETARG_CASH(0);
 	Cash		c2 = PG_GETARG_CASH(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	if (c1 < c2)
 		PG_RETURN_CASH(c1);

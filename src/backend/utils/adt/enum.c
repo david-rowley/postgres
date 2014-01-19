@@ -278,6 +278,9 @@ enum_smaller_inv(PG_FUNCTION_ARGS)
 	Oid			a = PG_GETARG_OID(0);
 	Oid			b = PG_GETARG_OID(1);
 
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
 	if (enum_cmp_internal(a, b, fcinfo) < 0)
 		PG_RETURN_OID(a);
 	PG_RETURN_NULL();
@@ -297,6 +300,9 @@ enum_larger_inv(PG_FUNCTION_ARGS)
 {
 	Oid			a = PG_GETARG_OID(0);
 	Oid			b = PG_GETARG_OID(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	if (enum_cmp_internal(a, b, fcinfo) > 0)
 		PG_RETURN_OID(a);

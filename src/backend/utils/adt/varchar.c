@@ -882,8 +882,11 @@ bpchar_larger_inv(PG_FUNCTION_ARGS)
 	BpChar	   *arg1 = PG_GETARG_BPCHAR_PP(0);
 	BpChar	   *arg2 = PG_GETARG_BPCHAR_PP(1);
 	int			len1,
-		len2;
+				len2;
 	int			cmp;
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	len1 = bcTruelen(arg1);
 	len2 = bcTruelen(arg2);
@@ -920,8 +923,11 @@ bpchar_smaller_inv(PG_FUNCTION_ARGS)
 	BpChar	   *arg1 = PG_GETARG_BPCHAR_PP(0);
 	BpChar	   *arg2 = PG_GETARG_BPCHAR_PP(1);
 	int			len1,
-		len2;
+				len2;
 	int			cmp;
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
 
 	len1 = bcTruelen(arg1);
 	len2 = bcTruelen(arg2);
