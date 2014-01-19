@@ -111,7 +111,9 @@ extern Datum timestamp_cmp(PG_FUNCTION_ARGS);
 extern Datum timestamp_sortsupport(PG_FUNCTION_ARGS);
 extern Datum timestamp_hash(PG_FUNCTION_ARGS);
 extern Datum timestamp_smaller(PG_FUNCTION_ARGS);
+extern Datum timestamp_smaller_inv(PG_FUNCTION_ARGS);
 extern Datum timestamp_larger(PG_FUNCTION_ARGS);
+extern Datum timestamp_larger_inv(PG_FUNCTION_ARGS);
 
 extern Datum timestamp_eq_timestamptz(PG_FUNCTION_ARGS);
 extern Datum timestamp_ne_timestamptz(PG_FUNCTION_ARGS);
