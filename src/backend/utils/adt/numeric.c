@@ -2730,6 +2730,11 @@ numeric_accum(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(state);
 }
 
+/*
+ * numeric_accum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
 Datum
 numeric_accum_inv(PG_FUNCTION_ARGS)
 {
@@ -2737,15 +2742,12 @@ numeric_accum_inv(PG_FUNCTION_ARGS)
 
 	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
 
-	if (!PG_ARGISNULL(1))
-	{
-		if (state == NULL)
-			elog(ERROR, "The transition function should be called before the inverse transition function");
+	if (state == NULL)
+		elog(ERROR, "The transition function should be called before the inverse transition function");
 
-		/* can we perform an inverse transition? if not return NULL. */
-		if (!do_numeric_discard(state, PG_GETARG_NUMERIC(1)))
-			PG_RETURN_NULL();
-	}
+	/* can we perform an inverse transition? if not return NULL. */
+	if (!do_numeric_discard(state, PG_GETARG_NUMERIC(1)))
+		PG_RETURN_NULL();
 
 	PG_RETURN_POINTER(state);
 }
@@ -2871,90 +2873,90 @@ int8_accum(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(state);
 }
 
+
 /*
- * inverse transition functions for int2, int4 and int8
- * which perform the reverse of the above 3 functions
+ * int2_accum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
  */
 Datum
 int2_accum_inv(PG_FUNCTION_ARGS)
 {
 	NumericAggState *state;
+	Numeric		newval;
 
 	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
 
-	if (!PG_ARGISNULL(1))
-	{
-		Numeric		newval;
+	newval = DatumGetNumeric(DirectFunctionCall1(int2_numeric,
+							 PG_GETARG_DATUM(1)));
 
-		newval = DatumGetNumeric(DirectFunctionCall1(int2_numeric,
-			PG_GETARG_DATUM(1)));
+	if (state == NULL)
+		elog(ERROR, "The transition function should be called before the inverse transition function");
 
-		if (state == NULL)
-			elog(ERROR, "The transition function should be called before the inverse transition function");
-
-		/*
-		 * do_numeric_discard should never fail with numerics converted
-		 * from int types as the dscale should always be 0.
-		 */
-		if (!do_numeric_discard(state, newval))
-			elog(ERROR, "Unable to perform inverse transition on int type");
-	}
+	/*
+	 * do_numeric_discard should never fail with numerics converted
+	 * from int types as the dscale should always be 0.
+	 */
+	if (!do_numeric_discard(state, newval))
+		elog(ERROR, "Unable to perform inverse transition on int type");
 
 	PG_RETURN_POINTER(state);
 }
 
+/*
+ * int4_accum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
 Datum
 int4_accum_inv(PG_FUNCTION_ARGS)
 {
 	NumericAggState *state;
+	Numeric		newval;
 
 	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
 
-	if (!PG_ARGISNULL(1))
-	{
-		Numeric		newval;
+	newval = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
+							 PG_GETARG_DATUM(1)));
 
-		newval = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
-			PG_GETARG_DATUM(1)));
+	if (state == NULL)
+		elog(ERROR, "The transition function should be called before the inverse transition function");
 
-		if (state == NULL)
-			elog(ERROR, "The transition function should be called before the inverse transition function");
-
-		/*
-		 * do_numeric_discard should never fail with numerics converted
-		 * from int types as the dscale should always be 0.
-		 */
-		if (!do_numeric_discard(state, newval))
-			elog(ERROR, "Unable to perform inverse transition on int type");
-	}
+	/*
+	 * do_numeric_discard should never fail with numerics converted
+	 * from int types as the dscale should always be 0.
+	 */
+	if (!do_numeric_discard(state, newval))
+		elog(ERROR, "Unable to perform inverse transition on int type");
 
 	PG_RETURN_POINTER(state);
 }
 
+/*
+ * int8_accum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
 Datum
 int8_accum_inv(PG_FUNCTION_ARGS)
 {
 	NumericAggState *state;
+	Numeric		newval;
 
 	state = PG_ARGISNULL(0) ? NULL : (NumericAggState *) PG_GETARG_POINTER(0);
 
-	if (!PG_ARGISNULL(1))
-	{
-		Numeric		newval;
+	newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
+							 PG_GETARG_DATUM(1)));
 
-		newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
-			PG_GETARG_DATUM(1)));
+	if (state == NULL)
+		elog(ERROR, "The transition function should be called before the inverse transition function");
 
-		if (state == NULL)
-			elog(ERROR, "The transition function should be called before the inverse transition function");
-
-		/*
-		 * do_numeric_discard should never fail with numerics converted
-		 * from int types as the dscale should always be 0.
-		 */
-		if (!do_numeric_discard(state, newval))
-			elog(ERROR, "Unable to perform inverse transition on int type");
-	}
+	/*
+	 * do_numeric_discard should never fail with numerics converted
+	 * from int types as the dscale should always be 0.
+	 */
+	if (!do_numeric_discard(state, newval))
+		elog(ERROR, "Unable to perform inverse transition on int type");
 
 	PG_RETURN_POINTER(state);
 }

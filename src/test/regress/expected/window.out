@@ -1376,136 +1376,148 @@ SELECT VARIANCE(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUN
 (5 rows)
 
 SELECT STDDEV_POP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);
      stddev_pop      
 ---------------------
+    147.322774885623
     147.322774885623
     117.765657133139
     106.144555520604
  65.0000000000000000
                    0
-(5 rows)
+(6 rows)
 
 SELECT STDDEV_POP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);
      stddev_pop      
 ---------------------
+    147.322774885623
     147.322774885623
     117.765657133139
     106.144555520604
  65.0000000000000000
                    0
-(5 rows)
+(6 rows)
 
 SELECT STDDEV_POP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);
      stddev_pop      
 ---------------------
+    147.322774885623
     147.322774885623
     117.765657133139
     106.144555520604
  65.0000000000000000
                    0
-(5 rows)
+(6 rows)
 
 SELECT STDDEV_POP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);
      stddev_pop      
 ---------------------
+    147.322774885623
     147.322774885623
     117.765657133139
     106.144555520604
  65.0000000000000000
                    0
-(5 rows)
+(6 rows)
 
 SELECT STDDEV_SAMP(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);
      stddev_samp     
 ---------------------
+    164.711869639076
     164.711869639076
     135.984067694222
     130.000000000000
  91.9238815542511782
                     
-(5 rows)
+(6 rows)
 
 SELECT STDDEV_SAMP(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);
      stddev_samp     
 ---------------------
+    164.711869639076
     164.711869639076
     135.984067694222
     130.000000000000
  91.9238815542511782
                     
-(5 rows)
+(6 rows)
 
 SELECT STDDEV_SAMP(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);
      stddev_samp     
 ---------------------
+    164.711869639076
     164.711869639076
     135.984067694222
     130.000000000000
  91.9238815542511782
                     
-(5 rows)
+(6 rows)
 
 SELECT STDDEV_SAMP(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(1,NULL),(2,600),(3,470),(4,170),(5,430),(6,300)) r(i,n);
      stddev_samp     
 ---------------------
     164.711869639076
+    164.711869639076
     135.984067694222
     130.000000000000
  91.9238815542511782
                     
-(5 rows)
+(6 rows)
 
 SELECT STDDEV(n::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
        stddev        
 ---------------------
+    164.711869639076
     164.711869639076
     135.984067694222
     130.000000000000
  91.9238815542511782
                     
-(5 rows)
+(6 rows)
 
 SELECT STDDEV(n::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
        stddev        
 ---------------------
+    164.711869639076
     164.711869639076
     135.984067694222
     130.000000000000
  91.9238815542511782
                     
-(5 rows)
+(6 rows)
 
 SELECT STDDEV(n::smallint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
        stddev        
 ---------------------
+    164.711869639076
     164.711869639076
     135.984067694222
     130.000000000000
  91.9238815542511782
                     
-(5 rows)
+(6 rows)
 
 SELECT STDDEV(n::numeric) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
-  FROM (VALUES(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
+  FROM (VALUES(0,NULL),(1,600),(2,470),(3,170),(4,430),(5,300)) r(i,n);
        stddev        
 ---------------------
+    164.711869639076
     164.711869639076
     135.984067694222
     130.000000000000
  91.9238815542511782
                     
-(5 rows)
+(6 rows)
 
 -- test that inverse transition functions work with various frame options
 SELECT i,SUM(v::int) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND CURRENT ROW)

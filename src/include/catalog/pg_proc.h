@@ -2473,7 +2473,7 @@ DATA(insert OID = 1832 (  float8_stddev_samp	PGNSP PGUID 12 1 0 0 0 f f f f t f 
 DESCR("aggregate final function");
 DATA(insert OID = 1833 (  numeric_accum    PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2281 "2281 1700" _null_ _null_ _null_ _null_ numeric_accum _null_ _null_ _null_ ));
 DESCR("aggregate transition function");
-DATA(insert OID = 8030 (  numeric_accum_inv    PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2281 "2281 1700" _null_ _null_ _null_ _null_ numeric_accum_inv _null_ _null_ _null_ ));
+DATA(insert OID = 8030 (  numeric_accum_inv    PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2281 "2281 1700" _null_ _null_ _null_ _null_ numeric_accum_inv _null_ _null_ _null_ ));
 DESCR("inverse aggregate transition function");
 DATA(insert OID = 2858 (  numeric_avg_accum    PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2281 "2281 1700" _null_ _null_ _null_ _null_ numeric_avg_accum _null_ _null_ _null_ ));
 DESCR("aggregate transition function");
@@ -2487,11 +2487,11 @@ DATA(insert OID = 1836 (  int8_accum	   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0
 DESCR("aggregate transition function");
 DATA(insert OID = 2746 (  int8_avg_accum   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2281 "2281 20" _null_ _null_ _null_ _null_ int8_avg_accum _null_ _null_ _null_ ));
 DESCR("aggregate transition function");
-DATA(insert OID = 8027 (  int2_accum_inv   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2281 "2281 21" _null_ _null_ _null_ _null_ int2_accum_inv _null_ _null_ _null_ ));
+DATA(insert OID = 8027 (  int2_accum_inv   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2281 "2281 21" _null_ _null_ _null_ _null_ int2_accum_inv _null_ _null_ _null_ ));
 DESCR("inverse aggregate transition function");
-DATA(insert OID = 8028 (  int4_accum_inv   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2281 "2281 23" _null_ _null_ _null_ _null_ int4_accum_inv _null_ _null_ _null_ ));
+DATA(insert OID = 8028 (  int4_accum_inv   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2281 "2281 23" _null_ _null_ _null_ _null_ int4_accum_inv _null_ _null_ _null_ ));
 DESCR("inverse aggregate transition function");
-DATA(insert OID = 8029 (  int8_accum_inv   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2281 "2281 20" _null_ _null_ _null_ _null_ int8_accum_inv _null_ _null_ _null_ ));
+DATA(insert OID = 8029 (  int8_accum_inv   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2281 "2281 20" _null_ _null_ _null_ _null_ int8_accum_inv _null_ _null_ _null_ ));
 DESCR("inverse aggregate transition function");
 DATA(insert OID = 3477 (  int8_avg_accum_inv	   PGNSP PGUID 12 1 0 0 0 f f f f t f i 2 0 2281 "2281 20" _null_ _null_ _null_ _null_ int8_avg_accum_inv _null_ _null_ _null_ ));
 DESCR("inverse aggregate transition function");
