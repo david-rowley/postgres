@@ -815,9 +815,6 @@ eval_windowaggregates(WindowAggState *winstate)
 	 * Note the loop invariant: agg_row_slot is either empty or holds the row
 	 * at position aggregatedupto.	We advance aggregatedupto after processing
 	 * a row.
-	 *
-	 * Also note that this assumes that the frame's end never moves backwards.
-	 * Unfortunately, we can't easily verify that here.
 	 */
 	for (;;)
 	{
@@ -858,6 +855,9 @@ eval_windowaggregates(WindowAggState *winstate)
 		winstate->aggregatedupto++;
 		ExecClearTuple(agg_row_slot);
 	}
+	
+	/* The frame's end is not supposed to move backwards, ever */
+	Assert(aggregatedupto_nonrestarted <= winstate->aggregatedupto);
 
 	/*
 	 * finalize aggregates and fill result/isnull fields.
