@@ -367,7 +367,7 @@ bool_accum_inv(PG_FUNCTION_ARGS)
 	/* Create the state data when we see the first non-null input. */
 	if (state == NULL)
 		state = makeBoolAggState(fcinfo);
-	
+
 	state->aggcount--;
 	if (value)
 		state->aggtrue--;

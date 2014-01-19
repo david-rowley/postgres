@@ -3276,7 +3276,7 @@ int2_sum(PG_FUNCTION_ARGS)
 	}
 }
 
-/* 
+/*
  * int2_sum_inv
  * aggregate inverse transition function.
  * This function must be declared as strict.
@@ -3363,7 +3363,7 @@ int4_sum(PG_FUNCTION_ARGS)
 	}
 }
 
-/* 
+/*
  * int4_sum_inv
  * aggregate inverse transition function.
  * This function must be declared as strict.
