@@ -402,6 +402,35 @@ if (AggCheckCallContext(fcinfo, NULL))
   </para>
 
   <para>
+   Optionally the aggregate function may also specify an inverse transition
+   function, these allow values to be removed from aggregation in a single
+   operation rather than having to re-aggregate all previous aggregated values
+   again. <productname>PostgreSQL</productname> makes use of these when the
+   aggregate is used in a <literal>WINDOW</> context in order to efficiently
+   remove values when frame head of the window moves beyond the first
+   aggregated value. The inverse transition function may optionally report that
+   it failed to remove the value by returning a null value, in this case
+   <productname>PostgreSQL</productname> will discard the current aggregated
+   value and re-aggregate all of the new rows in order to calculated the
+   new aggregate state. Internally <productname>PostgreSQL</productname> uses
+   this method to implement inverse transition functions for the aggregate
+   functions <literal>MAX</> and <literal>MIN</>, these functions simply return
+   NULL if the value being removed the same as the aggregated state, otherwise
+   they return the aggregated state as removing the value would have no impact
+   on the current aggregated state.
+  </para>
+  
+  <para>
+   If the aggregate function's <literl>STRICT</> property is set then the
+   inverse transition must also have the <literal>STRICT</> property set,
+   though it is perfectly valid to have a strict inverse transition function
+   when the transition function is not strict.
+  </para>
+  
+  <
+   
+   
+  <para>
    For further details see the
    <xref linkend="sql-createaggregate">
    command.
