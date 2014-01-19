@@ -252,9 +252,7 @@ extern Datum int4smaller(PG_FUNCTION_ARGS);
 extern Datum int4smaller_inv(PG_FUNCTION_ARGS);
 
 extern Datum int4and(PG_FUNCTION_ARGS);
-extern Datum int4and_inv(PG_FUNCTION_ARGS);
 extern Datum int4or(PG_FUNCTION_ARGS);
-extern Datum int4or_inv(PG_FUNCTION_ARGS);
 extern Datum int4xor(PG_FUNCTION_ARGS);
 extern Datum int4not(PG_FUNCTION_ARGS);
 extern Datum int4shl(PG_FUNCTION_ARGS);
