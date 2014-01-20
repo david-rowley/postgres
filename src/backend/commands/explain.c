@@ -85,6 +85,7 @@ static void show_sort_group_keys(PlanState *planstate, const char *qlabel,
 					 List *ancestors, ExplainState *es);
 static void show_sort_info(SortState *sortstate, ExplainState *es);
 static void show_hash_info(HashState *hashstate, ExplainState *es);
+static void show_windowagg_info(PlanState *planstate, ExplainState *es);
 static void show_tidbitmap_info(BitmapHeapScanState *planstate,
 								ExplainState *es);
 static void show_instrumentation_count(const char *qlabel, int which,
@@ -1389,15 +1390,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			show_hash_info((HashState *) planstate, es);
 			break;
 		case T_WindowAgg:
-			if (es->verbose && planstate->instrument &&
-				planstate->instrument->nloops > 0 &&
-				planstate->instrument->ntuples > 0)
-			{
-				double t = ((WindowAggState*) planstate)->aggfwdtrans /
-							(planstate->instrument->nloops *
-							 planstate->instrument->ntuples);
-				ExplainPropertyFloat("Aggregate Fwd. Transitions per Row", t, 1, es);
-			}
+			if (es->verbose && planstate->instrument)
+				show_windowagg_info(planstate, es);
+			break;
 		default:
 			break;
 	}
@@ -1893,6 +1888,21 @@ show_hash_info(HashState *hashstate, ExplainState *es)
 							 hashtable->nbuckets, hashtable->nbatch,
 							 spacePeakKb);
 		}
+	}
+}
+
+static void
+show_windowagg_info(PlanState *planstate, ExplainState *es)
+{
+	WindowAggState *winaggstate = (WindowAggState *) planstate;
+	Instrumentation *inst = planstate->instrument;
+
+	if (inst->nloops > 0 && inst->ntuples > 0 && winaggstate->numaggs > 0)
+	{
+		double tperrow = winaggstate->aggfwdtrans /
+			(inst->nloops * inst->ntuples);
+
+		ExplainPropertyFloat("Transitions Per Row", tperrow, 1, es);
 	}
 }
 
