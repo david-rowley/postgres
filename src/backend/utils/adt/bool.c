@@ -359,14 +359,8 @@ bool_accum(PG_FUNCTION_ARGS)
 Datum
 bool_accum_inv(PG_FUNCTION_ARGS)
 {
-	BoolAggState *state;
+	BoolAggState *state = (BoolAggState *) PG_GETARG_POINTER(0);
 	bool value = PG_GETARG_BOOL(1);
-
-	state = PG_ARGISNULL(0) ? NULL : (BoolAggState *) PG_GETARG_POINTER(0);
-
-	/* Create the state data when we see the first non-null input. */
-	if (state == NULL)
-		state = makeBoolAggState(fcinfo);
 
 	state->aggcount--;
 	if (value)
