@@ -1388,6 +1388,16 @@ ExplainNode(PlanState *planstate, List *ancestors,
 		case T_Hash:
 			show_hash_info((HashState *) planstate, es);
 			break;
+		case T_WindowAgg:
+			if (es->verbose && planstate->instrument &&
+				planstate->instrument->nloops > 0 &&
+				planstate->instrument->ntuples > 0)
+			{
+				double t = ((WindowAggState*) planstate)->aggfwdtrans /
+							(planstate->instrument->nloops *
+							 planstate->instrument->ntuples);
+				ExplainPropertyFloat("Aggregate Fwd. Transitions per Row", t, 1, es);
+			}
 		default:
 			break;
 	}
