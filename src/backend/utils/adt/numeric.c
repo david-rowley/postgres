@@ -2510,8 +2510,6 @@ numeric_float4(PG_FUNCTION_ARGS)
 typedef struct NumericAggState
 {
 	bool		calcSumX2;		/* if true, calculate sumX2 */
-	bool		inverseTransValid;	/* are we still allowed to perform inverse
-									 * transitions on this aggregate? */
 	int			maxScale;		/* stores the maximum scale seen so far. */
 	int64		maxScaleCount;  /* tracks the number of values we've
 								 * seen with the maximum scale */
@@ -2546,7 +2544,6 @@ makeNumericAggState(FunctionCallInfo fcinfo, bool calcSumX2)
 
 	state->maxScale = 0;
 	state->maxScaleCount = 0;
-	state->inverseTransValid = true;
 
 	MemoryContextSwitchTo(old_context);
 
@@ -2620,14 +2617,15 @@ do_numeric_accum(NumericAggState *state, Numeric newval)
 /*
  * do_numeric_discard
  * Attempts to remove a value from the aggregated state.
- * If the value cannot be removed then the function will return false.
+ * If the value cannot be removed then the function will return false, the 
+ * possible reasons for failing are described below.
  *
  * If we aggregate the values 1.01 and 2 then the result will be 3.01. If we
  * are then asked to un-aggregate the 1.01 then we must reject this case as we
  * won't be able to tell what the new aggregated value's dscale should be.
- * We can't return 2.00 (dscale = 2) we really should return just 2, but since
- * we're not tracking any previous highest scales then we must just fail to
- * perform the inverse transition and just return false.
+ * We can't return 2.00 (dscale = 2) as we really should return just 2, but
+ * since we're not tracking any previous highest scales then we must just fail
+ * to perform the inverse transition and just return false.
  *
  * Values that are no longer aggregated should not be able to effect the dscale
  * of the result of the values that *are* still aggregated.
@@ -2652,36 +2650,25 @@ do_numeric_discard(NumericAggState *state, Numeric newval)
 		return true;
 	}
 
-	/*
-	 * if we've marked that we can't perform inverse transitions then we have
-	 * nothing to do here, so we exit as quickly.
-	 */
-	if (state->inverseTransValid == false)
-		return false;
-
 	/* load processed number in short-lived context */
 	init_var_from_num(newval, &X);
 
 	/*
-	 * If we're asked to remove a numeric value that has a scale the same
-	 * as the highest scale'd numeric we've seen we need to updated the
-	 * count on that as once we're on the last one we can no longer perform
-	 * inverse transitions without a danger that we introduce the possibility
-	 * that a value which leaves aggregation leaves us with an unnaturally high
-	 * dscale setting for the remaining numeric values.
+	 * If we're asked to remove a numeric value that has a dscale the same as
+	 * the highest dscale that we've encountered so far, then we need to
+	 * update the count of the number of times that we've seen that dscale.
+	 * Once we get to the last value that has this maximum dscale we must
+	 * report that we've failed to perform the inverse transition.
 	 */
 	if (state->maxScale == X.dscale)
 	{
+		/* 
+		 * are we on the last value with maxScale?
+		 * if so we can't do any more inverse transitions.
+		 */
 		if (state->maxScaleCount == 1)
-		{
-			/*
-			 * Mark that we can no longer perform inverse transitions.
-			 * Note that this might get set to true again if we ever
-			 * end up with 0 values in aggregation
-			 */
-			state->inverseTransValid = false;
 			return false;
-		}
+
 		state->maxScaleCount--;
 	}
 
