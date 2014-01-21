@@ -253,7 +253,7 @@ DATA(insert ( 2901	n 0 xmlconcat2	-			-					0	142		0	_null_ ));
 DATA(insert ( 2335	n 0 array_agg_transfn	array_agg_invtransfn	array_agg_finalfn	0	2281	0	_null_ ));
 
 /* text */
-DATA(insert ( 3538	n 0 string_agg_transfn	-		string_agg_finalfn	0	2281	0	_null_ ));
+DATA(insert ( 3538	n 0 string_agg_transfn	string_agg_invtransfn	string_agg_finalfn	0	2281	0	_null_ ));
 
 /* bytea */
 DATA(insert ( 3545	n 0 bytea_string_agg_transfn	-	bytea_string_agg_finalfn	0	2281	0	_null_ ));

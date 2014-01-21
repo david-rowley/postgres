@@ -837,6 +837,7 @@ extern Datum bytea_string_agg_transfn(PG_FUNCTION_ARGS);
 extern Datum bytea_string_agg_finalfn(PG_FUNCTION_ARGS);
 extern Datum string_agg_transfn(PG_FUNCTION_ARGS);
 extern Datum string_agg_finalfn(PG_FUNCTION_ARGS);
+extern Datum string_and_bytea_agg_invtransfn(PG_FUNCTION_ARGS);
 
 extern Datum text_concat(PG_FUNCTION_ARGS);
 extern Datum text_concat_ws(PG_FUNCTION_ARGS);

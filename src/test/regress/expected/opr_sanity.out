@@ -190,11 +190,12 @@ WHERE p1.oid != p2.oid AND
 ORDER BY 1, 2;
  proargtypes | proargtypes 
 -------------+-------------
+          17 |          25
           23 |          28
         1114 |        1184
         1560 |        1562
         2277 |        2283
-(4 rows)
+(5 rows)
 
 SELECT DISTINCT p1.proargtypes[2], p2.proargtypes[2]
 FROM pg_proc AS p1, pg_proc AS p2
@@ -206,8 +207,9 @@ WHERE p1.oid != p2.oid AND
 ORDER BY 1, 2;
  proargtypes | proargtypes 
 -------------+-------------
+          17 |          25
         1114 |        1184
-(1 row)
+(2 rows)
 
 SELECT DISTINCT p1.proargtypes[3], p2.proargtypes[3]
 FROM pg_proc AS p1, pg_proc AS p2
