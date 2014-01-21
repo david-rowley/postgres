@@ -256,7 +256,7 @@ DATA(insert ( 2335	n 0 array_agg_transfn	array_agg_invtransfn	array_agg_finalfn	
 DATA(insert ( 3538	n 0 string_agg_transfn	string_agg_invtransfn	string_agg_finalfn	0	2281	0	_null_ ));
 
 /* bytea */
-DATA(insert ( 3545	n 0 bytea_string_agg_transfn	-	bytea_string_agg_finalfn	0	2281	0	_null_ ));
+DATA(insert ( 3545	n 0 bytea_string_agg_transfn	bytea_string_agg_invtransfn	bytea_string_agg_finalfn	0	2281	0	_null_ ));
 
 /* json */
 DATA(insert ( 3175	n 0 json_agg_transfn	-	json_agg_finalfn	0	2281	0	_null_ ));
