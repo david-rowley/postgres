@@ -855,10 +855,10 @@ eval_windowaggregates(WindowAggState *winstate)
 		winstate->aggregatedupto++;
 		ExecClearTuple(agg_row_slot);
 	}
-	
+
 	/* The frame's end is not supposed to move backwards, ever */
 	Assert(aggregatedupto_nonrestarted <= winstate->aggregatedupto);
-	
+
 	/* Update statistics */
 	if (numaggs_restart > 0)
 		winstate->aggfwdtrans += (winstate->aggregatedupto
@@ -1952,7 +1952,7 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 	winstate->all_first = true;
 	winstate->partition_spooled = false;
 	winstate->more_partitions = false;
-	
+
 	/* initialize statistics */
 	winstate->aggfwdtrans = 0;
 

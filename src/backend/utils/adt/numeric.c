@@ -2617,7 +2617,7 @@ do_numeric_accum(NumericAggState *state, Numeric newval)
 /*
  * do_numeric_discard
  * Attempts to remove a value from the aggregated state.
- * If the value cannot be removed then the function will return false, the 
+ * If the value cannot be removed then the function will return false, the
  * possible reasons for failing are described below.
  *
  * If we aggregate the values 1.01 and 2 then the result will be 3.01. If we
@@ -2662,7 +2662,7 @@ do_numeric_discard(NumericAggState *state, Numeric newval)
 	 */
 	if (state->maxScale == X.dscale)
 	{
-		/* 
+		/*
 		 * are we on the last value with maxScale?
 		 * if so we can't do any more inverse transitions.
 		 */

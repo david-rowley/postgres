@@ -1785,7 +1785,7 @@ typedef struct WindowAggState
 	TupleTableSlot *agg_row_slot;
 	TupleTableSlot *temp_slot_1;
 	TupleTableSlot *temp_slot_2;
-	
+
 	/* Statistics */
 	double	aggfwdtrans;	/* number of forward transitions */
 } WindowAggState;
