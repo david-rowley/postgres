@@ -890,6 +890,8 @@ DATA(insert OID = 3168 (  array_replace    PGNSP PGUID 12 1 0 0 0 f f f f f f i 
 DESCR("replace any occurrences of an element in an array");
 DATA(insert OID = 2333 (  array_agg_transfn   PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2281 "2281 2283" _null_ _null_ _null_ _null_ array_agg_transfn _null_ _null_ _null_ ));
 DESCR("aggregate transition function");
+DATA(insert OID = 3179 (  array_agg_invtransfn PGNSP PGUID 12 1 0 0 0 f f f f f f i 2 0 2281 "2281 2283" _null_ _null_ _null_ _null_ array_agg_invtransfn _null_ _null_ _null_ ));
+DESCR("aggregate transition function");
 DATA(insert OID = 2334 (  array_agg_finalfn   PGNSP PGUID 12 1 0 0 0 f f f f f f i 1 0 2277 "2281" _null_ _null_ _null_ _null_ array_agg_finalfn _null_ _null_ _null_ ));
 DESCR("aggregate final function");
 DATA(insert OID = 2335 (  array_agg		   PGNSP PGUID 12 1 0 0 0 t f f f f f i 1 0 2277 "2283" _null_ _null_ _null_ _null_ aggregate_dummy _null_ _null_ _null_ ));

@@ -250,7 +250,7 @@ DATA(insert ( 2243	n 0 bitor		-			-					0	1560	0	_null_ ));
 DATA(insert ( 2901	n 0 xmlconcat2	-			-					0	142		0	_null_ ));
 
 /* array */
-DATA(insert ( 2335	n 0 array_agg_transfn	-		array_agg_finalfn	0	2281	0	_null_ ));
+DATA(insert ( 2335	n 0 array_agg_transfn	array_agg_invtransfn	array_agg_finalfn	0	2281	0	_null_ ));
 
 /* text */
 DATA(insert ( 3538	n 0 string_agg_transfn	-		string_agg_finalfn	0	2281	0	_null_ ));
