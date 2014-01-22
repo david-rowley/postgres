@@ -2286,14 +2286,18 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 								 (OidIsValid(invtransfn_oid) &&
 								  peraggstate->invtransfn.fn_strict));
 
-	/* We can use the inverse transition function only if the aggregate's
+	/*
+	 * We can use the inverse transition function only if the aggregate's
 	 * arguments don't contain calls to volatile functions. Otherwise,
 	 * the difference between restarting and not restarting the aggregation
 	 * would be user-visible. Note that this check also covers the case where
-	 * the FILTER's WHERE clause contains a volatile function.
+	 * the FILTER's WHERE clause contains a volatile function. If the frame
+	 * head cannot move, we won't ever need the inverse transition function,
+	 * so we also mark as "don't use" in that case.
 	 */
 	if (OidIsValid(invtransfn_oid) &&
-		!contain_volatile_functions((Node *) wfunc))
+		!contain_volatile_functions((Node *) wfunc) &&
+		!(winstate->frameOptions & FRAMEOPTION_START_UNBOUNDED_PRECEDING))
 	{
 		peraggstate->use_invtransfn = true;
 	}
