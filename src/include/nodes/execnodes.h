@@ -1763,7 +1763,7 @@ typedef struct WindowAggState
 	Datum		endOffsetValue; /* result of endOffset evaluation */
 
 	MemoryContext partcontext;	/* context for partition-lifespan data */
-	MemoryContext aggcontext;	/* context for each aggregate data */
+	MemoryContext aggcontext_shared;	/* shared context for agg states */
 	ExprContext *tmpcontext;	/* short-term evaluation context */
 
 	bool		all_first;		/* true if the scan is starting */
@@ -1780,6 +1780,9 @@ typedef struct WindowAggState
 
 	TupleTableSlot *first_part_slot;	/* first tuple of current or next
 										 * partition */
+
+	/* temporary data */
+	int			calledaggno;	/* called agg, used by AggCheckCallContext */
 
 	/* temporary slots for tuples fetched back from tuplestore */
 	TupleTableSlot *agg_row_slot;

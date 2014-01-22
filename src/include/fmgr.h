@@ -644,8 +644,10 @@ extern void **find_rendezvous_variable(const char *varName);
 /*
  * Support for aggregate functions
  *
- * These are actually in executor/nodeAgg.c, but we declare them here since
- * the whole point is for callers to not be overly friendly with nodeAgg.
+ * These are actually in executor/nodeAgg.c, except for AggCheckCallContext
+ * which is in execute/nodeWindowAgg.c, but we declare them here since
+ * the whole point is for callers to not be overly friendly neither nodeAgg
+ * nor nodeWindowAgg.
  */
 
 /* AggCheckCallContext can return one of the following codes, or 0: */

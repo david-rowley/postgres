@@ -2130,42 +2130,6 @@ ExecReScanAgg(AggState *node)
 }
 
 /*
- * AggCheckCallContext - test if a SQL function is being called as an aggregate
- *
- * The transition and/or final functions of an aggregate may want to verify
- * that they are being called as aggregates, rather than as plain SQL
- * functions.  They should use this function to do so.	The return value
- * is nonzero if being called as an aggregate, or zero if not.	(Specific
- * nonzero values are AGG_CONTEXT_AGGREGATE or AGG_CONTEXT_WINDOW, but more
- * values could conceivably appear in future.)
- *
- * If aggcontext isn't NULL, the function also stores at *aggcontext the
- * identity of the memory context that aggregate transition values are
- * being stored in.
- */
-int
-AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
-{
-	if (fcinfo->context && IsA(fcinfo->context, AggState))
-	{
-		if (aggcontext)
-			*aggcontext = ((AggState *) fcinfo->context)->aggcontext;
-		return AGG_CONTEXT_AGGREGATE;
-	}
-	if (fcinfo->context && IsA(fcinfo->context, WindowAggState))
-	{
-		if (aggcontext)
-			*aggcontext = ((WindowAggState *) fcinfo->context)->aggcontext;
-		return AGG_CONTEXT_WINDOW;
-	}
-
-	/* this is just to prevent "uninitialized variable" warnings */
-	if (aggcontext)
-		*aggcontext = NULL;
-	return 0;
-}
-
-/*
  * AggGetAggref - allow an aggregate support function to get its Aggref
  *
  * If the function is being called as an aggregate support function,

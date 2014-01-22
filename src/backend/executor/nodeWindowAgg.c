@@ -117,8 +117,9 @@ typedef struct WindowStatePerAggData
 	FmgrInfo	finalfn;
 
 	/* Aggregate properties */
-	bool		use_invtransfn;	/* whether to use the invtransfn */
-	bool		ignore_nulls;
+	bool		use_invtransfn;			/* whether to use the invtransfn */
+	bool		aggcontext_is_shared;	/* aggcontext is winstate's aggcontext */
+	bool		ignore_nulls;			/* whether we skip NULL inputs */
 
 	/*
 	 * initial value from pg_aggregate entry
@@ -148,11 +149,12 @@ typedef struct WindowStatePerAggData
 								 * This is needed for inverse transitions */
 
 	/* Current transition value */
-	Datum		transValue;		/* current transition value */
-	bool		transValueIsNull;
+	MemoryContext	aggcontext;		/* context for transValue */
+	Datum			transValue;		/* current transition value */
+	bool			transValueIsNull;
 
-	bool		noTransValue;	/* true if transValue not set yet */
-	bool		restart;		/* whether to restart the aggregation */
+	bool			noTransValue;	/* true if transValue not set yet */
+	bool			restart;		/* whether to restart the aggregation */
 } WindowStatePerAggData;
 
 static void initialize_windowaggregate(WindowAggState *winstate,
@@ -193,6 +195,50 @@ static bool are_peers(WindowAggState *winstate, TupleTableSlot *slot1,
 static bool window_gettupleslot(WindowObject winobj, int64 pos,
 					TupleTableSlot *slot);
 
+/*
+ * AggCheckCallContext - test if a SQL function is being called as an aggregate
+ *
+ * The transition and/or final functions of an aggregate may want to verify
+ * that they are being called as aggregates, rather than as plain SQL
+ * functions.  They should use this function to do so.	The return value
+ * is nonzero if being called as an aggregate, or zero if not.	(Specific
+ * nonzero values are AGG_CONTEXT_AGGREGATE or AGG_CONTEXT_WINDOW, but more
+ * values could conceivably appear in future.)
+ *
+ * If aggcontext isn't NULL, the function also stores at *aggcontext the
+ * identity of the memory context that aggregate transition values are
+ * being stored in.
+ *
+ * This must live here, not in nodeAgg.c, because WindowStatePerAggData
+ * is private.
+ */
+int
+AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggState))
+	{
+		if (aggcontext)
+			*aggcontext = ((AggState *) fcinfo->context)->aggcontext;
+		return AGG_CONTEXT_AGGREGATE;
+	}
+	if (fcinfo->context && IsA(fcinfo->context, WindowAggState))
+	{
+		if (aggcontext)
+		{
+			/* Must lookup per-aggregate context */
+			WindowAggState *winstate = (WindowAggState *) fcinfo->context;
+			int				aggno = winstate->calledaggno;
+			Assert(0 <= aggno && aggno < winstate->numaggs);
+			*aggcontext = winstate->peragg[aggno].aggcontext;
+		}
+		return AGG_CONTEXT_WINDOW;
+	}
+
+	/* this is just to prevent "uninitialized variable" warnings */
+	if (aggcontext)
+		*aggcontext = NULL;
+	return 0;
+}
 
 /*
  * initialize_windowaggregate
@@ -205,11 +251,18 @@ initialize_windowaggregate(WindowAggState *winstate,
 {
 	MemoryContext oldContext;
 
+	/* If we're using a private aggcontext, we may reset it here. But if the
+	 * context is shared, we don't know which other aggregates may still need
+	 * it, so we must leave it to the caller to reset at an appropriate time
+	 */
+	if (!peraggstate->aggcontext_is_shared)
+		MemoryContextResetAndDeleteChildren(peraggstate->aggcontext);
+
 	if (peraggstate->initValueIsNull)
-		peraggstate->transValue = peraggstate->initValue;
+		peraggstate->transValue = (Datum) 0;
 	else
 	{
-		oldContext = MemoryContextSwitchTo(winstate->aggcontext);
+		oldContext = MemoryContextSwitchTo(peraggstate->aggcontext);
 		peraggstate->transValue = datumCopy(peraggstate->initValue,
 											peraggstate->transtypeByVal,
 											peraggstate->transtypeLen);
@@ -217,6 +270,7 @@ initialize_windowaggregate(WindowAggState *winstate,
 	}
 	peraggstate->transValueIsNull = peraggstate->initValueIsNull;
 	peraggstate->noTransValue = peraggstate->initValueIsNull;
+	peraggstate->resultValue = (Datum) 0;
 	peraggstate->resultValueIsNull = true;
 	peraggstate->notnullcount = 0;
 }
@@ -304,7 +358,7 @@ advance_windowaggregate(WindowAggState *winstate,
 			 * We must copy the datum into aggcontext if it is pass-by-ref. We
 			 * do not need to pfree the old transValue, since it's NULL.
 			 */
-			MemoryContextSwitchTo(winstate->aggcontext);
+			MemoryContextSwitchTo(peraggstate->aggcontext);
 			peraggstate->transValue = datumCopy(fcinfo->arg[1],
 												peraggstate->transtypeByVal,
 												peraggstate->transtypeLen);
@@ -341,7 +395,9 @@ advance_windowaggregate(WindowAggState *winstate,
 							 (void *) winstate, NULL);
 	fcinfo->arg[0] = peraggstate->transValue;
 	fcinfo->argnull[0] = peraggstate->transValueIsNull;
+	winstate->calledaggno = perfuncstate->aggno;
 	newVal = FunctionCallInvoke(fcinfo);
+	winstate->calledaggno = -1;
 	if (peraggstate->invtransfn_oid != InvalidOid && fcinfo->isnull)
 	{
 		ereport(ERROR,
@@ -359,7 +415,7 @@ advance_windowaggregate(WindowAggState *winstate,
 	{
 		if (!fcinfo->isnull)
 		{
-			MemoryContextSwitchTo(winstate->aggcontext);
+			MemoryContextSwitchTo(peraggstate->aggcontext);
 			newVal = datumCopy(newVal,
 							   peraggstate->transtypeByVal,
 							   peraggstate->transtypeLen);
@@ -477,7 +533,9 @@ retreat_windowaggregate(WindowAggState *winstate,
 							 (void *) winstate, NULL);
 	fcinfo->arg[0] = peraggstate->transValue;
 	fcinfo->argnull[0] = peraggstate->transValueIsNull;
+	winstate->calledaggno = perfuncstate->aggno;
 	newVal = FunctionCallInvoke(fcinfo);
+	winstate->calledaggno = -1;
 	if (fcinfo->isnull)
 	{
 		MemoryContextSwitchTo(oldContext);
@@ -494,7 +552,7 @@ retreat_windowaggregate(WindowAggState *winstate,
 	{
 		if (!fcinfo->isnull)
 		{
-			MemoryContextSwitchTo(winstate->aggcontext);
+			MemoryContextSwitchTo(peraggstate->aggcontext);
 			newVal = datumCopy(newVal,
 							   peraggstate->transtypeByVal,
 							   peraggstate->transtypeLen);
@@ -545,7 +603,9 @@ finalize_windowaggregate(WindowAggState *winstate,
 		}
 		else
 		{
+			winstate->calledaggno = perfuncstate->aggno;
 			*result = FunctionCallInvoke(&fcinfo);
+			winstate->calledaggno = -1;
 			*isnull = fcinfo.isnull;
 		}
 	}
@@ -761,24 +821,30 @@ eval_windowaggregates(WindowAggState *winstate)
 
 	/*
 	 * Then restart the aggregates which require it.
+	 * 
+	 * We assume that aggregates using the shared context always restart
+	 * if *any* aggregate restarts, and we may thus cleanup the shared
+	 * aggcontext if that is the case. The private aggcontexts are reset
+	 * by initialize_windowaggregate() if their owning aggregate restarts,
+	 * otherwise we just pfree() the cached result.
 	 */
 	if (numaggs_restart > 0)
+		MemoryContextResetAndDeleteChildren(winstate->aggcontext_shared);
+	for (i = 0; i < numaggs; i++)
 	{
-		/*
-		 * If we're going to restart *all* aggregates, reset the memory
-		 * context. If we're going to restart only some, we have to keep it,
-		 * otherwise we'd invalidate the aggregation states.
-		 */
-		if (numaggs_restart == numaggs)
-			MemoryContextResetAndDeleteChildren(winstate->aggcontext);
-
-		/* Restart aggregates which require it */
-		for (i = 0; i < numaggs; i++)
+		peraggstate = &winstate->peragg[i];
+		/* Aggregates using the shared ctx must restart if *any* agg does */
+		Assert(!peraggstate->aggcontext_is_shared ||
+			   !numaggs_restart || peraggstate->restart);
+		if (!peraggstate->restart && !peraggstate->resultValueIsNull &&
+			!peraggstate->resulttypeByVal)
 		{
-			peraggstate = &winstate->peragg[i];
-			if (!peraggstate->restart)
-				continue;
-
+			pfree(DatumGetPointer(peraggstate->resultValue));
+			peraggstate->resultValue = (Datum) 0;
+			peraggstate->resultValueIsNull = true;
+		}
+		else if (peraggstate->restart)
+		{
 			wfuncno = peraggstate->wfuncno;
 			initialize_windowaggregate(winstate,
 									   &winstate->perfunc[wfuncno],
@@ -891,28 +957,14 @@ eval_windowaggregates(WindowAggState *winstate)
 		 * advance that the next row can't possibly share the same frame. Is
 		 * it worth detecting that and skipping this code?
 		 */
-		if (!peraggstate->resulttypeByVal)
+		if (!peraggstate->resulttypeByVal && !*isnull)
 		{
-			/*
-			 * clear old resultValue in order not to leak memory.  (Note: the
-			 * new result can't possibly be the same datum as old resultValue,
-			 * because we never passed it to the trans function.)
-			 */
-			if (!peraggstate->resultValueIsNull)
-				pfree(DatumGetPointer(peraggstate->resultValue));
-
-			/*
-			 * If pass-by-ref, copy it into our aggregate context.
-			 */
-			if (!*isnull)
-			{
-				oldContext = MemoryContextSwitchTo(winstate->aggcontext);
-				peraggstate->resultValue =
-					datumCopy(*result,
-							  peraggstate->resulttypeByVal,
-							  peraggstate->resulttypeLen);
-				MemoryContextSwitchTo(oldContext);
-			}
+			oldContext = MemoryContextSwitchTo(peraggstate->aggcontext);
+			peraggstate->resultValue =
+				datumCopy(*result,
+						  peraggstate->resulttypeByVal,
+						  peraggstate->resulttypeLen);
+			MemoryContextSwitchTo(oldContext);
 		}
 		else
 		{
@@ -953,6 +1005,7 @@ eval_windowfunction(WindowAggState *winstate, WindowStatePerFunc perfuncstate,
 	/* Just in case, make all the regular argument slots be null */
 	memset(fcinfo.argnull, true, perfuncstate->numArguments);
 
+	winstate->calledaggno = -1;
 	*result = FunctionCallInvoke(&fcinfo);
 	*isnull = fcinfo.isnull;
 
@@ -1171,7 +1224,10 @@ release_partition(WindowAggState *winstate)
 	 * aggregates might have allocated data we don't have direct pointers to.
 	 */
 	MemoryContextResetAndDeleteChildren(winstate->partcontext);
-	MemoryContextResetAndDeleteChildren(winstate->aggcontext);
+	MemoryContextResetAndDeleteChildren(winstate->aggcontext_shared);
+	for (i = 0; i < winstate->numaggs; ++i)
+		if (!winstate->peragg[i].aggcontext_is_shared)
+			MemoryContextResetAndDeleteChildren(winstate->peragg[i].aggcontext);
 
 	if (winstate->buffer)
 		tuplestore_end(winstate->buffer);
@@ -1753,8 +1809,10 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 							  ALLOCSET_DEFAULT_INITSIZE,
 							  ALLOCSET_DEFAULT_MAXSIZE);
 
-	/* Create mid-lived context for aggregate trans values etc */
-	winstate->aggcontext =
+	/* Create mid-lived contexts for aggregate trans values etc
+	 * Note that invertible aggregates use their own private context
+	 */
+	winstate->aggcontext_shared =
 		AllocSetContextCreate(CurrentMemoryContext,
 							  "WindowAgg_Aggregates",
 							  ALLOCSET_DEFAULT_MINSIZE,
@@ -1953,6 +2011,9 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 	winstate->partition_spooled = false;
 	winstate->more_partitions = false;
 
+	/* initialize temporary data */
+	winstate->calledaggno = -1;
+
 	/* initialize statistics */
 	winstate->aggfwdtrans = 0;
 
@@ -1967,11 +2028,9 @@ void
 ExecEndWindowAgg(WindowAggState *node)
 {
 	PlanState  *outerPlan;
+	int			i;
 
 	release_partition(node);
-
-	pfree(node->perfunc);
-	pfree(node->peragg);
 
 	ExecClearTuple(node->ss.ss_ScanTupleSlot);
 	ExecClearTuple(node->first_part_slot);
@@ -1987,7 +2046,13 @@ ExecEndWindowAgg(WindowAggState *node)
 	ExecFreeExprContext(&node->ss.ps);
 
 	MemoryContextDelete(node->partcontext);
-	MemoryContextDelete(node->aggcontext);
+	MemoryContextDelete(node->aggcontext_shared);
+	for(i = 0; i < node->numaggs; i++)
+		if (!node->peragg[i].aggcontext_is_shared)
+			MemoryContextDelete(node->peragg[i].aggcontext);
+
+	pfree(node->perfunc);
+	pfree(node->peragg);
 
 	outerPlan = outerPlanState(node);
 	ExecEndNode(outerPlan);
@@ -2236,6 +2301,36 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 	{
 		peraggstate->use_invtransfn = false;
 	}
+	
+	/*
+	 * Invertible aggregates use their own aggcontext.
+	 *
+	 * This is necessary because they might all restart at different times,
+	 * so we might never be able to reset the shared context otherwise. We
+	 * can't make it the aggregate's responsibility to clean up after
+	 * themselves, because strict aggregates must be restarted whenever we
+	 * remove their last non-NULL input, which the aggregate won't be aware
+	 * is happening. Also, just pfree()ing the transValue upon restarting
+	 * wouldn't help, since we'd miss any indirectly referenced data. We
+	 * could, in theory, declare that aggregates with a state type other then
+	 * "internal" musn't allocate anything in the aggcontext themselves, that
+	 * non-strict aggregates with state type internal must clean up after
+	 * themselves when their inverse transfer function returns NULL, and then
+	 * only use private aggcontexts for strict aggregates with state type
+	 * internal. But that'd be a rather grotty set of requirements.
+	 */
+	peraggstate->aggcontext_is_shared = !peraggstate->use_invtransfn;
+	if (!peraggstate->aggcontext_is_shared)
+	{
+		peraggstate->aggcontext =
+			AllocSetContextCreate(CurrentMemoryContext,
+								  "WindowAgg_AggregatePrivate",
+								  ALLOCSET_DEFAULT_MINSIZE,
+								  ALLOCSET_DEFAULT_INITSIZE,
+								  ALLOCSET_DEFAULT_MAXSIZE);
+	}
+	else
+		peraggstate->aggcontext = winstate->aggcontext_shared;
 
 	return peraggstate;
 }
