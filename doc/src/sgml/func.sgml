@@ -12862,6 +12862,128 @@ SELECT xmlagg(x) FROM (SELECT x FROM test ORDER BY y DESC) AS tab;
    <literal>ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING</>.
    Other frame specifications can be used to obtain other effects.
   </para>
+  
+  <para>
+    Depending on the aggregate function, aggregating over frames starting
+    at a row relative to the current row can be drastically less efficient
+    than aggregating over frames aligned to the start of the partition. The
+    frame starts at a row relative to the current row if <literal>ORDER
+    BY</literal> is used together with any frame start clause other than
+    <literal>UNBOUNDED PRECEDING</literal> (which is the default). Then,
+    aggregates without a suitable <quote>inverse transition function
+    </quote> (see <xref linkend="SQL-CREATEAGGREGATE"> for details) will be
+    computed for each frame from scratch, instead of re-using the previous
+    frame's result, causing <emphasis>quadratic growth</emphasis> of the
+    execution time as the number of rows per partition increases. The table
+    <xref linkend="functions-aggregate-indframe"> list the built-in aggregate
+    functions affected by this. Note that quadratic growth is only a problem
+    if partitions contain many rows - for partitions with only a few rows,
+    even inefficient aggregates are unlikely to cause problems.
+  </para>
+
+  <table id="functions-aggregate-indframe">
+   <title>
+     Aggregate Function Behaviour for frames not starting at
+     <literal>UNBOUNDED PRECEDING</literal>.
+   </title>
+
+   <tgroup cols="3">
+     
+    <thead>
+     <row>
+      <entry>Aggregate Function</entry>
+      <entry>Input Type</entry>
+      <entry>Computed From Scratch</entry>
+     </row>
+    </thead>
+    
+    <tbody>
+      
+     <row>
+      <entry>
+       any numerical aggregate
+      </entry>
+      <entry>
+       <type>float4</type>
+       or
+       <type>float8</type>
+      </entry>
+      <entry>always, to avoid error accumulation</entry>
+     </row>
+
+     <row>
+      <entry>
+       any numerical aggregate
+      </entry>
+      <entry>
+       <type>numeric</type>
+      </entry>
+      <entry>if the maximum number of decimal digits within the inputs changes</entry>
+     </row>
+
+     <row>
+      <entry>
+       <function>min</function>
+      </entry>
+      <entry>
+       any
+      </entry>
+      <entry>if some inputs in the old frame that aren't in the new frame were minimal</entry>
+     </row>
+
+     <row>
+      <entry>
+       <function>max</function>
+      </entry>
+      <entry>
+        any
+      </entry>
+      <entry>if some inputs in the old frame that aren't in the new frame were maximal</entry>
+     </row>
+
+     <row>
+      <entry>
+       <function>bit_and</function>,<function>bit_or</function>
+      </entry>
+      <entry>
+        any
+      </entry>
+      <entry>always</entry>
+     </row>
+
+     <row>
+      <entry>
+       <function>string_agg</function>
+      </entry>
+      <entry>
+       <type>text</type> or
+       <type>bytea</type> or
+      </entry>
+      <entry>if the delimiter lengths vary</entry>
+     </row>
+
+     <row>
+      <entry>
+       <function>xmlagg</function>
+      </entry>
+      <entry>
+       <type>xml</type>
+      </entry>
+      <entry>always</entry>
+     </row>
+
+     <row>
+      <entry>
+       <function>json_agg</function>
+      </entry>
+      <entry>
+       <type>json</type>
+      </entry>
+      <entry>always</entry>
+     </row>
+    </tbody>
+   </tgroup>
+  </table>
 
   <note>
    <para>
