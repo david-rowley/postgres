@@ -86,15 +86,18 @@ CREATE AGGREGATE <replaceable class="PARAMETER">name</replaceable> (
   </para>
 
   <para>
-   An aggregate function is made from one or two ordinary
+   An aggregate function is made from one, two or three ordinary
    functions:
-   a state transition function
+   a (forward) state transition function
    <replaceable class="PARAMETER">sfunc</replaceable>,
+   an optional inverse state transition function
+   <replaceable class="PARAMETER">invfunc</replaceable>,
    and an optional final calculation function
    <replaceable class="PARAMETER">ffunc</replaceable>.
    These are used as follows:
 <programlisting>
 <replaceable class="PARAMETER">sfunc</replaceable>( internal-state, next-data-values ) ---> next-internal-state
+<replaceable class="PARAMETER">invfunc</replaceable>( internal-state, data-values ) ---> internal-state-without-data-values
 <replaceable class="PARAMETER">ffunc</replaceable>( internal-state ) ---> aggregate-value
 </programlisting>
   </para>
@@ -104,12 +107,28 @@ CREATE AGGREGATE <replaceable class="PARAMETER">name</replaceable> (
    of data type <replaceable class="PARAMETER">stype</replaceable>
    to hold the current internal state of the aggregate.  At each input row,
    the aggregate argument value(s) are calculated and
-   the state transition function is invoked with the current state value
+   the forward state transition function is invoked with the current state value
    and the new argument value(s) to calculate a new
-   internal state value.  After all the rows have been processed,
-   the final function is invoked once to calculate the aggregate's return
-   value.  If there is no final function then the ending state value
-   is returned as-is.
+   internal state value.
+   If the aggregate is computed over a sliding frame, i.e. if it is used as a
+   <firstterm>window function</firstterm>, the inverse transition function is
+   used to undo the effect of a previous invocation of the forward transition
+   function once argument value(s) fall out of the sliding frame.
+   Conceptually, the forward transition functions thus adds some input
+   value(s) to the state, and the inverse transition functions removes them
+   again. Values are, if they are removed, always removed in the same order
+   they were added, without gaps. Whenever the inverse transition function is
+   invoked, it will thus receive the earliest added but not yet removed
+   argument value(s). If no inverse transition function is supplied, the
+   aggregate can still be used to aggregate over sliding frames, but with
+   reduced efficiency. <productname>PostgreSQL</productname> will then
+   recompute the whole aggregation whenever the start of the frame moves. To
+   calculate the aggregate's return value, the final function is invoked on
+   the ending state value. If there is no final function then ending state
+   value is returned as-is. Either way, the result is assumed to reflect the
+   aggregation of all values added but not yet removed from the state value.
+   Note that if the aggregate is used as a window function, the aggregation
+   may be continued after the final function has been called.
   </para>
 
   <para>
@@ -129,9 +148,17 @@ CREATE AGGREGATE <replaceable class="PARAMETER">name</replaceable> (
    is retained).  If the initial state value is null, then at the first row
    with all-nonnull input values, the first argument value replaces the state
    value, and the transition function is invoked at subsequent rows with
-   all-nonnull input values.
-   This is handy for implementing aggregates like <function>max</function>.
-   Note that this behavior is only available when
+   all-nonnull input values. Should inputs later need to be removed again, the
+   inverse transition function (if present) is used as long as some non-null
+   inputs remain part of the state value. In particular, even if the initial
+   state value is null, the inverse transition function might be used to remove
+   the first non-null input, even though that input was never passed to the
+   forward transition function, but instead just replaced the initial state!
+   The last non-null input, however, is not removed by invoking the inverse
+   transition function, but instead the state is simply reset to its initial
+   value. This is handy for implementing aggregates like <function>max</function>.
+   Note that turning the first non-null input into the initial state is only
+   possible when
    <replaceable class="PARAMETER">state_data_type</replaceable>
    is the same as the first
    <replaceable class="PARAMETER">arg_data_type</replaceable>.
@@ -140,10 +167,40 @@ CREATE AGGREGATE <replaceable class="PARAMETER">name</replaceable> (
   </para>
 
   <para>
-   If the state transition function is not strict, then it will be called
-   unconditionally at each input row, and must deal with null inputs
-   and null state values for itself.  This allows the aggregate
-   author to have full control over the aggregate's handling of null values.
+    If the forward transition function is not declared <quote>strict</quote>,
+    but the inverse transition function is, null input values are still not
+    passed to either the forward or the inverse transition function. The
+    system then behaves as it would for a strict forward transition function,
+    except that initial value null isn't handled specially, i.e. isn't
+    replaced by the first argument of the first non-null input. Instead the
+    forward transition function is simply invoked with a null state and
+    non-null argument values. So in effect, in this case the forward
+    transition function is being treated as non-strict in the state argument
+    but strict in all argument values.
+  </para> 
+
+  <para>
+   If the state transition function is not <quote>strict</quote>, and either
+   no inverse was provided or is also not strict, then it will be called
+   unconditionally at each input row, and must deal with null inputs and null
+   state values for itself. The same goes for the inverse transition function.
+   This allows the aggregate author to have full control over the
+   aggregate's handling of null argument values.
+  </para>
+  
+  <para>
+    The inverse transition function can signal by returning null that it is
+    unable to remove a particular input value from a particular state.
+    <productname>PostgreSQL</productname> will then act as if no inverse
+    transition function had been supplied, i.e. it will recompute the whole
+    aggregation, starting with the first argument value that it would not have
+    removed. That allows aggregates like <function>max</function> to still
+    avoid redoing the whole aggregation in <emphasis>some</emphasis> cases,
+    without paying the overhead of tracking enough state to be able to avoid
+    them in <emphasis>all</emphasis> cases. This demands, however, that
+    null isn't used as a valid state value, except as the initial state. If
+    an aggregate provides an inverse transition function, it is therefore an
+    error for the forward transition function to return null.
   </para>
 
   <para>
@@ -285,12 +342,34 @@ SELECT col FROM tab ORDER BY col USING sortop LIMIT 1;
       takes the current state value and the current input data value(s),
       and returns the next state value.
      </para>
-
+     
      <para>
       For ordered-set (including hypothetical-set) aggregates, the state
       transition function receives only the current state value and the
       aggregated arguments, not the direct arguments.  Otherwise it is the
       same.
+     </para>
+    </listitem>
+   </varlistentry>
+
+   <varlistentry>
+    <term><replaceable class="PARAMETER">invfunc</replaceable></term>
+    <listitem>
+     <para>
+      The name of the inverse state transition function to be called for each
+      input row.  For a normal <replaceable class="PARAMETER">N</>-argument
+      aggregate function, the <replaceable class="PARAMETER">sfunc</>
+      must take <replaceable class="PARAMETER">N</>+1 arguments,
+      the first being of type <replaceable
+      class="PARAMETER">state_data_type</replaceable> and the rest
+      matching the declared input data type(s) of the aggregate.
+      The function must return a value of type <replaceable
+      class="PARAMETER">state_data_type</replaceable>. These are the same
+      demands placed on the forward transition function, meaning that the
+      signatures of the two functions must be identical. Their
+      <quote>strictness</quote> though may differ, but the only allowed
+      combination is a non-strict forward combined with a strict inverse
+      transition function.
      </para>
     </listitem>
    </varlistentry>
@@ -316,50 +395,6 @@ SELECT col FROM tab ORDER BY col USING sortop LIMIT 1;
       aggregation for such a query only if the hash table is estimated to fit
       in <xref linkend="guc-work-mem">; therefore, large values of this
       parameter discourage use of hash aggregation.
-     </para>
-    </listitem>
-   </varlistentry>
-
-   <varlistentry>
-    <term><replaceable class="PARAMETER">inv_trans_func</replaceable></term>
-    <listitem>
-     <para>
-      An inverse transition function can be specified, these can save
-      <productname>PostgreSQL</productname> from having to aggregate values
-      again in certain cases when the aggregate function is used in the
-      context of a <literal>WINDOW</>. This function should remove the given
-      value from aggregation and restore the state to what it was before the
-      value was aggregated. The inverse transition function may also return
-      NULL, this effectively tells <productname>PostgreSQL</productname> that
-      the function was unable to remove the row from aggregation. In this case
-      <productname>PostgreSQL</productname> will discard the aggregated results
-      and re-aggregate the rows in the new scope of the window frame.
-     </para>
-
-     <para>
-      Note that the inverse transition function's return value and arguments
-      must match the return value and arguments of the transition function.
-      If the aggregate's transition function is strict then the inverse
-      transition function must also be strict.
-     </para>
-
-     <para>
-      <productname>PostgreSQL</productname> uses inverse transition functions
-      with various builtin aggregate functions, for example,
-      <function>count(*)</function>'s inverse transition function simply does
-      <literal>count - 1</> where the transition function does
-      <literal>count + 1</>. Having the inverse transition function in this
-      case saves <productname>PostgreSQL</productname> from having to reiterate
-      over all rows in the window frame to calculate
-      <function>count(*)</function> whenever a row moves out of scope in the
-      window frame.
-     </para>
-
-     <para>
-      Window functions are described in detail in
-      <xref linkend="tutorial-window">,
-      <xref linkend="syntax-window-functions">, and
-      <xref linkend="queries-window">.
      </para>
     </listitem>
    </varlistentry>
