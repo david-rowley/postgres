@@ -2275,7 +2275,8 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 
 	ReleaseSysCache(aggTuple);
 
-	/* We ignore NULLs if either of the transition function is strict, i.e
+	/*
+	 * We ignore NULLs if either of the transition function is strict, i.e
 	 * if in that case neither of the functions will ever see NULL inputs.
 	 * If the forward transition function is non-strict, and the initial value
 	 * is NULL, it will receive a NULL state upon the first non-NULL input
