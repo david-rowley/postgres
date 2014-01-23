@@ -330,7 +330,7 @@ SELECT col FROM tab ORDER BY col USING sortop LIMIT 1;
     <term><replaceable class="PARAMETER">sfunc</replaceable></term>
     <listitem>
      <para>
-      The name of the state transition function to be called for each
+      The name of the (forward) state transition function to be called for each
       input row.  For a normal <replaceable class="PARAMETER">N</>-argument
       aggregate function, the <replaceable class="PARAMETER">sfunc</>
       must take <replaceable class="PARAMETER">N</>+1 arguments,
@@ -340,7 +340,9 @@ SELECT col FROM tab ORDER BY col USING sortop LIMIT 1;
       The function must return a value of type <replaceable
       class="PARAMETER">state_data_type</replaceable>.  This function
       takes the current state value and the current input data value(s),
-      and returns the next state value.
+      and returns the next state value. Note that if an inverse
+      transition function is present, the forward transition function must
+      not return <literal>NULL</>
      </para>
      
      <para>
@@ -369,7 +371,9 @@ SELECT col FROM tab ORDER BY col USING sortop LIMIT 1;
       signatures of the two functions must be identical. Their
       <quote>strictness</quote> though may differ, but the only allowed
       combination is a non-strict forward combined with a strict inverse
-      transition function.
+      transition function. The inverse transition function may return
+      <literal>NULL</> to force the aggregation to be restarted from
+      scratch.
      </para>
     </listitem>
    </varlistentry>
