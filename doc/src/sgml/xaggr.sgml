@@ -16,7 +16,7 @@
    as each successive input row is processed.
    To define a new aggregate
    function, one selects a data type for the state value,
-   an initial value for the state, and a state transition
+   an initial value for the state, and a forward state transition
    function.  The state transition function takes the previous state
    value and the aggregate's input value(s) for the current row, and
    returns a new state value.
@@ -24,7 +24,19 @@
    can also be specified, in case the desired result of the aggregate
    is different from the data that needs to be kept in the running
    state value.  The final function takes the last state value
-   and returns whatever is wanted as the aggregate result.
+   and returns whatever is wanted as the aggregate result. 
+   To enable efficient evaluation of an aggregate used as a window function
+   with a sliding frame (i.e. a frame that starts relative to the current row),
+   an aggregate can optionally provide an inverse state transition function.
+   The inverse transition function takes the the current state and the
+   aggregate's input value(s) for the <emphasis>earliest</emphasis> row passed
+   to the forward transition function, and returns a state equivalent to what
+   the current state had been had the forward transition function never been
+   invoked for that earliest row, only for all rows that followed it. Thus,
+   if an inverse transition function is provided, the rows that were part of
+   the previous row's frame but not of the current row's frame can simply be
+   removed from the state instead of having to redo the whole aggregation
+   over the new frame.
    In principle, the transition and final functions are just ordinary
    functions that could also be used outside the context of the
    aggregate.  (In practice, it's often helpful for performance reasons
@@ -132,65 +144,44 @@ CREATE AGGREGATE avg (float8)
   </note>
 
   <para>
-   An aggregate function can also specify an inverse transition function.
-   <productname>PostgreSQL</productname> can use these when the aggregate
-   is used in the context of a <literal>WINDOW</>, this can save from having to
-   recalculate the aggregate value when a row moves out of the scope in the
-   window frame. Internally <productname>PostgreSQL</productname> uses these
-   for various aggregate functions, this can improve performance significantly
-   even moderate number of rows.
+   When providing an inverse transition function, care should be taken to
+   ensure that it doesn't introduce unexpected user-visible differences
+   between results obtained by reaggregating all inputs vs. using the inverse
+   transition function. An example for an aggregate where adding an inverse
+   transition function seems easy at first, yet were doing so would violate
+   this requirement is <function>sum</> over <type>float</> or
+   <type>double precision</>. A naive declaration of
+   <function>sum(<type>float</>)</function> could be
+   
+   <programlisting>
+   CREATE AGGREGATE unsafe_sum (float8)
+   (
+       stype = float8,
+       sfunc = float8pl,
+       invfunc = float8mi
+   );
+   </programlisting>
+   
+   This aggregate, howevery, can give wildly different results than it would
+   have without the inverse transition function. For example, consider
+   
+   <programlisting>
+   SELECT
+     unsafe_sum(x) OVER (ORDER BY n ROWS BETWEEN CURRENT ROW AND
+                                                 1 FOLLOWING)
+   FROM (VALUES
+     (1, 1.0e20::float8),
+     (2, 1.0::float8)
+   ) AS v (n,x)
+   </programlisting>
+   
+   which returns 0 as it's second result, yet the expected answer is 1. The
+   reason for this is the limited precision of floating point types - adding
+   1 to 1e20 actually leaves the value unchanged, and so substracting 1e20
+   again yields 0, not 1. Note that this is a limitation of floating point
+   types in general and not a limitation of <productname>PostgreSQL</>.
   </para>
-
-  <para>
-   For safety <productname>PostgreSQL</productname> chooses to omit the inverse
-   transition function in some cases where it might appear that they should be
-   implemented. The <function>sum</> function with the types
-   <literal>double precision</> and <literal>float</> are examples of this.
-   The inverse transition function was not implemented with these types on
-   purpose due to the limited numerical precision of these types. It is
-   possible, however, to create a user defined aggregate which implements an
-   inverse transition function for these types. Such an aggregate will likely
-   be more efficient when used in the context of a <literal>WINDOW</> where
-   the window frame's head is not fixed. A faster but unsafe version of
-   <function>sum</> for <literal>double precision</> might be implemented as:
-
-<programlisting>
-CREATE AGGREGATE fast_sum (float8)
-(
-    stype = float8,
-    sfunc = float8pl,
-    invfunc = float8mi
-);
-</programlisting>
-
-   The above aggregate can give incorrect results due to the limited precision
-   of floating point types. As an example consider the result of the following
-   expression <literal>1e20::float + 1 - 1e20</>, you may expect the result of
-   this to be 1, but the result is actually 0. The reason for this is due to how
-   floating point types work. Note that this is a limitation of floating point
-   types in general and not a limitation of
-   <productname>PostgreSQL</productname>.
-  </para>
-
-  <para>
-  <note>
-   You may be able achieve higher precision by using an aggregate similar to
-   the above if your data is stored in a column with the type <literal>float</>
-   by first casting the value to <literal>double precision</>. Though it should
-   be noted that your query results could still be incorrect. Evaluating an
-   expression which adds the smallest possible value that can be stored in type
-   <literal>float</> to the biggest value then removes the biggest value,
-   you may expect that widening the type to <literal>double precision</> may
-   allow the precision to be maintained, though this may not be the case.
-   <literal>3.4e38::float8 + 1.4e-45 - 3.4e38</> demonstrates this, as the
-   result is <literal>0</> instead of <literal>1.4e-45</>. If these rounding
-   anomalies are acceptable for your use case and you require the performance
-   gain that can be achieved from invervse transitions then you may like to
-   consider creating your own user defined aggregate function as demonstrated
-   above.
-  </note>
-  </para>
-
+  
   <para>
    Aggregate functions can use polymorphic
    state transition functions or final functions, so that the same functions
@@ -400,42 +391,7 @@ if (AggCheckCallContext(fcinfo, NULL))
    in <filename>orderedsetaggs.c</> in the <productname>PostgreSQL</>
    source code.
   </para>
-
-  <para>
-   Optionally the aggregate function may also specify an inverse transition
-   function, these allow values to be removed from aggregation in a single
-   operation rather than having to re-aggregate all previous aggregated values
-   again. <productname>PostgreSQL</productname> makes use of these when the
-   aggregate is used in a <literal>WINDOW</> context in order to efficiently
-   remove values when frame head of the window moves beyond the first
-   aggregated value. The inverse transition function may optionally report that
-   it failed to remove the value by returning a null value, in this case
-   <productname>PostgreSQL</productname> will discard the current aggregated
-   value and re-aggregate all of the new rows in order to calculated the
-   new aggregate state. Internally <productname>PostgreSQL</productname> uses
-   this method to implement inverse transition functions for the aggregate
-   functions <literal>MAX</> and <literal>MIN</>, these functions simply return
-   NULL if the value being removed the same as the aggregated state, otherwise
-   they return the aggregated state as removing the value would have no impact
-   on the current aggregated state.
-  </para>
   
-  <para>
-   If the aggregate function's <literal>STRICT</> property is set then the
-   inverse transition must also have the <literal>STRICT</> property set,
-   though it is perfectly valid to have a strict inverse transition function
-   when the transition function is not strict, however if the current aggregate
-   state is NULL when the inverse transition function is called then an error
-   will be raised. For most cases it is likely that the inverse transition
-   function should be marked as <literal>STRICT</>, it is only likely to be of
-   benefit to have a non-strict inverse transition function if you need to keep
-   track of the number of NULL values or values including NULL values that are
-   in your aggregate's context.
-  </para>
-  
-  <
-   
-   
   <para>
    For further details see the
    <xref linkend="sql-createaggregate">
