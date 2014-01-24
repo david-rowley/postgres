@@ -16,7 +16,7 @@
    as each successive input row is processed.
    To define a new aggregate
    function, one selects a data type for the state value,
-   an initial value for the state, and a state transition
+   an initial value for the state, and a forward state transition
    function.  The state transition function takes the previous state
    value and the aggregate's input value(s) for the current row, and
    returns a new state value.
@@ -24,7 +24,19 @@
    can also be specified, in case the desired result of the aggregate
    is different from the data that needs to be kept in the running
    state value.  The final function takes the last state value
-   and returns whatever is wanted as the aggregate result.
+   and returns whatever is wanted as the aggregate result. 
+   To enable efficient evaluation of an aggregate used as a window function
+   with a sliding frame (i.e. a frame that starts relative to the current row),
+   an aggregate can optionally provide an inverse state transition function.
+   The inverse transition function takes the the current state and the
+   aggregate's input value(s) for the <emphasis>earliest</emphasis> row passed
+   to the forward transition function, and returns a state equivalent to what
+   the current state had been had the forward transition function never been
+   invoked for that earliest row, only for all rows that followed it. Thus,
+   if an inverse transition function is provided, the rows that were part of
+   the previous row's frame but not of the current row's frame can simply be
+   removed from the state instead of having to redo the whole aggregation
+   over the new frame.
    In principle, the transition and final functions are just ordinary
    functions that could also be used outside the context of the
    aggregate.  (In practice, it's often helpful for performance reasons
@@ -131,6 +143,45 @@ CREATE AGGREGATE avg (float8)
    </para>
   </note>
 
+  <para>
+   When providing an inverse transition function, care should be taken to
+   ensure that it doesn't introduce unexpected user-visible differences
+   between results obtained by reaggregating all inputs vs. using the inverse
+   transition function. An example for an aggregate where adding an inverse
+   transition function seems easy at first, yet were doing so would violate
+   this requirement is <function>sum</> over <type>float</> or
+   <type>double precision</>. A naive declaration of
+   <function>sum(<type>float</>)</function> could be
+   
+   <programlisting>
+   CREATE AGGREGATE unsafe_sum (float8)
+   (
+       stype = float8,
+       sfunc = float8pl,
+       invfunc = float8mi
+   );
+   </programlisting>
+   
+   This aggregate, howevery, can give wildly different results than it would
+   have without the inverse transition function. For example, consider
+   
+   <programlisting>
+   SELECT
+     unsafe_sum(x) OVER (ORDER BY n ROWS BETWEEN CURRENT ROW AND
+                                                 1 FOLLOWING)
+   FROM (VALUES
+     (1, 1.0e20::float8),
+     (2, 1.0::float8)
+   ) AS v (n,x)
+   </programlisting>
+   
+   which returns 0 as it's second result, yet the expected answer is 1. The
+   reason for this is the limited precision of floating point types - adding
+   1 to 1e20 actually leaves the value unchanged, and so substracting 1e20
+   again yields 0, not 1. Note that this is a limitation of floating point
+   types in general and not a limitation of <productname>PostgreSQL</>.
+  </para>
+  
   <para>
    Aggregate functions can use polymorphic
    state transition functions or final functions, so that the same functions
