@@ -285,6 +285,12 @@ SELECT nth_value_def(n := 2, val := ten) OVER (PARTITION BY four), ten, four
 SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four
   FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) s;
 
+--
+--
+-- Test the basic inverse transition function machinery
+--
+--
+
 -- create aggregates which log their calls
 -- invsfunc is *not* a real inverse here!
 CREATE FUNCTION logging_sfunc_nonstrict(text, anyelement) RETURNS text AS
@@ -376,6 +382,36 @@ FROM (VALUES
 WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
 ORDER BY p, i;
 
+-- tests that volatile arguments disable inverse transition functions
+SELECT
+	i::text || ':' || COALESCE(v::text, 'NULL') as row,
+	logging_agg_strict(v::text)
+		over wnd as inverse,
+	logging_agg_strict(v::text || CASE WHEN random() < 0 then '?' ELSE '' END)
+		over wnd as noinverse
+FROM (VALUES
+	(1, 'a'),
+	(2, 'b'),
+	(3, 'c')
+) AS t(i, v)
+WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+ORDER BY i;
+
+-- tests that volatile filters disable inverse transition functions
+SELECT
+	i::text || ':' || COALESCE(v::text, 'NULL') as row,
+	logging_agg_strict(v::text) filter(where true)
+		over wnd as inverse,
+	logging_agg_strict(v::text) filter(where random() >= 0)
+		over wnd as noinverse
+FROM (VALUES
+	(1, 'a'),
+	(2, 'b'),
+	(3, 'c')
+) AS t(i, v)
+WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+ORDER BY i;
+
 -- cleanup logging aggregate
 DROP AGGREGATE logging_agg_strict_initcond(anyelement);
 DROP AGGREGATE logging_agg_strict(text);
@@ -385,3 +421,21 @@ DROP AGGREGATE logging_agg_nonstrict_initcond(anyelement);
 DROP AGGREGATE logging_agg_nonstrict(anyelement);
 DROP FUNCTION logging_invsfunc_nonstrict(text, anyelement);
 DROP FUNCTION logging_sfunc_nonstrict(text, anyelement);
+
+--
+--
+-- Test the arithmetic inverse transition functions
+--
+--
+
+--
+--
+-- Test the MIN, MAX and boolean inverse transition functions
+--
+--
+
+--
+--
+-- Tests of the collecting inverse transition functions
+--
+--
