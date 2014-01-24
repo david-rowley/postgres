@@ -102,17 +102,24 @@ typedef struct WindowStatePerFuncData
  */
 typedef struct WindowStatePerAggData
 {
-	/* Oids of transfer functions */
+	/* Oids of transition functions */
 	Oid			transfn_oid;
 	Oid			finalfn_oid;	/* may be InvalidOid */
+	Oid			invtransfn_oid; /* may be InvalidOid */
 
 	/*
-	 * fmgr lookup data for transfer functions --- only valid when
+	 * fmgr lookup data for transition functions --- only valid when
 	 * corresponding oid is not InvalidOid.  Note in particular that fn_strict
 	 * flags are kept here.
 	 */
 	FmgrInfo	transfn;
+	FmgrInfo	invtransfn;
 	FmgrInfo	finalfn;
+
+	/* Aggregate properties */
+	bool		use_invtransfn;			/* whether to use the invtransfn */
+	bool		aggcontext_is_shared;	/* aggcontext is winstate's aggcontext */
+	bool		ignore_nulls;			/* whether we skip NULL inputs */
 
 	/*
 	 * initial value from pg_aggregate entry
@@ -140,16 +147,22 @@ typedef struct WindowStatePerAggData
 	int			wfuncno;		/* index of associated PerFuncData */
 
 	/* Current transition value */
-	Datum		transValue;		/* current transition value */
-	bool		transValueIsNull;
+	MemoryContext	aggcontext;			/* context for transValue */
+	int64			transValueCount;	/* Number of aggregates values*/
+	Datum			transValue;			/* current transition value */
+	bool			transValueIsNull;
 
-	bool		noTransValue;	/* true if transValue not set yet */
+	/* Data local to eval_windowaggregates() */
+	bool			restart;			/* tmp marker that agg needs restart */
 } WindowStatePerAggData;
 
 static void initialize_windowaggregate(WindowAggState *winstate,
 						   WindowStatePerFunc perfuncstate,
 						   WindowStatePerAgg peraggstate);
 static void advance_windowaggregate(WindowAggState *winstate,
+						WindowStatePerFunc perfuncstate,
+						WindowStatePerAgg peraggstate);
+static bool retreat_windowaggregate(WindowAggState *winstate,
 						WindowStatePerFunc perfuncstate,
 						WindowStatePerAgg peraggstate);
 static void finalize_windowaggregate(WindowAggState *winstate,
@@ -181,6 +194,50 @@ static bool are_peers(WindowAggState *winstate, TupleTableSlot *slot1,
 static bool window_gettupleslot(WindowObject winobj, int64 pos,
 					TupleTableSlot *slot);
 
+/*
+ * AggCheckCallContext - test if a SQL function is being called as an aggregate
+ *
+ * The transition and/or final functions of an aggregate may want to verify
+ * that they are being called as aggregates, rather than as plain SQL
+ * functions.  They should use this function to do so.	The return value
+ * is nonzero if being called as an aggregate, or zero if not.	(Specific
+ * nonzero values are AGG_CONTEXT_AGGREGATE or AGG_CONTEXT_WINDOW, but more
+ * values could conceivably appear in future.)
+ *
+ * If aggcontext isn't NULL, the function also stores at *aggcontext the
+ * identity of the memory context that aggregate transition values are
+ * being stored in.
+ *
+ * This must live here, not in nodeAgg.c, because WindowStatePerAggData
+ * is private.
+ */
+int
+AggCheckCallContext(FunctionCallInfo fcinfo, MemoryContext *aggcontext)
+{
+	if (fcinfo->context && IsA(fcinfo->context, AggState))
+	{
+		if (aggcontext)
+			*aggcontext = ((AggState *) fcinfo->context)->aggcontext;
+		return AGG_CONTEXT_AGGREGATE;
+	}
+	if (fcinfo->context && IsA(fcinfo->context, WindowAggState))
+	{
+		if (aggcontext)
+		{
+			/* Must lookup per-aggregate context */
+			WindowAggState *winstate = (WindowAggState *) fcinfo->context;
+			int				aggno = winstate->calledaggno;
+			Assert(0 <= aggno && aggno < winstate->numaggs);
+			*aggcontext = winstate->peragg[aggno].aggcontext;
+		}
+		return AGG_CONTEXT_WINDOW;
+	}
+
+	/* this is just to prevent "uninitialized variable" warnings */
+	if (aggcontext)
+		*aggcontext = NULL;
+	return 0;
+}
 
 /*
  * initialize_windowaggregate
@@ -193,18 +250,26 @@ initialize_windowaggregate(WindowAggState *winstate,
 {
 	MemoryContext oldContext;
 
+	/* If we're using a private aggcontext, we may reset it here. But if the
+	 * context is shared, we don't know which other aggregates may still need
+	 * it, so we must leave it to the caller to reset at an appropriate time
+	 */
+	if (!peraggstate->aggcontext_is_shared)
+		MemoryContextResetAndDeleteChildren(peraggstate->aggcontext);
+
 	if (peraggstate->initValueIsNull)
-		peraggstate->transValue = peraggstate->initValue;
+		peraggstate->transValue = (Datum) 0;
 	else
 	{
-		oldContext = MemoryContextSwitchTo(winstate->aggcontext);
+		oldContext = MemoryContextSwitchTo(peraggstate->aggcontext);
 		peraggstate->transValue = datumCopy(peraggstate->initValue,
 											peraggstate->transtypeByVal,
 											peraggstate->transtypeLen);
 		MemoryContextSwitchTo(oldContext);
 	}
+	peraggstate->transValueCount = 0;
 	peraggstate->transValueIsNull = peraggstate->initValueIsNull;
-	peraggstate->noTransValue = peraggstate->initValueIsNull;
+	peraggstate->resultValue = (Datum) 0;
 	peraggstate->resultValueIsNull = true;
 }
 
@@ -254,12 +319,9 @@ advance_windowaggregate(WindowAggState *winstate,
 		i++;
 	}
 
-	if (peraggstate->transfn.fn_strict)
+	/* Skip NULL inputs for aggregates which desire that. */
+	if (peraggstate->ignore_nulls)
 	{
-		/*
-		 * For a strict transfn, nothing happens when there's a NULL input; we
-		 * just keep the prior transValue.
-		 */
 		for (i = 1; i <= numArguments; i++)
 		{
 			if (fcinfo->argnull[i])
@@ -268,23 +330,28 @@ advance_windowaggregate(WindowAggState *winstate,
 				return;
 			}
 		}
-		if (peraggstate->noTransValue)
+	}
+	else
+		Assert(!peraggstate->transfn.fn_strict);
+
+	if (peraggstate->transfn.fn_strict) {
+		if (peraggstate->transValueCount == 0 && peraggstate->transValueIsNull)
 		{
 			/*
-			 * transValue has not been initialized. This is the first non-NULL
-			 * input value. We use it as the initial value for transValue. (We
+			 * For strict transfer functions with initial value NULL we use
+			 * the first non-NULL input as the initial state. (We
 			 * already checked that the agg's input type is binary-compatible
 			 * with its transtype, so straight copy here is OK.)
 			 *
 			 * We must copy the datum into aggcontext if it is pass-by-ref. We
 			 * do not need to pfree the old transValue, since it's NULL.
 			 */
-			MemoryContextSwitchTo(winstate->aggcontext);
+			MemoryContextSwitchTo(peraggstate->aggcontext);
 			peraggstate->transValue = datumCopy(fcinfo->arg[1],
 												peraggstate->transtypeByVal,
 												peraggstate->transtypeLen);
 			peraggstate->transValueIsNull = false;
-			peraggstate->noTransValue = false;
+			peraggstate->transValueCount = 1;
 			MemoryContextSwitchTo(oldContext);
 			return;
 		}
@@ -294,15 +361,29 @@ advance_windowaggregate(WindowAggState *winstate,
 			 * Don't call a strict function with NULL inputs.  Note it is
 			 * possible to get here despite the above tests, if the transfn is
 			 * strict *and* returned a NULL on a prior cycle. If that happens
-			 * we will propagate the NULL all the way to the end.
+			 * we will propagate the NULL all the way to the end. That can only
+			 * happen if there's no inverse transition function, though, since
+			 * we disallow transitions back to NULL if there is one below.
 			 */
 			MemoryContextSwitchTo(oldContext);
+			Assert(peraggstate->invtransfn_oid == InvalidOid);
 			return;
 		}
 	}
 
 	/*
+	 * We must track the number of inputs that we add to transValue, since
+	 * to remove the last input, retreat_windowaggregate() musn't call the
+	 * inverse transition function, but simply reset transValue back to its
+	 * initial value.
+	 */
+	Assert(peraggstate->transValueCount >= 0);
+	peraggstate->transValueCount++;
+
+	/*
 	 * OK to call the transition function
+	 * Transfer functions with an inverse MUST not return NULL, see
+	 * retreat_windowaggregate()
 	 */
 	InitFunctionCallInfoData(*fcinfo, &(peraggstate->transfn),
 							 numArguments + 1,
@@ -310,7 +391,15 @@ advance_windowaggregate(WindowAggState *winstate,
 							 (void *) winstate, NULL);
 	fcinfo->arg[0] = peraggstate->transValue;
 	fcinfo->argnull[0] = peraggstate->transValueIsNull;
+	winstate->calledaggno = perfuncstate->aggno;
 	newVal = FunctionCallInvoke(fcinfo);
+	winstate->calledaggno = -1;
+	if (peraggstate->invtransfn_oid != InvalidOid && fcinfo->isnull)
+	{
+		ereport(ERROR,
+				(errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
+				 errmsg("transition function with an inverse returned NULL")));
+	}
 
 	/*
 	 * If pass-by-ref datatype, must copy the new value into aggcontext and
@@ -322,7 +411,7 @@ advance_windowaggregate(WindowAggState *winstate,
 	{
 		if (!fcinfo->isnull)
 		{
-			MemoryContextSwitchTo(winstate->aggcontext);
+			MemoryContextSwitchTo(peraggstate->aggcontext);
 			newVal = datumCopy(newVal,
 							   peraggstate->transtypeByVal,
 							   peraggstate->transtypeLen);
@@ -335,6 +424,149 @@ advance_windowaggregate(WindowAggState *winstate,
 	peraggstate->transValue = newVal;
 	peraggstate->transValueIsNull = fcinfo->isnull;
 }
+
+/*
+ * retreat_windowaggregate
+ * removes tuples from aggregation.
+ * The calling function must ensure that each aggregate has
+ * a valid inverse transition function.
+ */
+static bool
+retreat_windowaggregate(WindowAggState *winstate,
+						WindowStatePerFunc perfuncstate,
+						WindowStatePerAgg peraggstate)
+{
+	WindowFuncExprState *wfuncstate = perfuncstate->wfuncstate;
+	int			numArguments = perfuncstate->numArguments;
+	FunctionCallInfoData fcinfodata;
+	FunctionCallInfo fcinfo = &fcinfodata;
+	Datum		newVal;
+	ListCell   *arg;
+	int			i;
+	MemoryContext oldContext;
+	ExprContext *econtext = winstate->tmpcontext;
+	ExprState  *filter = wfuncstate->aggfilter;
+
+	oldContext = MemoryContextSwitchTo(econtext->ecxt_per_tuple_memory);
+
+	/* Skip anything FILTERed out */
+	if (filter)
+	{
+		bool		isnull;
+		Datum		res = ExecEvalExpr(filter, econtext, &isnull, NULL);
+
+		if (isnull || !DatumGetBool(res))
+		{
+			MemoryContextSwitchTo(oldContext);
+			return true;
+		}
+	}
+
+	/* We start from 1, since the 0th arg will be the transition value */
+	i = 1;
+	foreach(arg, wfuncstate->args)
+	{
+		ExprState  *argstate = (ExprState *) lfirst(arg);
+
+		fcinfo->arg[i] = ExecEvalExpr(argstate, econtext,
+									  &fcinfo->argnull[i], NULL);
+		i++;
+	}
+
+	/* Skip inputs containing NULLS for aggregates that require this */
+	if (peraggstate->ignore_nulls)
+	{
+		for (i = 1; i <= numArguments; i++)
+		{
+			if (fcinfo->argnull[i])
+			{
+				MemoryContextSwitchTo(oldContext);
+				return true;
+			}
+		}
+	}
+	else
+		Assert(!peraggstate->invtransfn.fn_strict);
+
+	/* There should still an added but not yet removed value */
+	Assert(peraggstate->transValueCount >= 1);
+
+	/*
+	 * We mustn't use the inverse transition function to remove the last
+	 * input. Doing so would yield a non-NULL state, whereas we should be
+	 * in the initial state afterwards which may very well be NULL. So
+	 * instead, we simply re-initialize the aggregation in this case.
+	 */
+	if (peraggstate->transValueCount == 1)
+	{
+		MemoryContextSwitchTo(oldContext);
+		initialize_windowaggregate(winstate,
+								&winstate->perfunc[peraggstate->wfuncno],
+								peraggstate);
+		return true;
+	}
+
+	/*
+	 * Perform the inverse transition.
+	 *
+	 * For pairs of forward and inverse transition functions, the state may
+	 * never be NULL, except in the ignore_nulls case, and then only until
+	 * until we see the first non-NULL input during which time should never
+	 * attempt to invoke the inverse transition function. Excluding NULL
+	 * as a possible state value allows us to make it mean "sorry, can't
+	 * do an inverse transition in this case" when returned by the inverse
+	 * transition function. In that case, we report the failure to the
+	 * caller.
+	 */
+	if (peraggstate->transValueIsNull)
+	{
+		MemoryContextSwitchTo(oldContext);
+		elog(ERROR, "transition value is NULL during inverse transition");
+	}
+	InitFunctionCallInfoData(*fcinfo, &(peraggstate->invtransfn),
+							 numArguments + 1,
+							 perfuncstate->winCollation,
+							 (void *) winstate, NULL);
+	fcinfo->arg[0] = peraggstate->transValue;
+	fcinfo->argnull[0] = peraggstate->transValueIsNull;
+	winstate->calledaggno = perfuncstate->aggno;
+	newVal = FunctionCallInvoke(fcinfo);
+	winstate->calledaggno = -1;
+	if (fcinfo->isnull)
+	{
+		MemoryContextSwitchTo(oldContext);
+		return false;
+	}
+	
+	/* Update number of added but not yet removed values */
+	peraggstate->transValueCount--;
+
+	/*
+	 * If pass-by-ref datatype, must copy the new value into aggcontext and
+	 * pfree the prior transValue.	But if invtransfn returned a pointer to its
+	 * first input, we don't need to do anything.
+	 */
+	if (!peraggstate->transtypeByVal &&
+		DatumGetPointer(newVal) != DatumGetPointer(peraggstate->transValue))
+	{
+		if (!fcinfo->isnull)
+		{
+			MemoryContextSwitchTo(peraggstate->aggcontext);
+			newVal = datumCopy(newVal,
+							   peraggstate->transtypeByVal,
+							   peraggstate->transtypeLen);
+		}
+		if (!peraggstate->transValueIsNull)
+			pfree(DatumGetPointer(peraggstate->transValue));
+	}
+
+	MemoryContextSwitchTo(oldContext);
+	peraggstate->transValue = newVal;
+	peraggstate->transValueIsNull = fcinfo->isnull;
+
+	return true;
+}
+
 
 /*
  * finalize_windowaggregate
@@ -370,7 +602,9 @@ finalize_windowaggregate(WindowAggState *winstate,
 		}
 		else
 		{
+			winstate->calledaggno = perfuncstate->aggno;
 			*result = FunctionCallInvoke(&fcinfo);
+			winstate->calledaggno = -1;
 			*isnull = fcinfo.isnull;
 		}
 	}
@@ -392,6 +626,7 @@ finalize_windowaggregate(WindowAggState *winstate,
 	MemoryContextSwitchTo(oldContext);
 }
 
+
 /*
  * eval_windowaggregates
  * evaluate plain aggregates being used as window functions
@@ -406,12 +641,18 @@ eval_windowaggregates(WindowAggState *winstate)
 {
 	WindowStatePerAgg peraggstate;
 	int			wfuncno,
-				numaggs;
-	int			i;
+				numaggs,
+				numaggs_restart = 0,
+				i;
+	int64		pos,
+				aggregatedupto_nonrestarted;
+	bool		is_first = (winstate->currentpos == 0),
+				ok;
 	MemoryContext oldContext;
 	ExprContext *econtext;
 	WindowObject agg_winobj;
-	TupleTableSlot *agg_row_slot;
+	TupleTableSlot *agg_row_slot = winstate->agg_row_slot;
+	TupleTableSlot *temp_slot = winstate->temp_slot_1;
 
 	numaggs = winstate->numaggs;
 	if (numaggs == 0)
@@ -420,7 +661,6 @@ eval_windowaggregates(WindowAggState *winstate)
 	/* final output execution is in ps_ExprContext */
 	econtext = winstate->ss.ps.ps_ExprContext;
 	agg_winobj = winstate->agg_winobj;
-	agg_row_slot = winstate->agg_row_slot;
 
 	/*
 	 * Currently, we support only a subset of the SQL-standard window framing
@@ -438,9 +678,20 @@ eval_windowaggregates(WindowAggState *winstate)
 	 * damage the running transition value, but we have the same assumption in
 	 * nodeAgg.c too (when it rescans an existing hash table).
 	 *
-	 * For other frame start rules, we discard the aggregate state and re-run
-	 * the aggregates whenever the frame head row moves.  We can still
-	 * optimize as above whenever successive rows share the same frame head.
+	 * We can still optimize as above whenever successive rows share the same
+	 * frame head, but if the frame head moves beyond the aggregated base point
+	 * we use the aggregate function's inverse transition function. This
+	 * removes the tuple from aggregation and restores the aggregate's current
+	 * state to what it would be if the removed row had never been aggregated
+	 * in the first place. Inverse transition functions may optionally return
+	 * NULL, this indicates that the function was unable to remove the tuple
+	 * from aggregation, when this happens we must perform the aggregation all
+	 * over again for all tuples in the new frame boundary.
+	 *
+	 * If the aggregate function does not have a inverse transition function
+	 * and the frame head moves beyond the aggregated position then we must
+	 * discard the aggregated state and re-aggregate similar to how we would
+	 * have to if the inverse transition function had returned NULL.
 	 *
 	 * In many common cases, multiple rows share the same frame and hence the
 	 * same aggregate value. (In particular, if there's no ORDER BY in a RANGE
@@ -452,63 +703,29 @@ eval_windowaggregates(WindowAggState *winstate)
 	 * 'aggregatedupto' keeps track of the first row that has not yet been
 	 * accumulated into the aggregate transition values.  Whenever we start a
 	 * new peer group, we accumulate forward to the end of the peer group.
-	 *
-	 * TODO: Rerunning aggregates from the frame start can be pretty slow. For
-	 * some aggregates like SUM and COUNT we could avoid that by implementing
-	 * a "negative transition function" that would be called for each row as
-	 * it exits the frame.	We'd have to think about avoiding recalculation of
-	 * volatile arguments of aggregate functions, too.
 	 */
 
 	/*
 	 * First, update the frame head position.
+	 *
+	 * The frame head should never move backwards, and the code below wouldn't
+	 * cope if it did, so for safety we complain if it does.
 	 */
-	update_frameheadpos(agg_winobj, winstate->temp_slot_1);
+	update_frameheadpos(agg_winobj, temp_slot);
+	if (winstate->frameheadpos < winstate->aggregatedbase)
+		elog(ERROR, "frame moved backwards unexpectedly");
 
 	/*
-	 * Initialize aggregates on first call for partition, or if the frame head
-	 * position moved since last time.
+	 * If the frame didn't change compared to the previous row, we can re-use
+	 * the cached result. Since we don't know the current frame's end yet, we
+	 * cannot check that the obvious way. But we can exploit that if the frame
+	 * end is UNBOUNDED FOLLOWING or CURRENT ROW, then whenever the current
+	 * row lies within the previous row's frame, the two frame's ends must
+	 * coincide. Note that for the first row, aggregatedbase = aggregatedupto,
+	 * so we don't need to check for that explicitly here.
 	 */
-	if (winstate->currentpos == 0 ||
-		winstate->frameheadpos != winstate->aggregatedbase)
-	{
-		/*
-		 * Discard transient aggregate values
-		 */
-		MemoryContextResetAndDeleteChildren(winstate->aggcontext);
-
-		for (i = 0; i < numaggs; i++)
-		{
-			peraggstate = &winstate->peragg[i];
-			wfuncno = peraggstate->wfuncno;
-			initialize_windowaggregate(winstate,
-									   &winstate->perfunc[wfuncno],
-									   peraggstate);
-		}
-
-		/*
-		 * If we created a mark pointer for aggregates, keep it pushed up to
-		 * frame head, so that tuplestore can discard unnecessary rows.
-		 */
-		if (agg_winobj->markptr >= 0)
-			WinSetMarkPosition(agg_winobj, winstate->frameheadpos);
-
-		/*
-		 * Initialize for loop below
-		 */
-		ExecClearTuple(agg_row_slot);
-		winstate->aggregatedbase = winstate->frameheadpos;
-		winstate->aggregatedupto = winstate->frameheadpos;
-	}
-
-	/*
-	 * In UNBOUNDED_FOLLOWING mode, we don't have to recalculate aggregates
-	 * except when the frame head moves.  In END_CURRENT_ROW mode, we only
-	 * have to recalculate when the frame head moves or currentpos has
-	 * advanced past the place we'd aggregated up to.  Check for these cases
-	 * and if so, reuse the saved result values.
-	 */
-	if ((winstate->frameOptions & (FRAMEOPTION_END_UNBOUNDED_FOLLOWING |
+	if (winstate->aggregatedbase == winstate->frameheadpos &&
+		(winstate->frameOptions & (FRAMEOPTION_END_UNBOUNDED_FOLLOWING |
 								   FRAMEOPTION_END_CURRENT_ROW)) &&
 		winstate->aggregatedbase <= winstate->currentpos &&
 		winstate->aggregatedupto > winstate->currentpos)
@@ -522,6 +739,140 @@ eval_windowaggregates(WindowAggState *winstate)
 		}
 		return;
 	}
+
+	/* Initialize restart flags.
+	 *
+	 * We restart the aggregation
+	 *   - if we're processing the first row in the partition, or
+	 *   - if we the frame's head moved and we cannot use an inverse
+	 *     transition function, or
+	 *   - if the new frame doesn't overlap the old one
+	 *
+	 * Note that we don't strictly need to restart in the last case, but
+	 * if we're going to remove *all* rows from the aggregation anyway, a
+	 * restart surely is faster.
+	 */
+	for (i = 0; i < numaggs; i++)
+	{
+		peraggstate = &winstate->peragg[i];
+		if (is_first ||
+			(winstate->aggregatedbase < winstate->frameheadpos &&
+			!peraggstate->use_invtransfn) ||
+			(winstate->aggregatedupto <= winstate->frameheadpos))
+		{
+			peraggstate->restart = true;
+			numaggs_restart++;
+		}
+		else
+			peraggstate->restart = false;
+	}
+
+	/*
+	 * Attempt to update aggregatedbase to match the frame's head by
+	 * removing those inputs from the aggregations which fell off the top
+	 * of the frame. This can fail, i.e. retreat_windowaggregate() can
+	 * return false, in which case we restart that aggregate below.
+	 *
+	 * We track the number of aggregates which require a restart, and
+	 * exit as soon as there are no more retreatable aggregates left.
+	 */
+	for(pos = winstate->aggregatedbase;
+		pos < winstate->frameheadpos && numaggs_restart < numaggs;
+		++pos)
+	{
+		/*
+		 * Fetch the tuple where the current aggregation started from.
+		 * This should never fail as we should have been here before.
+		 */
+		if (!window_gettupleslot(agg_winobj, pos, temp_slot))
+			elog(ERROR, "Unable to find tuple in tuplestore");
+
+		/* Set tuple context for evaluation of aggregate arguments */
+		winstate->tmpcontext->ecxt_outertuple = temp_slot;
+
+		/*
+		 * Perform the inverse transition for each aggregate function in
+		 * the window, unless it has already been marked as needing a
+		 * restart.
+		 */
+		for (i = 0; i < numaggs; i++)
+		{
+			peraggstate = &winstate->peragg[i];
+			if (peraggstate->restart)
+				continue;
+
+			wfuncno = peraggstate->wfuncno;
+			ok = retreat_windowaggregate(winstate,
+										 &winstate->perfunc[wfuncno],
+										 peraggstate);
+			if (!ok)
+			{
+				/* Inverse transition function has failed, must restart */
+				peraggstate->restart = true;
+				numaggs_restart++;
+			}
+		}
+
+		/* Reset per-input-tuple context and tuple after each tuple */
+		ResetExprContext(winstate->tmpcontext);
+		ExecClearTuple(temp_slot);
+	}
+
+	/*
+	 * Then restart the aggregates which require it.
+	 * 
+	 * We assume that aggregates using the shared context always restart
+	 * if *any* aggregate restarts, and we may thus cleanup the shared
+	 * aggcontext if that is the case. The private aggcontexts are reset
+	 * by initialize_windowaggregate() if their owning aggregate restarts,
+	 * otherwise we just pfree() the cached result.
+	 */
+	if (numaggs_restart > 0)
+		MemoryContextResetAndDeleteChildren(winstate->aggcontext_shared);
+	for (i = 0; i < numaggs; i++)
+	{
+		peraggstate = &winstate->peragg[i];
+		/* Aggregates using the shared ctx must restart if *any* agg does */
+		Assert(!peraggstate->aggcontext_is_shared ||
+			   !numaggs_restart || peraggstate->restart);
+		if (!peraggstate->restart && !peraggstate->resultValueIsNull &&
+			!peraggstate->resulttypeByVal)
+		{
+			pfree(DatumGetPointer(peraggstate->resultValue));
+			peraggstate->resultValue = (Datum) 0;
+			peraggstate->resultValueIsNull = true;
+		}
+		else if (peraggstate->restart)
+		{
+			wfuncno = peraggstate->wfuncno;
+			initialize_windowaggregate(winstate,
+									   &winstate->perfunc[wfuncno],
+									   peraggstate);
+		}
+	}
+
+	/*
+	 * After this, non-restarted aggregated contain the rows between
+	 * aggregatedbase and aggregatedupto_nonrestarted, and restarted aggregates
+	 * the rows between aggregatedbase and aggregatedupto, which is to say none,
+	 * and aggregatedbase matches frameheadpos. If we modify we must clear
+	 * agg_row_slot, see the loop invariant below.
+	 */
+	winstate->aggregatedbase = winstate->frameheadpos;
+	aggregatedupto_nonrestarted = winstate->aggregatedupto;
+	if (numaggs_restart > 0 &&
+		winstate->aggregatedupto != winstate->frameheadpos)
+	{
+		winstate->aggregatedupto = winstate->frameheadpos;
+		ExecClearTuple(agg_row_slot);
+	}
+
+	/*
+	 * If we created a mark pointer for aggregates, keep it pushed up to
+	 * frame head, so that tuplestore can discard unnecessary rows.
+	 */
+	if (agg_winobj->markptr >= 0)
+		WinSetMarkPosition(agg_winobj, winstate->frameheadpos);
 
 	/*
 	 * Advance until we reach a row not in frame (or end of partition).
@@ -551,6 +902,11 @@ eval_windowaggregates(WindowAggState *winstate)
 		for (i = 0; i < numaggs; i++)
 		{
 			peraggstate = &winstate->peragg[i];
+			/* Non-restarted aggregates skip until aggregatedupto_previous*/
+			if (winstate->aggregatedupto < aggregatedupto_nonrestarted &&
+				!peraggstate->restart)
+				continue;
+
 			wfuncno = peraggstate->wfuncno;
 			advance_windowaggregate(winstate,
 									&winstate->perfunc[wfuncno],
@@ -564,6 +920,17 @@ eval_windowaggregates(WindowAggState *winstate)
 		winstate->aggregatedupto++;
 		ExecClearTuple(agg_row_slot);
 	}
+
+	/* The frame's end is not supposed to move backwards, ever */
+	Assert(aggregatedupto_nonrestarted <= winstate->aggregatedupto);
+
+	/* Update statistics */
+	if (numaggs_restart > 0)
+		winstate->aggfwdtrans += (winstate->aggregatedupto
+								  - winstate->frameheadpos);
+	else
+		winstate->aggfwdtrans += (winstate->aggregatedupto
+								  - aggregatedupto_nonrestarted);
 
 	/*
 	 * finalize aggregates and fill result/isnull fields.
@@ -589,28 +956,14 @@ eval_windowaggregates(WindowAggState *winstate)
 		 * advance that the next row can't possibly share the same frame. Is
 		 * it worth detecting that and skipping this code?
 		 */
-		if (!peraggstate->resulttypeByVal)
+		if (!peraggstate->resulttypeByVal && !*isnull)
 		{
-			/*
-			 * clear old resultValue in order not to leak memory.  (Note: the
-			 * new result can't possibly be the same datum as old resultValue,
-			 * because we never passed it to the trans function.)
-			 */
-			if (!peraggstate->resultValueIsNull)
-				pfree(DatumGetPointer(peraggstate->resultValue));
-
-			/*
-			 * If pass-by-ref, copy it into our aggregate context.
-			 */
-			if (!*isnull)
-			{
-				oldContext = MemoryContextSwitchTo(winstate->aggcontext);
-				peraggstate->resultValue =
-					datumCopy(*result,
-							  peraggstate->resulttypeByVal,
-							  peraggstate->resulttypeLen);
-				MemoryContextSwitchTo(oldContext);
-			}
+			oldContext = MemoryContextSwitchTo(peraggstate->aggcontext);
+			peraggstate->resultValue =
+				datumCopy(*result,
+						  peraggstate->resulttypeByVal,
+						  peraggstate->resulttypeLen);
+			MemoryContextSwitchTo(oldContext);
 		}
 		else
 		{
@@ -651,6 +1004,7 @@ eval_windowfunction(WindowAggState *winstate, WindowStatePerFunc perfuncstate,
 	/* Just in case, make all the regular argument slots be null */
 	memset(fcinfo.argnull, true, perfuncstate->numArguments);
 
+	winstate->calledaggno = -1;
 	*result = FunctionCallInvoke(&fcinfo);
 	*isnull = fcinfo.isnull;
 
@@ -794,7 +1148,7 @@ spool_tuples(WindowAggState *winstate, int64 pos)
 	 * becomes quite expensive due to frequent buffer flushes.	It's cheaper
 	 * to force the entire partition to get spooled in one go.
 	 *
-	 * XXX this is a horrid kluge --- it'd be better to fix the performance
+	 * XXX this is a horrid kludge --- it'd be better to fix the performance
 	 * problem inside tuplestore.  FIXME
 	 */
 	if (!tuplestore_in_memory(winstate->buffer))
@@ -869,7 +1223,10 @@ release_partition(WindowAggState *winstate)
 	 * aggregates might have allocated data we don't have direct pointers to.
 	 */
 	MemoryContextResetAndDeleteChildren(winstate->partcontext);
-	MemoryContextResetAndDeleteChildren(winstate->aggcontext);
+	MemoryContextResetAndDeleteChildren(winstate->aggcontext_shared);
+	for (i = 0; i < winstate->numaggs; ++i)
+		if (!winstate->peragg[i].aggcontext_is_shared)
+			MemoryContextResetAndDeleteChildren(winstate->peragg[i].aggcontext);
 
 	if (winstate->buffer)
 		tuplestore_end(winstate->buffer);
@@ -1419,7 +1776,8 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 	int			numfuncs,
 				wfuncno,
 				numaggs,
-				aggno;
+				aggno,
+				numaggs_invtrans;
 	ListCell   *l;
 
 	/* check for unsupported flags */
@@ -1450,8 +1808,10 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 							  ALLOCSET_DEFAULT_INITSIZE,
 							  ALLOCSET_DEFAULT_MAXSIZE);
 
-	/* Create mid-lived context for aggregate trans values etc */
-	winstate->aggcontext =
+	/* Create mid-lived contexts for aggregate trans values etc
+	 * Note that invertible aggregates use their own private context
+	 */
+	winstate->aggcontext_shared =
 		AllocSetContextCreate(CurrentMemoryContext,
 							  "WindowAgg_Aggregates",
 							  ALLOCSET_DEFAULT_MINSIZE,
@@ -1535,6 +1895,7 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 
 	wfuncno = -1;
 	aggno = -1;
+	numaggs_invtrans = 0;
 	foreach(l, winstate->funcs)
 	{
 		WindowFuncExprState *wfuncstate = (WindowFuncExprState *) lfirst(l);
@@ -1603,6 +1964,8 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 			peraggstate = &winstate->peragg[aggno];
 			initialize_peragg(winstate, wfunc, peraggstate);
 			peraggstate->wfuncno = wfuncno;
+			if (peraggstate->use_invtransfn)
+				numaggs_invtrans++;
 		}
 		else
 		{
@@ -1618,6 +1981,7 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 	/* Update numfuncs, numaggs to match number of unique functions found */
 	winstate->numfuncs = wfuncno + 1;
 	winstate->numaggs = aggno + 1;
+	winstate->numaggs_invtrans = numaggs_invtrans;
 
 	/* Set up WindowObject for aggregates, if needed */
 	if (winstate->numaggs > 0)
@@ -1646,6 +2010,12 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 	winstate->partition_spooled = false;
 	winstate->more_partitions = false;
 
+	/* initialize temporary data */
+	winstate->calledaggno = -1;
+
+	/* initialize statistics */
+	winstate->aggfwdtrans = 0;
+
 	return winstate;
 }
 
@@ -1657,11 +2027,9 @@ void
 ExecEndWindowAgg(WindowAggState *node)
 {
 	PlanState  *outerPlan;
+	int			i;
 
 	release_partition(node);
-
-	pfree(node->perfunc);
-	pfree(node->peragg);
 
 	ExecClearTuple(node->ss.ss_ScanTupleSlot);
 	ExecClearTuple(node->first_part_slot);
@@ -1677,7 +2045,13 @@ ExecEndWindowAgg(WindowAggState *node)
 	ExecFreeExprContext(&node->ss.ps);
 
 	MemoryContextDelete(node->partcontext);
-	MemoryContextDelete(node->aggcontext);
+	MemoryContextDelete(node->aggcontext_shared);
+	for(i = 0; i < node->numaggs; i++)
+		if (!node->peragg[i].aggcontext_is_shared)
+			MemoryContextDelete(node->peragg[i].aggcontext);
+
+	pfree(node->perfunc);
+	pfree(node->peragg);
 
 	outerPlan = outerPlanState(node);
 	ExecEndNode(outerPlan);
@@ -1735,8 +2109,10 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 	Oid			aggtranstype;
 	AclResult	aclresult;
 	Oid			transfn_oid,
+				invtransfn_oid,
 				finalfn_oid;
 	Expr	   *transfnexpr,
+			   *invtransfnexpr,
 			   *finalfnexpr;
 	Datum		textInitVal;
 	int			i;
@@ -1762,6 +2138,7 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 	 */
 
 	peraggstate->transfn_oid = transfn_oid = aggform->aggtransfn;
+	peraggstate->invtransfn_oid = invtransfn_oid = aggform->agginvtransfn;
 	peraggstate->finalfn_oid = finalfn_oid = aggform->aggfinalfn;
 
 	/* Check that aggregate owner has permission to call component fns */
@@ -1783,6 +2160,17 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 			aclcheck_error(aclresult, ACL_KIND_PROC,
 						   get_func_name(transfn_oid));
 		InvokeFunctionExecuteHook(transfn_oid);
+
+		if (OidIsValid(invtransfn_oid))
+		{
+			aclresult = pg_proc_aclcheck(invtransfn_oid, aggOwner,
+										 ACL_EXECUTE);
+			if (aclresult != ACLCHECK_OK)
+				aclcheck_error(aclresult, ACL_KIND_PROC,
+				get_func_name(invtransfn_oid));
+			InvokeFunctionExecuteHook(invtransfn_oid);
+		}
+
 		if (OidIsValid(finalfn_oid))
 		{
 			aclresult = pg_proc_aclcheck(finalfn_oid, aggOwner,
@@ -1810,12 +2198,20 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 							wfunc->wintype,
 							wfunc->inputcollid,
 							transfn_oid,
+							invtransfn_oid,
 							finalfn_oid,
 							&transfnexpr,
+							&invtransfnexpr,
 							&finalfnexpr);
 
 	fmgr_info(transfn_oid, &peraggstate->transfn);
 	fmgr_info_set_expr((Node *) transfnexpr, &peraggstate->transfn);
+
+	if (OidIsValid(invtransfn_oid))
+	{
+		fmgr_info(invtransfn_oid, &peraggstate->invtransfn);
+		fmgr_info_set_expr((Node *) invtransfnexpr, &peraggstate->invtransfn);
+	}
 
 	if (OidIsValid(finalfn_oid))
 	{
@@ -1860,7 +2256,85 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 							wfunc->winfnoid)));
 	}
 
+	/*
+	 * Allowing only the forward transition function to be strict would
+	 * require handling more special cases in advance_windowaggregate() and
+	 * retreat_windowaggregate(), for no discernible benefit. So we ensure
+	 * that if the forward transition function is strict that the inverse
+	 * transition function is also strict. This should have been checked at
+	 * the aggregate function's definition time, but it's better to be safe...
+	 */
+	if (OidIsValid(invtransfn_oid) &&
+		peraggstate->transfn.fn_strict && !peraggstate->invtransfn.fn_strict)
+	{
+		ereport(ERROR,
+			(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
+			errmsg("aggregate functions inverse transition function must strict if the forward transition function is")));
+	}
+
 	ReleaseSysCache(aggTuple);
+
+	/*
+	 * We ignore NULLs if either of the transition function is strict, i.e
+	 * if in that case neither of the functions will ever see NULL inputs.
+	 * If the forward transition function is non-strict, and the initial value
+	 * is NULL, it will receive a NULL state upon the first non-NULL input
+	 * though.
+	 */
+	peraggstate->ignore_nulls = ((OidIsValid(transfn_oid) &&
+								  peraggstate->transfn.fn_strict) ||
+								 (OidIsValid(invtransfn_oid) &&
+								  peraggstate->invtransfn.fn_strict));
+
+	/*
+	 * We can use the inverse transition function only if the aggregate's
+	 * arguments don't contain calls to volatile functions. Otherwise,
+	 * the difference between restarting and not restarting the aggregation
+	 * would be user-visible. Note that this check also covers the case where
+	 * the FILTER's WHERE clause contains a volatile function. If the frame
+	 * head cannot move, we won't ever need the inverse transition function,
+	 * so we also mark as "don't use" in that case.
+	 */
+	if (OidIsValid(invtransfn_oid) &&
+		!contain_volatile_functions((Node *) wfunc) &&
+		!(winstate->frameOptions & FRAMEOPTION_START_UNBOUNDED_PRECEDING))
+	{
+		peraggstate->use_invtransfn = true;
+	}
+	else
+	{
+		peraggstate->use_invtransfn = false;
+	}
+	
+	/*
+	 * Invertible aggregates use their own aggcontext.
+	 *
+	 * This is necessary because they might all restart at different times,
+	 * so we might never be able to reset the shared context otherwise. We
+	 * can't make it the aggregate's responsibility to clean up after
+	 * themselves, because strict aggregates must be restarted whenever we
+	 * remove their last non-NULL input, which the aggregate won't be aware
+	 * is happening. Also, just pfree()ing the transValue upon restarting
+	 * wouldn't help, since we'd miss any indirectly referenced data. We
+	 * could, in theory, declare that aggregates with a state type other then
+	 * "internal" musn't allocate anything in the aggcontext themselves, that
+	 * non-strict aggregates with state type internal must clean up after
+	 * themselves when their inverse transfer function returns NULL, and then
+	 * only use private aggcontexts for strict aggregates with state type
+	 * internal. But that'd be a rather grotty set of requirements.
+	 */
+	peraggstate->aggcontext_is_shared = !peraggstate->use_invtransfn;
+	if (!peraggstate->aggcontext_is_shared)
+	{
+		peraggstate->aggcontext =
+			AllocSetContextCreate(CurrentMemoryContext,
+								  "WindowAgg_AggregatePrivate",
+								  ALLOCSET_DEFAULT_MINSIZE,
+								  ALLOCSET_DEFAULT_INITSIZE,
+								  ALLOCSET_DEFAULT_MAXSIZE);
+	}
+	else
+		peraggstate->aggcontext = winstate->aggcontext_shared;
 
 	return peraggstate;
 }
