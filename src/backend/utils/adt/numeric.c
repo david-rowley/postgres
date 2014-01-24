@@ -2479,8 +2479,12 @@ numeric_float4(PG_FUNCTION_ARGS)
 typedef struct NumericAggState
 {
 	bool		calcSumX2;		/* if true, calculate sumX2 */
-	bool		isNaN;			/* true if any processed number was NaN */
+	int			maxScale;		/* stores the maximum scale seen so far. */
+	int64		maxScaleCount;  /* tracks the number of values we've
+								 * seen with the maximum scale */
+
 	MemoryContext agg_context;	/* context we're calculating in */
+	int64		NaNcount;		/* Count of NaN values that are aggregated */
 	int64		N;				/* count of processed numbers */
 	NumericVar	sumX;			/* sum of processed numbers */
 	NumericVar	sumX2;			/* sum of squares of processed numbers */
@@ -2505,6 +2509,10 @@ makeNumericAggState(FunctionCallInfo fcinfo, bool calcSumX2)
 	state = (NumericAggState *) palloc0(sizeof(NumericAggState));
 	state->calcSumX2 = calcSumX2;
 	state->agg_context = agg_context;
+	state->NaNcount = 0;
+
+	state->maxScale = 0;
+	state->maxScaleCount = 0;
 
 	MemoryContextSwitchTo(old_context);
 
@@ -2522,14 +2530,28 @@ do_numeric_accum(NumericAggState *state, Numeric newval)
 	MemoryContext old_context;
 
 	/* result is NaN if any processed number is NaN */
-	if (state->isNaN || NUMERIC_IS_NAN(newval))
+	if (NUMERIC_IS_NAN(newval))
 	{
-		state->isNaN = true;
+		state->NaNcount++;
 		return;
 	}
 
 	/* load processed number in short-lived context */
 	init_var_from_num(newval, &X);
+
+	/*
+	 * Track the highest scale that we've seen as if we ever perform an inverse
+	 * transition and remove the last numeric with the highest scale that we've
+	 * seen then we can no longer perform inverse transitions without risking
+	 * having the wrong dscale in the result value.
+	 */
+	if (state->maxScale == X.dscale)
+		state->maxScaleCount++;
+	else if (X.dscale > state->maxScale)
+	{
+		state->maxScale = X.dscale;
+		state->maxScaleCount = 1;
+	}
 
 	/* if we need X^2, calculate that in short-lived context */
 	if (state->calcSumX2)
@@ -2562,6 +2584,93 @@ do_numeric_accum(NumericAggState *state, Numeric newval)
 }
 
 /*
+ * do_numeric_discard
+ * Attempts to remove a value from the aggregated state.
+ * If the value cannot be removed then the function will return false, the
+ * possible reasons for failing are described below.
+ *
+ * If we aggregate the values 1.01 and 2 then the result will be 3.01. If we
+ * are then asked to un-aggregate the 1.01 then we must reject this case as we
+ * won't be able to tell what the new aggregated value's dscale should be.
+ * We can't return 2.00 (dscale = 2) as we really should return just 2, but
+ * since we're not tracking any previous highest scales then we must just fail
+ * to perform the inverse transition and just return false.
+ *
+ * Values that are no longer aggregated should not be able to effect the dscale
+ * of the result of the values that *are* still aggregated.
+ *
+ * Note it may be better to track the number of times we've aggregated a
+ * numeric with each scale, then if we ever remove final highest scaled value
+ * then we can step the result's dscale down to the next highest value. This is
+ * perhaps slightly more work than we can afford to do here, but doing it this
+ * way would mean that we could always perform the inverse transition.
+ */
+static bool
+do_numeric_discard(NumericAggState *state, Numeric newval)
+{
+	NumericVar	X;
+	NumericVar	X2;
+	MemoryContext old_context;
+
+	/* result is NaN if any processed number is NaN */
+	if (NUMERIC_IS_NAN(newval))
+	{
+		state->NaNcount--;
+		return true;
+	}
+
+	/* load processed number in short-lived context */
+	init_var_from_num(newval, &X);
+
+	/*
+	 * If we're asked to remove a numeric value that has a dscale the same as
+	 * the highest dscale that we've encountered so far, then we need to
+	 * update the count of the number of times that we've seen that dscale.
+	 * Once we get to the last value that has this maximum dscale we must
+	 * report that we've failed to perform the inverse transition.
+	 */
+	if (state->maxScale == X.dscale)
+	{
+		/*
+		 * are we on the last value with maxScale?
+		 * if so we can't do any more inverse transitions.
+		 */
+		if (state->maxScaleCount == 1)
+			return false;
+
+		state->maxScaleCount--;
+	}
+
+	/* if we need X^2, calculate that in short-lived context */
+	if (state->calcSumX2)
+	{
+		init_var(&X2);
+		mul_var(&X, &X, &X2, X.dscale * 2);
+	}
+
+	/* The rest of this needs to work in the aggregate context */
+	old_context = MemoryContextSwitchTo(state->agg_context);
+
+	if (state->N-- > 0)
+	{
+		/* Subtract X from state */
+		sub_var(&(state->sumX), &X, &(state->sumX));
+
+		if (state->calcSumX2)
+			sub_var(&(state->sumX2), &X2, &(state->sumX2));
+	}
+	else
+	{
+		MemoryContextSwitchTo(old_context);
+		elog(ERROR, "cannot discard more values than were accumulated");
+	}
+
+	MemoryContextSwitchTo(old_context);
+	return true;
+}
+
+
+/*
  * Generic transition function for numeric aggregates that require sumX2.
  */
 Datum
@@ -2584,6 +2693,24 @@ numeric_accum(PG_FUNCTION_ARGS)
 }
 
 /*
+ * numeric_accum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
+Datum
+numeric_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state = (NumericAggState *) PG_GETARG_POINTER(0);
+
+	/* can we perform an inverse transition? if not return NULL. */
+	if (!do_numeric_discard(state, PG_GETARG_NUMERIC(1)))
+		PG_RETURN_NULL();
+
+	PG_RETURN_POINTER(state);
+}
+
+
+/*
  * Generic transition function for numeric aggregates that don't require sumX2.
  */
 Datum
@@ -2601,6 +2728,23 @@ numeric_avg_accum(PG_FUNCTION_ARGS)
 
 		do_numeric_accum(state, PG_GETARG_NUMERIC(1));
 	}
+
+	PG_RETURN_POINTER(state);
+}
+
+/*
+ * numeric_avg_accum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict
+ */
+Datum
+numeric_avg_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state = (NumericAggState *) PG_GETARG_POINTER(0);
+
+	/* can we perform an inverse transition? if not return NULL. */
+	if (!do_numeric_discard(state, PG_GETARG_NUMERIC(1)))
+		PG_RETURN_NULL();
 
 	PG_RETURN_POINTER(state);
 }
@@ -2686,6 +2830,79 @@ int8_accum(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(state);
 }
 
+
+/*
+ * int2_accum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
+Datum
+int2_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state = (NumericAggState *) PG_GETARG_POINTER(0);
+	Numeric		newval;
+
+	newval = DatumGetNumeric(DirectFunctionCall1(int2_numeric,
+							 PG_GETARG_DATUM(1)));
+
+	/*
+	 * do_numeric_discard should never fail with numerics converted
+	 * from int types as the dscale should always be 0.
+	 */
+	if (!do_numeric_discard(state, newval))
+		elog(ERROR, "Unable to perform inverse transition on int type");
+
+	PG_RETURN_POINTER(state);
+}
+
+/*
+ * int4_accum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
+Datum
+int4_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state = (NumericAggState *) PG_GETARG_POINTER(0);
+	Numeric		newval;
+
+	newval = DatumGetNumeric(DirectFunctionCall1(int4_numeric,
+							 PG_GETARG_DATUM(1)));
+
+	/*
+	 * do_numeric_discard should never fail with numerics converted
+	 * from int types as the dscale should always be 0.
+	 */
+	if (!do_numeric_discard(state, newval))
+		elog(ERROR, "Unable to perform inverse transition on int type");
+
+	PG_RETURN_POINTER(state);
+}
+
+/*
+ * int8_accum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
+Datum
+int8_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state = (NumericAggState *) PG_GETARG_POINTER(0);
+	Numeric		newval;
+
+	newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
+							 PG_GETARG_DATUM(1)));
+
+	/*
+	 * do_numeric_discard should never fail with numerics converted
+	 * from int types as the dscale should always be 0.
+	 */
+	if (!do_numeric_discard(state, newval))
+		elog(ERROR, "Unable to perform inverse transition on int type");
+
+	PG_RETURN_POINTER(state);
+}
+
 /*
  * Transition function for int8 input when we don't need sumX2.
  */
@@ -2713,6 +2930,29 @@ int8_avg_accum(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(state);
 }
 
+/*
+ * int8_avg_accum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
+Datum
+int8_avg_accum_inv(PG_FUNCTION_ARGS)
+{
+	NumericAggState *state = (NumericAggState *) PG_GETARG_POINTER(0);
+	Numeric		newval;
+
+	newval = DatumGetNumeric(DirectFunctionCall1(int8_numeric,
+		PG_GETARG_DATUM(1)));
+
+	/*
+	 * do_numeric_discard should never fail with numerics converted
+	 * from int types as the dscale should always be 0.
+	 */
+	if (!do_numeric_discard(state, newval))
+		elog(ERROR, "Unable to perform inverse transition on int type");
+
+	PG_RETURN_POINTER(state);
+}
 
 Datum
 numeric_avg(PG_FUNCTION_ARGS)
@@ -2725,7 +2965,7 @@ numeric_avg(PG_FUNCTION_ARGS)
 	if (state == NULL)			/* there were no non-null inputs */
 		PG_RETURN_NULL();
 
-	if (state->isNaN)			/* there was at least one NaN input */
+	if (state->NaNcount > 0)			/* there was at least one NaN input */
 		PG_RETURN_NUMERIC(make_result(&const_nan));
 
 	N_datum = DirectFunctionCall1(int8_numeric, Int64GetDatum(state->N));
@@ -2743,7 +2983,7 @@ numeric_sum(PG_FUNCTION_ARGS)
 	if (state == NULL)			/* there were no non-null inputs */
 		PG_RETURN_NULL();
 
-	if (state->isNaN)			/* there was at least one NaN input */
+	if (state->NaNcount > 0)			/* there was at least one NaN input */
 		PG_RETURN_NUMERIC(make_result(&const_nan));
 
 	PG_RETURN_NUMERIC(make_result(&(state->sumX)));
@@ -2782,7 +3022,7 @@ numeric_stddev_internal(NumericAggState *state,
 
 	*is_null = false;
 
-	if (state->isNaN)
+	if (state->NaNcount > 0)
 		return make_result(&const_nan);
 
 	init_var(&vN);
@@ -2978,6 +3218,44 @@ int2_sum(PG_FUNCTION_ARGS)
 	}
 }
 
+/*
+ * int2_sum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
+Datum
+int2_sum_inv(PG_FUNCTION_ARGS)
+{
+	int64		newval;
+
+	/*
+	 * If we're invoked as an aggregate, we can cheat and modify our first
+	 * parameter in-place to avoid palloc overhead. If not, we need to return
+	 * the new value of the transition variable. (If int8 is pass-by-value,
+	 * then of course this is useless as well as incorrect, so just ifdef it
+	 * out.)
+	 */
+#ifndef USE_FLOAT8_BYVAL		/* controls int8 too */
+	if (AggCheckCallContext(fcinfo, NULL))
+	{
+		int64	   *oldsum = (int64 *) PG_GETARG_POINTER(0);
+
+		*oldsum = *oldsum - (int64) PG_GETARG_INT16(1);
+
+		PG_RETURN_POINTER(oldsum);
+	}
+	else
+#endif
+	{
+		int64		oldsum = PG_GETARG_INT64(0);
+
+		/* OK to do the subtraction. */
+		newval = oldsum - (int64) PG_GETARG_INT16(1);
+
+		PG_RETURN_INT64(newval);
+	}
+}
+
 Datum
 int4_sum(PG_FUNCTION_ARGS)
 {
@@ -3026,6 +3304,45 @@ int4_sum(PG_FUNCTION_ARGS)
 		PG_RETURN_INT64(newval);
 	}
 }
+
+/*
+ * int4_sum_inv
+ * aggregate inverse transition function.
+ * This function must be declared as strict.
+ */
+Datum
+int4_sum_inv(PG_FUNCTION_ARGS)
+{
+	int64		newval;
+
+	/*
+	 * If we're invoked as an aggregate, we can cheat and modify our first
+	 * parameter in-place to avoid palloc overhead. If not, we need to return
+	 * the new value of the transition variable. (If int8 is pass-by-value,
+	 * then of course this is useless as well as incorrect, so just ifdef it
+	 * out.)
+	 */
+#ifndef USE_FLOAT8_BYVAL		/* controls int8 too */
+	if (AggCheckCallContext(fcinfo, NULL))
+	{
+		int64	   *oldsum = (int64 *) PG_GETARG_POINTER(0);
+
+		*oldsum = *oldsum - (int64) PG_GETARG_INT32(1);
+
+		PG_RETURN_POINTER(oldsum);
+	}
+	else
+#endif
+	{
+		int64		oldsum = PG_GETARG_INT64(0);
+
+		/* OK to do the subtraction. */
+		newval = oldsum - (int64) PG_GETARG_INT32(1);
+
+		PG_RETURN_INT64(newval);
+	}
+}
+
 
 /*
  * Note: this function is obsolete, it's no longer used for SUM(int8).
@@ -3106,6 +3423,35 @@ int2_avg_accum(PG_FUNCTION_ARGS)
 }
 
 Datum
+int2_avg_accum_inv(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray;
+	int16		newval = PG_GETARG_INT16(1);
+	Int8TransTypeData *transdata;
+
+	/*
+	 * If we're invoked as an aggregate, we can cheat and modify our first
+	 * parameter in-place to reduce palloc overhead. Otherwise we need to make
+	 * a copy of it before scribbling on it.
+	 */
+	if (AggCheckCallContext(fcinfo, NULL))
+		transarray = PG_GETARG_ARRAYTYPE_P(0);
+	else
+		transarray = PG_GETARG_ARRAYTYPE_P_COPY(0);
+
+	if (ARR_HASNULL(transarray) ||
+		ARR_SIZE(transarray) != ARR_OVERHEAD_NONULLS(1) + sizeof(Int8TransTypeData))
+		elog(ERROR, "expected 2-element int8 array");
+
+	transdata = (Int8TransTypeData *) ARR_DATA_PTR(transarray);
+	transdata->count--;
+	transdata->sum -= newval;
+
+	PG_RETURN_ARRAYTYPE_P(transarray);
+}
+
+
+Datum
 int4_avg_accum(PG_FUNCTION_ARGS)
 {
 	ArrayType  *transarray;
@@ -3129,6 +3475,34 @@ int4_avg_accum(PG_FUNCTION_ARGS)
 	transdata = (Int8TransTypeData *) ARR_DATA_PTR(transarray);
 	transdata->count++;
 	transdata->sum += newval;
+
+	PG_RETURN_ARRAYTYPE_P(transarray);
+}
+
+Datum
+int4_avg_accum_inv(PG_FUNCTION_ARGS)
+{
+	ArrayType  *transarray;
+	int32		newval = PG_GETARG_INT32(1);
+	Int8TransTypeData *transdata;
+
+	/*
+	 * If we're invoked as an aggregate, we can cheat and modify our first
+	 * parameter in-place to reduce palloc overhead. Otherwise we need to make
+	 * a copy of it before scribbling on it.
+	 */
+	if (AggCheckCallContext(fcinfo, NULL))
+		transarray = PG_GETARG_ARRAYTYPE_P(0);
+	else
+		transarray = PG_GETARG_ARRAYTYPE_P_COPY(0);
+
+	if (ARR_HASNULL(transarray) ||
+		ARR_SIZE(transarray) != ARR_OVERHEAD_NONULLS(1) + sizeof(Int8TransTypeData))
+		elog(ERROR, "expected 2-element int8 array");
+
+	transdata = (Int8TransTypeData *) ARR_DATA_PTR(transarray);
+	transdata->count--;
+	transdata->sum -= newval;
 
 	PG_RETURN_ARRAYTYPE_P(transarray);
 }
