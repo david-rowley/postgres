@@ -145,16 +145,15 @@ typedef struct WindowStatePerAggData
 				transtypeByVal;
 
 	int			wfuncno;		/* index of associated PerFuncData */
-	int64		notnullcount;	/* Number of tuples that are not null.
-								 * This is needed for inverse transitions */
 
 	/* Current transition value */
-	MemoryContext	aggcontext;		/* context for transValue */
-	Datum			transValue;		/* current transition value */
+	MemoryContext	aggcontext;			/* context for transValue */
+	int64			transValueCount;	/* Number of aggregates values*/
+	Datum			transValue;			/* current transition value */
 	bool			transValueIsNull;
 
-	bool			noTransValue;	/* true if transValue not set yet */
-	bool			restart;		/* whether to restart the aggregation */
+	/* Data local to eval_windowaggregates() */
+	bool			restart;			/* tmp marker that agg needs restart */
 } WindowStatePerAggData;
 
 static void initialize_windowaggregate(WindowAggState *winstate,
@@ -268,11 +267,10 @@ initialize_windowaggregate(WindowAggState *winstate,
 											peraggstate->transtypeLen);
 		MemoryContextSwitchTo(oldContext);
 	}
+	peraggstate->transValueCount = 0;
 	peraggstate->transValueIsNull = peraggstate->initValueIsNull;
-	peraggstate->noTransValue = peraggstate->initValueIsNull;
 	peraggstate->resultValue = (Datum) 0;
 	peraggstate->resultValueIsNull = true;
-	peraggstate->notnullcount = 0;
 }
 
 /*
@@ -321,16 +319,7 @@ advance_windowaggregate(WindowAggState *winstate,
 		i++;
 	}
 
-	/*
-	 * If we're ignoring nulls, we need to track the number of non-NULL
-	 * inputs that we add to transValue. We can then reset transValue
-	 * back to its initial value once we remove the last non-NULL input,
-	 * since that is what it would have been had only the NULL inputs
-	 * been added.
-	 *
-	 * If we're not ignoring NULLs, the transition function obviously
-	 * mustn't be strict.
-	 */
+	/* Skip NULL inputs for aggregates which desire that. */
 	if (peraggstate->ignore_nulls)
 	{
 		for (i = 1; i <= numArguments; i++)
@@ -341,17 +330,16 @@ advance_windowaggregate(WindowAggState *winstate,
 				return;
 			}
 		}
-		peraggstate->notnullcount++;
 	}
 	else
 		Assert(!peraggstate->transfn.fn_strict);
 
 	if (peraggstate->transfn.fn_strict) {
-		if (peraggstate->noTransValue)
+		if (peraggstate->transValueCount == 0 && peraggstate->transValueIsNull)
 		{
 			/*
-			 * transValue has not been initialized. This is the first non-NULL
-			 * input value. We use it as the initial value for transValue. (We
+			 * For strict transfer functions with initial value NULL we use
+			 * the first non-NULL input as the initial state. (We
 			 * already checked that the agg's input type is binary-compatible
 			 * with its transtype, so straight copy here is OK.)
 			 *
@@ -363,8 +351,7 @@ advance_windowaggregate(WindowAggState *winstate,
 												peraggstate->transtypeByVal,
 												peraggstate->transtypeLen);
 			peraggstate->transValueIsNull = false;
-			peraggstate->noTransValue = false;
-			peraggstate->notnullcount = 1;
+			peraggstate->transValueCount = 1;
 			MemoryContextSwitchTo(oldContext);
 			return;
 		}
@@ -383,6 +370,15 @@ advance_windowaggregate(WindowAggState *winstate,
 			return;
 		}
 	}
+
+	/*
+	 * We must track the number of inputs that we add to transValue, since
+	 * to remove the last input, retreat_windowaggregate() musn't call the
+	 * inverse transition function, but simply reset transValue back to its
+	 * initial value.
+	 */
+	Assert(peraggstate->transValueCount >= 0);
+	peraggstate->transValueCount++;
 
 	/*
 	 * OK to call the transition function
@@ -477,9 +473,9 @@ retreat_windowaggregate(WindowAggState *winstate,
 		i++;
 	}
 
+	/* Skip inputs containing NULLS for aggregates that require this */
 	if (peraggstate->ignore_nulls)
 	{
-		/* If we're ignoring NULLs, then the state is unchanged */
 		for (i = 1; i <= numArguments; i++)
 		{
 			if (fcinfo->argnull[i])
@@ -488,27 +484,27 @@ retreat_windowaggregate(WindowAggState *winstate,
 				return true;
 			}
 		}
-
-		/*
-		 * If we remove a non-NULL input we have to check whether it was the
-		 * last one, since we cannot use the inverse transition function in that
-		 * case. Doing so would yield a non-NULL state, whereas we should be
-		 * in the initial state afterwards which may very well be NULL. So
-		 * instead, we simply re-initialize the aggregation in this case.
-		 */
-		Assert(peraggstate->notnullcount >= 1);
-		peraggstate->notnullcount--;
-		if (peraggstate->notnullcount == 0)
-		{
-			MemoryContextSwitchTo(oldContext);
-			initialize_windowaggregate(winstate,
-									&winstate->perfunc[peraggstate->wfuncno],
-									peraggstate);
-			return true;
-		}
 	}
 	else
 		Assert(!peraggstate->invtransfn.fn_strict);
+
+	/* There should still an added but not yet removed value */
+	Assert(peraggstate->transValueCount >= 1);
+
+	/*
+	 * We mustn't use the inverse transition function to remove the last
+	 * input. Doing so would yield a non-NULL state, whereas we should be
+	 * in the initial state afterwards which may very well be NULL. So
+	 * instead, we simply re-initialize the aggregation in this case.
+	 */
+	if (peraggstate->transValueCount == 1)
+	{
+		MemoryContextSwitchTo(oldContext);
+		initialize_windowaggregate(winstate,
+								&winstate->perfunc[peraggstate->wfuncno],
+								peraggstate);
+		return true;
+	}
 
 	/*
 	 * Perform the inverse transition.
@@ -541,6 +537,9 @@ retreat_windowaggregate(WindowAggState *winstate,
 		MemoryContextSwitchTo(oldContext);
 		return false;
 	}
+	
+	/* Update number of added but not yet removed values */
+	peraggstate->transValueCount--;
 
 	/*
 	 * If pass-by-ref datatype, must copy the new value into aggcontext and
