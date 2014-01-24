@@ -4587,6 +4587,7 @@ accumArrayResult(ArrayBuildState *astate,
 		astate = (ArrayBuildState *) palloc(sizeof(ArrayBuildState));
 		astate->mcontext = arr_context;
 		astate->alen = 64;		/* arbitrary starting array size */
+		astate->offset = 0;
 		astate->dvalues = (Datum *) palloc(astate->alen * sizeof(Datum));
 		astate->dnulls = (bool *) palloc(astate->alen * sizeof(bool));
 		astate->nelems = 0;
@@ -4600,7 +4601,12 @@ accumArrayResult(ArrayBuildState *astate,
 	{
 		oldcontext = MemoryContextSwitchTo(astate->mcontext);
 		Assert(astate->element_type == element_type);
-		/* enlarge dvalues[]/dnulls[] if needed */
+		/*
+		 * If the buffers are filled completely (offset must be zero then),
+		 * we double their size. If they aren't, but the values extend to the
+		 * end of the buffers, we reclaim wasted space at the beginning by
+		 * moving the values to the front of the buffers.
+		 */
 		if (astate->nelems >= astate->alen)
 		{
 			astate->alen *= 2;
@@ -4609,6 +4615,15 @@ accumArrayResult(ArrayBuildState *astate,
 			astate->dnulls = (bool *)
 				repalloc(astate->dnulls, astate->alen * sizeof(bool));
 		}
+		else if (astate->offset + astate->nelems >= astate->alen)
+		{
+			memmove(astate->dvalues, astate->dvalues + astate->offset,
+					astate->alen * sizeof(Datum));
+			memmove(astate->dnulls, astate->dnulls + astate->offset,
+					astate->alen * sizeof(bool));
+			astate->offset = 0;
+		}
+		Assert(astate->offset + astate->nelems < astate->alen);
 	}
 
 	/*
@@ -4627,14 +4642,55 @@ accumArrayResult(ArrayBuildState *astate,
 			dvalue = datumCopy(dvalue, astate->typbyval, astate->typlen);
 	}
 
-	astate->dvalues[astate->nelems] = dvalue;
-	astate->dnulls[astate->nelems] = disnull;
+	astate->dvalues[astate->offset + astate->nelems] = dvalue;
+	astate->dnulls[astate->offset + astate->nelems] = disnull;
 	astate->nelems++;
 
 	MemoryContextSwitchTo(oldcontext);
 
 	return astate;
 }
+
+/*
+ * shiftArrayResult - shift leading Datums out of an array result
+ *
+ *	astate is working state
+ *	count is the number of leading Datums to shift out
+ *
+ * If count is equal to or larger than the number of relements, the array
+ * result is empty afterwards. If astate is NULL, nothing is done.
+ */
+void
+shiftArrayResult(ArrayBuildState *astate, int count)
+{
+	int		i;
+	
+	if (astate == NULL)
+		return;
+	
+	/* Limit shift count to number of elements for safety */
+	count = Min(count, astate->nelems);
+	
+	/* For pass-by-ref types, free values we shift out */
+	if (!astate->typbyval) {
+		for(i = astate->offset; i < astate->offset + count; ++i) {
+			if (astate->dnulls[i])
+				continue;
+
+			pfree(DatumGetPointer(astate->dvalues[i]));
+			
+			/* For cleanliness' sake */
+			astate->dnulls[i] = false;
+			astate->dvalues[i] = 0;
+		}
+		
+	}
+	
+	/* Update state */
+	astate->nelems -= count;
+	astate->offset += count;
+}
+
 
 /*
  * makeArrayResult - produce 1-D final result of accumArrayResult
@@ -4679,8 +4735,8 @@ makeMdArrayResult(ArrayBuildState *astate,
 	/* Build the final array result in rcontext */
 	oldcontext = MemoryContextSwitchTo(rcontext);
 
-	result = construct_md_array(astate->dvalues,
-								astate->dnulls,
+	result = construct_md_array(astate->dvalues + astate->offset,
+								astate->dnulls + astate->offset,
 								ndims,
 								dims,
 								lbs,

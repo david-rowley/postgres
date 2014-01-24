@@ -83,6 +83,7 @@ typedef struct ArrayBuildState
 	Datum	   *dvalues;		/* array of accumulated Datums */
 	bool	   *dnulls;			/* array of is-null flags for Datums */
 	int			alen;			/* allocated length of above arrays */
+	int			offset;			/* offset of first element in above arrays */
 	int			nelems;			/* number of valid entries in above arrays */
 	Oid			element_type;	/* data type of the Datums */
 	int16		typlen;			/* needed info about datatype */
@@ -255,6 +256,7 @@ extern ArrayBuildState *accumArrayResult(ArrayBuildState *astate,
 				 Datum dvalue, bool disnull,
 				 Oid element_type,
 				 MemoryContext rcontext);
+extern void shiftArrayResult(ArrayBuildState *astate, int count);
 extern Datum makeArrayResult(ArrayBuildState *astate,
 				MemoryContext rcontext);
 extern Datum makeMdArrayResult(ArrayBuildState *astate, int ndims,
@@ -290,6 +292,7 @@ extern ArrayType *create_singleton_array(FunctionCallInfo fcinfo,
 					   int ndims);
 
 extern Datum array_agg_transfn(PG_FUNCTION_ARGS);
+extern Datum array_agg_invtransfn(PG_FUNCTION_ARGS);
 extern Datum array_agg_finalfn(PG_FUNCTION_ARGS);
 
 /*
