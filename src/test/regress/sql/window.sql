@@ -284,3 +284,104 @@ SELECT nth_value_def(n := 2, val := ten) OVER (PARTITION BY four), ten, four
 
 SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four
   FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) s;
+
+-- create aggregates which log their calls
+-- invsfunc is *not* a real inverse here!
+CREATE FUNCTION logging_sfunc_nonstrict(text, anyelement) RETURNS text AS
+$$SELECT COALESCE($1, '') || '+' || quote_nullable($2)$$
+LANGUAGE SQL IMMUTABLE;
+
+CREATE FUNCTION logging_invsfunc_nonstrict(text, anyelement) RETURNS text AS
+$$SELECT $1 || '-' || quote_nullable($2)$$
+LANGUAGE SQL IMMUTABLE;
+
+CREATE AGGREGATE logging_agg_nonstrict (anyelement)
+(
+	stype = text,
+	sfunc = logging_sfunc_nonstrict,
+	invfunc = logging_invsfunc_nonstrict
+);
+
+CREATE AGGREGATE logging_agg_nonstrict_initcond (anyelement)
+(
+	stype = text,
+	sfunc = logging_sfunc_nonstrict,
+	invfunc = logging_invsfunc_nonstrict,
+	initcond = 'I'
+);
+
+CREATE FUNCTION logging_sfunc_strict(text, anyelement) RETURNS text AS
+$$SELECT $1 || '+' || quote_nullable($2)$$
+LANGUAGE SQL STRICT IMMUTABLE;
+
+CREATE FUNCTION logging_invsfunc_strict(text, anyelement) RETURNS text AS
+$$SELECT $1 || '-' || quote_nullable($2)$$
+LANGUAGE SQL STRICT IMMUTABLE;
+
+CREATE AGGREGATE logging_agg_strict (text)
+(
+	stype = text,
+	sfunc = logging_sfunc_strict,
+	invfunc = logging_invsfunc_strict
+);
+
+CREATE AGGREGATE logging_agg_strict_initcond (anyelement)
+(
+	stype = text,
+	sfunc = logging_sfunc_strict,
+	invfunc = logging_invsfunc_strict,
+	initcond = 'I'
+);
+
+-- test strict and non-strict cases
+SELECT
+	p::text || ',' || i::text || ':' || COALESCE(v::text, 'NULL') AS row,
+	logging_agg_nonstrict(v) over wnd as nstrict,
+	logging_agg_nonstrict_initcond(v) over wnd as nstrict_init,
+	logging_agg_strict(v::text) over wnd as strict,
+	logging_agg_strict_initcond(v) over wnd as strict_init
+FROM (VALUES
+	(1, 1, NULL),
+	(1, 2, 'a'),
+	(1, 3, 'b'),
+	(1, 4, NULL),
+	(1, 5, NULL),
+	(1, 6, 'c'),
+	(2, 1, NULL),
+	(2, 2, 'x'),
+	(3, 1, 'z')
+) AS t(p, i, v)
+WINDOW wnd AS (PARTITION BY P ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+ORDER BY p, i;
+
+-- and again, but with filter
+SELECT
+	p::text || ',' || i::text || ':' ||
+		CASE WHEN f THEN COALESCE(v::text, 'NULL') ELSE '-' END as row,
+	logging_agg_nonstrict(v) filter(where f) over wnd as nstrict_filt,
+	logging_agg_nonstrict_initcond(v) filter(where f) over wnd as nstrict_init_filt,
+	logging_agg_strict(v::text) filter(where f) over wnd as strict_filt,
+	logging_agg_strict_initcond(v) filter(where f) over wnd as strict_init_filt
+FROM (VALUES
+	(1, 1, true,  NULL),
+	(1, 2, false, 'a'),
+	(1, 3, true,  'b'),
+	(1, 4, false, NULL),
+	(1, 5, false, NULL),
+	(1, 6, false, 'c'),
+	(2, 1, false, NULL),
+	(2, 2, true,  'x'),
+	(3, 1, true,  'z')
+) AS t(p, i, f, v)
+WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+ORDER BY p, i;
+
+-- cleanup logging aggregate
+DROP AGGREGATE logging_agg_strict_initcond(anyelement);
+DROP AGGREGATE logging_agg_strict(text);
+DROP FUNCTION logging_invsfunc_strict(text, anyelement);
+DROP FUNCTION logging_sfunc_strict(text, anyelement);
+DROP AGGREGATE logging_agg_nonstrict_initcond(anyelement);
+DROP AGGREGATE logging_agg_nonstrict(anyelement);
+DROP FUNCTION logging_invsfunc_nonstrict(text, anyelement);
+DROP FUNCTION logging_sfunc_nonstrict(text, anyelement);
