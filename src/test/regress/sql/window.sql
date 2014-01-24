@@ -285,6 +285,12 @@ SELECT nth_value_def(n := 2, val := ten) OVER (PARTITION BY four), ten, four
 SELECT nth_value_def(ten) OVER (PARTITION BY four), ten, four
   FROM (SELECT * FROM tenk1 WHERE unique2 < 10 ORDER BY four, ten) s;
 
+--
+--
+-- Test the basic inverse transition function machinery
+--
+--
+
 -- create aggregates which log their calls
 -- invsfunc is *not* a real inverse here!
 CREATE FUNCTION logging_sfunc_nonstrict(text, anyelement) RETURNS text AS
@@ -376,7 +382,74 @@ FROM (VALUES
 WINDOW wnd AS (PARTITION BY p ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
 ORDER BY p, i;
 
--- cleanup logging aggregate
+-- tests that volatile arguments disable inverse transition functions
+SELECT
+	i::text || ':' || COALESCE(v::text, 'NULL') as row,
+	logging_agg_strict(v::text)
+		over wnd as inverse,
+	logging_agg_strict(v::text || CASE WHEN random() < 0 then '?' ELSE '' END)
+		over wnd as noinverse
+FROM (VALUES
+	(1, 'a'),
+	(2, 'b'),
+	(3, 'c')
+) AS t(i, v)
+WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+ORDER BY i;
+
+-- tests that volatile filters disable inverse transition functions
+SELECT
+	i::text || ':' || COALESCE(v::text, 'NULL') as row,
+	logging_agg_strict(v::text) filter(where true)
+		over wnd as inverse,
+	logging_agg_strict(v::text) filter(where random() >= 0)
+		over wnd as noinverse
+FROM (VALUES
+	(1, 'a'),
+	(2, 'b'),
+	(3, 'c')
+) AS t(i, v)
+WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
+ORDER BY i;
+
+-- test that returning NULL from the inverse transition functions
+-- restarts the aggregation from scratch. The second aggregate is supposed
+-- to test cases where only some aggregates restart, the third one checks
+-- the one aggregate restarting doesn't cause others to restart
+CREATE FUNCTION sum_int_randrestart_invsfunc(int4, int4) RETURNS int4 AS
+$$SELECT CASE WHEN random() < 0.2 THEN NULL ELSE $1 - $2 END$$
+LANGUAGE SQL STRICT IMMUTABLE;
+
+CREATE AGGREGATE sum_int_randomrestart (int4)
+(
+	stype = int4,
+	sfunc = int4pl,
+	invfunc = sum_int_randrestart_invsfunc
+);
+
+WITH
+vs AS (
+	SELECT i, (random() * 100)::int4 AS v
+	FROM generate_series(1, 100) AS i
+),
+sum_following AS (
+	SELECT i, SUM(v) OVER
+		(ORDER BY i DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s
+	FROM vs
+)
+SELECT DISTINCT
+	sum_following.s = sum_int_randomrestart(v) OVER fwd AS eq1,
+	-sum_following.s = sum_int_randomrestart(-v) OVER fwd AS eq2,
+	100*3+(vs.i-1)*3 = length(logging_agg_nonstrict(''::text) OVER fwd) AS eq3
+FROM vs
+JOIN sum_following ON sum_following.i = vs.i
+WINDOW fwd AS (
+	ORDER BY vs.i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+);
+
+-- cleanup aggregates
+DROP AGGREGATE sum_int_randomrestart (int4);
+DROP FUNCTION sum_int_randrestart_invsfunc(int4, int4);
 DROP AGGREGATE logging_agg_strict_initcond(anyelement);
 DROP AGGREGATE logging_agg_strict(text);
 DROP FUNCTION logging_invsfunc_strict(text, anyelement);
@@ -385,6 +458,13 @@ DROP AGGREGATE logging_agg_nonstrict_initcond(anyelement);
 DROP AGGREGATE logging_agg_nonstrict(anyelement);
 DROP FUNCTION logging_invsfunc_nonstrict(text, anyelement);
 DROP FUNCTION logging_sfunc_nonstrict(text, anyelement);
+
+--
+--
+-- Test the arithmetic inverse transition functions
+--
+--
+
 -- test inverse transition funtions handle NULLs properly
 SELECT i,AVG(v::bigint) OVER (ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING)
   FROM (VALUES(1,1),(2,2),(3,NULL),(4,NULL)) t(i,v);
@@ -525,3 +605,15 @@ SELECT i,SUM(v::int) FILTER (WHERE i < 4) OVER (ORDER BY i ROWS BETWEEN CURRENT 
 SELECT a, b,
        SUM(b) OVER(ORDER BY A ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
 FROM (VALUES(1,1::numeric),(2,2),(3,'NaN'),(4,3),(5,4)) t(a,b);
+
+--
+--
+-- Test the MIN, MAX and boolean inverse transition functions
+--
+--
+
+--
+--
+-- Tests of the collecting inverse transition functions
+--
+--
