@@ -3801,7 +3801,8 @@ prepareAppendStringAggState(StringAggState *state, int delimLen)
 	{
 		state->string.len -= state->offset;
 		memcpy(state->string.data, state->string.data + state->offset,
-			   state->string.len - state->offset + 1);
+			   state->string.len + 1);
+		state->offset = 0;
 	}
 	
 	/* Track delimiter length */
