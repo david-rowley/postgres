@@ -877,6 +877,29 @@ bpchar_larger(PG_FUNCTION_ARGS)
 }
 
 Datum
+bpchar_larger_inv(PG_FUNCTION_ARGS)
+{
+	BpChar	   *arg1 = PG_GETARG_BPCHAR_PP(0);
+	BpChar	   *arg2 = PG_GETARG_BPCHAR_PP(1);
+	int			len1,
+				len2;
+	int			cmp;
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
+	len1 = bcTruelen(arg1);
+	len2 = bcTruelen(arg2);
+
+	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2,
+		PG_GET_COLLATION());
+
+	if (cmp > 0)
+		PG_RETURN_BPCHAR_P(arg1);
+	PG_RETURN_NULL();
+}
+
+Datum
 bpchar_smaller(PG_FUNCTION_ARGS)
 {
 	BpChar	   *arg1 = PG_GETARG_BPCHAR_PP(0);
@@ -892,6 +915,29 @@ bpchar_smaller(PG_FUNCTION_ARGS)
 					 PG_GET_COLLATION());
 
 	PG_RETURN_BPCHAR_P((cmp <= 0) ? arg1 : arg2);
+}
+
+Datum
+bpchar_smaller_inv(PG_FUNCTION_ARGS)
+{
+	BpChar	   *arg1 = PG_GETARG_BPCHAR_PP(0);
+	BpChar	   *arg2 = PG_GETARG_BPCHAR_PP(1);
+	int			len1,
+				len2;
+	int			cmp;
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
+	len1 = bcTruelen(arg1);
+	len2 = bcTruelen(arg2);
+
+	cmp = varstr_cmp(VARDATA_ANY(arg1), len1, VARDATA_ANY(arg2), len2,
+		PG_GET_COLLATION());
+
+	if (cmp < 0)
+		PG_RETURN_BPCHAR_P(arg1);
+	PG_RETURN_NULL();
 }
 
 

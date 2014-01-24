@@ -4714,6 +4714,24 @@ array_larger(PG_FUNCTION_ARGS)
 }
 
 Datum
+array_larger_inv(PG_FUNCTION_ARGS)
+{
+	ArrayType  *v1,
+			   *v2;
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function function called in non-aggregate context");
+
+	v1 = PG_GETARG_ARRAYTYPE_P(0);
+	v2 = PG_GETARG_ARRAYTYPE_P(1);
+
+	if (array_cmp(fcinfo) > 0)
+		PG_RETURN_ARRAYTYPE_P(v1);
+	PG_RETURN_NULL();
+}
+
+
+Datum
 array_smaller(PG_FUNCTION_ARGS)
 {
 	ArrayType  *v1,
@@ -4728,6 +4746,22 @@ array_smaller(PG_FUNCTION_ARGS)
 	PG_RETURN_ARRAYTYPE_P(result);
 }
 
+Datum
+array_smaller_inv(PG_FUNCTION_ARGS)
+{
+	ArrayType  *v1,
+			   *v2;
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function function called in non-aggregate context");
+
+	v1 = PG_GETARG_ARRAYTYPE_P(0);
+	v2 = PG_GETARG_ARRAYTYPE_P(1);
+
+	if (array_cmp(fcinfo) < 0)
+		PG_RETURN_ARRAYTYPE_P(v1);
+	PG_RETURN_NULL();
+}
 
 typedef struct generate_subscripts_fctx
 {

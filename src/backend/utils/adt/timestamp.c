@@ -2393,6 +2393,20 @@ timestamp_smaller(PG_FUNCTION_ARGS)
 }
 
 Datum
+timestamp_smaller_inv(PG_FUNCTION_ARGS)
+{
+	Timestamp	dt1 = PG_GETARG_TIMESTAMP(0);
+	Timestamp	dt2 = PG_GETARG_TIMESTAMP(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
+	if (timestamp_cmp_internal(dt1, dt2) < 0)
+		PG_RETURN_TIMESTAMP(dt1);
+	PG_RETURN_NULL();
+}
+
+Datum
 timestamp_larger(PG_FUNCTION_ARGS)
 {
 	Timestamp	dt1 = PG_GETARG_TIMESTAMP(0);
@@ -2406,6 +2420,19 @@ timestamp_larger(PG_FUNCTION_ARGS)
 	PG_RETURN_TIMESTAMP(result);
 }
 
+Datum
+timestamp_larger_inv(PG_FUNCTION_ARGS)
+{
+	Timestamp	dt1 = PG_GETARG_TIMESTAMP(0);
+	Timestamp	dt2 = PG_GETARG_TIMESTAMP(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
+	if (timestamp_cmp_internal(dt1, dt2) > 0)
+		PG_RETURN_TIMESTAMP(dt1);
+	PG_RETURN_NULL();
+}
 
 Datum
 timestamp_mi(PG_FUNCTION_ARGS)
@@ -2849,6 +2876,20 @@ interval_smaller(PG_FUNCTION_ARGS)
 }
 
 Datum
+interval_smaller_inv(PG_FUNCTION_ARGS)
+{
+	Interval   *interval1 = PG_GETARG_INTERVAL_P(0);
+	Interval   *interval2 = PG_GETARG_INTERVAL_P(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
+	if (interval_cmp_internal(interval1, interval2) < 0)
+		PG_RETURN_INTERVAL_P(interval1);
+	PG_RETURN_NULL();
+}
+
+Datum
 interval_larger(PG_FUNCTION_ARGS)
 {
 	Interval   *interval1 = PG_GETARG_INTERVAL_P(0);
@@ -2860,6 +2901,20 @@ interval_larger(PG_FUNCTION_ARGS)
 	else
 		result = interval2;
 	PG_RETURN_INTERVAL_P(result);
+}
+
+Datum
+interval_larger_inv(PG_FUNCTION_ARGS)
+{
+	Interval   *interval1 = PG_GETARG_INTERVAL_P(0);
+	Interval   *interval2 = PG_GETARG_INTERVAL_P(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
+	if (interval_cmp_internal(interval1, interval2) > 0)
+		PG_RETURN_INTERVAL_P(interval1);
+	PG_RETURN_NULL();
 }
 
 Datum

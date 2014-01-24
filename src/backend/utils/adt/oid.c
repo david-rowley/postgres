@@ -397,12 +397,40 @@ oidlarger(PG_FUNCTION_ARGS)
 }
 
 Datum
+oidlarger_inv(PG_FUNCTION_ARGS)
+{
+	Oid			arg1 = PG_GETARG_OID(0);
+	Oid			arg2 = PG_GETARG_OID(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
+	if (arg1 > arg2)
+		PG_RETURN_OID(arg1);
+	PG_RETURN_NULL(); /* Unable to perform inverse transition */
+}
+
+Datum
 oidsmaller(PG_FUNCTION_ARGS)
 {
 	Oid			arg1 = PG_GETARG_OID(0);
 	Oid			arg2 = PG_GETARG_OID(1);
 
 	PG_RETURN_OID((arg1 < arg2) ? arg1 : arg2);
+}
+
+Datum
+oidsmaller_inv(PG_FUNCTION_ARGS)
+{
+	Oid			arg1 = PG_GETARG_OID(0);
+	Oid			arg2 = PG_GETARG_OID(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
+	if (arg1 < arg2)
+		PG_RETURN_OID(arg1);
+	PG_RETURN_NULL(); /* Unable to perform inverse transition */
 }
 
 Datum
