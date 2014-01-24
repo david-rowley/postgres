@@ -412,7 +412,44 @@ FROM (VALUES
 WINDOW wnd AS (ORDER BY i ROWS BETWEEN 1 PRECEDING AND CURRENT ROW)
 ORDER BY i;
 
--- cleanup logging aggregate
+-- test that returning NULL from the inverse transition functions
+-- restarts the aggregation from scratch. The second aggregate is supposed
+-- to test cases where only some aggregates restart, the third one checks
+-- the one aggregate restarting doesn't cause others to restart
+CREATE FUNCTION sum_int_randrestart_invsfunc(int4, int4) RETURNS int4 AS
+$$SELECT CASE WHEN random() < 0.2 THEN NULL ELSE $1 - $2 END$$
+LANGUAGE SQL STRICT IMMUTABLE;
+
+CREATE AGGREGATE sum_int_randomrestart (int4)
+(
+	stype = int4,
+	sfunc = int4pl,
+	invfunc = sum_int_randrestart_invsfunc
+);
+
+WITH
+vs AS (
+	SELECT i, (random() * 100)::int4 AS v
+	FROM generate_series(1, 100) AS i
+),
+sum_following AS (
+	SELECT i, SUM(v) OVER
+		(ORDER BY i DESC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS s
+	FROM vs
+)
+SELECT DISTINCT
+	sum_following.s = sum_int_randomrestart(v) OVER fwd AS eq1,
+	-sum_following.s = sum_int_randomrestart(-v) OVER fwd AS eq2,
+	100*3+(vs.i-1)*3 = length(logging_agg_nonstrict(''::text) OVER fwd) AS eq3
+FROM vs
+JOIN sum_following ON sum_following.i = vs.i
+WINDOW fwd AS (
+	ORDER BY vs.i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING
+);
+
+-- cleanup aggregates
+DROP AGGREGATE sum_int_randomrestart (int4);
+DROP FUNCTION sum_int_randrestart_invsfunc(int4, int4);
 DROP AGGREGATE logging_agg_strict_initcond(anyelement);
 DROP AGGREGATE logging_agg_strict(text);
 DROP FUNCTION logging_invsfunc_strict(text, anyelement);
