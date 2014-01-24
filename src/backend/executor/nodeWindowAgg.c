@@ -537,7 +537,7 @@ retreat_windowaggregate(WindowAggState *winstate,
 		MemoryContextSwitchTo(oldContext);
 		return false;
 	}
-	
+
 	/* Update number of added but not yet removed values */
 	peraggstate->transValueCount--;
 
@@ -820,7 +820,7 @@ eval_windowaggregates(WindowAggState *winstate)
 
 	/*
 	 * Then restart the aggregates which require it.
-	 * 
+	 *
 	 * We assume that aggregates using the shared context always restart
 	 * if *any* aggregate restarts, and we may thus cleanup the shared
 	 * aggcontext if that is the case. The private aggcontexts are reset
@@ -2305,7 +2305,7 @@ initialize_peragg(WindowAggState *winstate, WindowFunc *wfunc,
 	{
 		peraggstate->use_invtransfn = false;
 	}
-	
+
 	/*
 	 * Invertible aggregates use their own aggcontext.
 	 *
