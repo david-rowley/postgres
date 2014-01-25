@@ -86,8 +86,9 @@ static Datum text_to_array_internal(PG_FUNCTION_ARGS);
 static text *array_to_text_internal(FunctionCallInfo fcinfo, ArrayType *v,
 					   const char *fldsep, const char *null_string);
 static StringAggState* makeStringAggState(FunctionCallInfo fcinfo);
-static void prepareAppendStringAggState(StringAggState *state, int delimLen);
-static bool undoAppendStringAggState(StringAggState *state, int length);
+static void prepareAppendStringAggState(StringAggState *state,
+										int delimLen, int valueLen);
+static bool removeFromStringAggState(StringAggState *state, int valueLen);
 static bool text_format_parse_digits(const char **ptr, const char *end_ptr,
 						 int *value);
 static const char *text_format_parse_format(const char *start_ptr,
@@ -100,6 +101,123 @@ static void text_format_string_conversion(StringInfo buf, char conversion,
 							  int flags, int width);
 static void text_format_append_string(StringInfo buf, const char *str,
 						  int flags, int width);
+
+/*****************************************************************************
+ *	 SUPPORT ROUTINES FOR STRING_AGG(TEXT) AND STRING_AGG(BYTEA)			 *
+ *****************************************************************************/
+
+/*
+ * subroutine to initialize state
+ */
+static StringAggState*
+makeStringAggState(FunctionCallInfo fcinfo)
+{
+	StringAggState*	state;
+	MemoryContext aggcontext;
+	MemoryContext oldcontext;
+
+	if (!AggCheckCallContext(fcinfo, &aggcontext))
+	{
+		/* cannot be called directly because of internal-type argument */
+		elog(ERROR, "string_agg_transfn called in non-aggregate context");
+	}
+
+	/*
+	 * Create state in aggregate context.  It'll stay there across subsequent
+	 * calls.
+	 */
+	oldcontext = MemoryContextSwitchTo(aggcontext);
+	state = (StringAggState *) palloc(sizeof(StringAggState));
+	initStringInfo(&state->string);
+	state->offset = 0;
+	state->delimLen = -1;
+	MemoryContextSwitchTo(oldcontext);
+
+	return state;
+}
+
+/*
+ * Prepare state for appending a value and a delimiter with specified lengths.
+ * pass -1 for delimLen if no delimiter will be added
+ */
+void
+prepareAppendStringAggState(StringAggState *state, int delimLen, int valueLen)
+{
+	/*
+	 * Reclaim wasted space
+	 *
+	 * We move the contents to the left if the current contents fit into the
+	 * wasted space, i.e. if we waste more than we store. The limit is
+	 * somewhat arbitrary, but it's the smallest one that allows
+	 * memcpy to be used, because the source and destination don't overlap.
+	 * Note that we must check for <, not <=, because we include the trailing
+	 * '\0' in the copy.
+	 */
+	if (state->string.len - state->offset < state->offset)
+	{
+		state->string.len -= state->offset;
+		memcpy(state->string.data, state->string.data + state->offset,
+			   state->string.len + 1);
+		state->offset = 0;
+	}
+	
+	/*
+	 * Enlarge StringInfo
+	 *
+	 * Not strictly necessary, but avoids potentially resizing twice when
+	 * the actual append... calls are done by the caller
+	 */
+	enlargeStringInfo(&state->string, Max(delimLen, 0) + valueLen);
+	
+	
+	/* Track delimiter length */
+	if (delimLen == -1)
+		{} /* Not specified, don't update */
+	else if (state->delimLen == -1)
+		state->delimLen = delimLen;
+	else if (state->delimLen != delimLen)
+		state->delimLen = -2;
+}
+
+/*
+ * Remove value with given length and the delimiter that follows
+ *
+ * Returns false if removal was impossible because delimiters varied
+ */
+bool
+removeFromStringAggState(StringAggState *state, int valueLen)
+{
+	/* Remove the string */
+	state->offset += valueLen;
+
+	/*
+	 * Remove delimiter if necessary.
+	 *
+	 * The delimiter we need to remove isn't the delimiter we were passed, but
+	 * rather the delimiter passed when adding the input *after* this one. We
+	 * thus need the delimiter length to be all the same to be able to proceed.
+	 * If we're removing the last string, there will be no delimiter following
+	 * it. In that case, we may reset delimLen to its initial value.
+	 */
+	if (state->delimLen == -2)
+		return false;
+	if (state->offset < state->string.len)
+	{
+		Assert(state->delimLen >= 0);
+		state->offset += state->delimLen;
+	}
+	else
+		state->delimLen = -1;
+
+	/* Don't crash if we're ever asked to remove more than was added */
+	if (state->offset > state->string.len)
+	{
+		state->offset = state->string.len;
+		elog(ERROR, "tried to remove more data than was aggregated");
+	}
+
+	return true;
+}
 
 
 /*****************************************************************************
@@ -417,8 +535,11 @@ byteasend(PG_FUNCTION_ARGS)
 Datum
 bytea_string_agg_transfn(PG_FUNCTION_ARGS)
 {
+	bytea		   *value,
+				   *delim;
+	int				valueLen,
+					delimLen;
 	StringAggState *state;
-	bytea		   *value;
 
 	state = PG_ARGISNULL(0) ? NULL : (StringAggState *) PG_GETARG_POINTER(0);
 
@@ -430,32 +551,79 @@ bytea_string_agg_transfn(PG_FUNCTION_ARGS)
 	if (state == NULL)
 		state = makeStringAggState(fcinfo);
 
-	/* Append delimiter unless content is empty */
-	if (state->offset < state->string.len)
+	value = PG_GETARG_BYTEA_PP(1);
+	valueLen = VARSIZE_ANY_EXHDR(value);
+
+	Assert(state->offset <= state->string.len);
+	if (state->offset == state->string.len)
 	{
-		/* Add delimiter, NULL counts as zero-length */
-		if (!PG_ARGISNULL(2)) {
-			bytea  *delim = PG_GETARG_BYTEA_PP(2);
-			int		delimLen = VARSIZE_ANY_EXHDR(delim);
-			prepareAppendStringAggState(state, delimLen);
-			appendBinaryStringInfo(&state->string, VARDATA_ANY(delim), delimLen);
-		}
-		else
-			prepareAppendStringAggState(state, 0);
+		/* Buffer is empty, ignore delimiter */
+		delim = NULL;
+		delimLen = -1;
+	}
+	else if (!PG_ARGISNULL(2))
+	{
+		/* Delimiter is non-NULL */
+		delim = PG_GETARG_BYTEA_PP(2);
+		delimLen = VARSIZE_ANY_EXHDR(delim);
 	}
 	else
-		prepareAppendStringAggState(state, -1);
+	{
+		/* Delimiter is NULL, treat as zero-length string */
+		delim = NULL;
+		delimLen = 0;
+	}
 
-	/* Append value */
-	value = PG_GETARG_BYTEA_PP(1);
-	appendBinaryStringInfo(&state->string, VARDATA_ANY(value),
-						   VARSIZE_ANY_EXHDR(value));
+	/* Append delimiter (if non-NULL) and value */
+	prepareAppendStringAggState(state, delimLen, valueLen);
+	if (delim)
+		appendBinaryStringInfo(&state->string, VARDATA_ANY(delim),
+							   VARSIZE_ANY_EXHDR(delim));
+	appendBinaryStringInfo(&state->string, VARDATA_ANY(value), valueLen);
 
 	/*
 	 * The transition type for string_agg() is declared to be "internal",
 	 * which is a pass-by-value type the same size as a pointer.
 	 */
 	PG_RETURN_POINTER(state);
+}
+
+Datum
+bytea_string_agg_invtransfn(PG_FUNCTION_ARGS)
+{
+	int				valueLen;
+	StringAggState *state;
+	
+	/*
+	 * Shouldn't happen, but we cannot mark this function strict, since it
+	 * needs to be able to receive a non-NULL string but a NULL delimiter.
+	 * Must also prevent direct calls because of the "interal" argument
+	 */
+	if (PG_ARGISNULL(0))
+		elog(ERROR, "string_agg_invtransfn called with NULL state");
+	else if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "string_agg_invtransfn called in non-aggregate context");
+	
+	state = (StringAggState *) PG_GETARG_POINTER(0);
+
+	/* We append nothing if the string is NULL, so skip here as well */
+	if (PG_ARGISNULL(1))
+		PG_RETURN_POINTER(state);
+
+	/* No need to de-toast value, need only the length */
+	valueLen = VARSIZE_ANY_EXHDR(PG_GETARG_RAW_VARLENA_P(1));
+
+	/*
+	 * Attempt to remove value plus following delimiter if possible, return
+	 * NULL otherwise to force an aggregation restart.
+	 *
+	 * The transition type for string_agg() is declared to be "internal",
+	 * which is a pass-by-value type the same size as a pointer.
+	 */
+	if (removeFromStringAggState(state, valueLen))
+		PG_RETURN_POINTER(state);
+	else
+		PG_RETURN_NULL();
 }
 
 Datum
@@ -3755,102 +3923,12 @@ pg_column_size(PG_FUNCTION_ARGS)
  * the associated value.
  */
 
-/* subroutine to initialize state */
-static StringAggState*
-makeStringAggState(FunctionCallInfo fcinfo)
-{
-	StringAggState*	state;
-	MemoryContext aggcontext;
-	MemoryContext oldcontext;
-
-	if (!AggCheckCallContext(fcinfo, &aggcontext))
-	{
-		/* cannot be called directly because of internal-type argument */
-		elog(ERROR, "string_agg_transfn called in non-aggregate context");
-	}
-
-	/*
-	 * Create state in aggregate context.  It'll stay there across subsequent
-	 * calls.
-	 */
-	oldcontext = MemoryContextSwitchTo(aggcontext);
-	state = (StringAggState *) palloc(sizeof(StringAggState));
-	initStringInfo(&state->string);
-	state->offset = 0;
-	state->delimLen = -1;
-	MemoryContextSwitchTo(oldcontext);
-
-	return state;
-}
-
-/* prepare state for appending a value and a delimiter with length delimLen.
- * pass -1 for delimLen if no delimiter will be added
- */
-void
-prepareAppendStringAggState(StringAggState *state, int delimLen)
-{
-	/* Move contents back to front if the wasted space at the beginning
-	 * exceeds the content length.
-	 *
-	 * The limit is somewhat arbitrary, but it's the smallest one that allows
-	 * memcpy to be used, because the source and destination don't overlap.
-	 * Note that we must check for <, not <=, because we include the trailing
-	 * '\0' in the copy.
-	 */
-	if (state->string.len - state->offset < state->offset)
-	{
-		state->string.len -= state->offset;
-		memcpy(state->string.data, state->string.data + state->offset,
-			   state->string.len + 1);
-		state->offset = 0;
-	}
-	
-	/* Track delimiter length */
-	if (delimLen == -1)
-		{} /* Not specified, don't update */
-	else if (state->delimLen == -1)
-		state->delimLen = delimLen;
-	else if (state->delimLen != delimLen)
-		state->delimLen = -2;
-}
-
-/* remove leading string with specified lenght and the delimiter that follows.
- * returns false if the string cannot be removed because the delimiter lengths
- * varied
- */
-bool
-undoAppendStringAggState(StringAggState *state, int length)
-{
-	/* Remove the string */
-	state->offset += length;
-	
-	/* Remove delimiter if necessary.
-	 * The delimiter we need to remove isn't the delimiter we were passed, but
-	 * rather the delimiter passed when adding the input *after* this one. We
-	 * thus need the delimiter length to be all the same to be able to proceed.
-	 * If we're removing the last string, there will be no delimiter following
-	 * it. In that case, we may reset delimLen to its initial value.
-	 */
-	if (state->delimLen == -2)
-		return false;
-	if (state->offset < state->string.len)
-	{
-		Assert(state->delimLen >= 0);
-		state->offset += state->delimLen;
-	}
-	else
-		state->delimLen = -1;
-
-	/* Don't crash if we're ever asked to remove more than was added */
-	if (state->offset > state->string.len)
-		elog(ERROR, "tried to remove more data than was aggregated");
-		
-	return true;
-}
-
 Datum
 string_agg_transfn(PG_FUNCTION_ARGS)
 {
+	text		   *value,
+				   *delim;
+	int				delimLen;
 	StringAggState *state;
 
 	state = PG_ARGISNULL(0) ? NULL : (StringAggState *) PG_GETARG_POINTER(0);
@@ -3863,23 +3941,33 @@ string_agg_transfn(PG_FUNCTION_ARGS)
 	if (state == NULL)
 		state = makeStringAggState(fcinfo);
 
-	/* Append delimiter unless content is empty */
-	if (state->offset < state->string.len)
+	value = PG_GETARG_TEXT_PP(1);
+
+	Assert(state->offset <= state->string.len);
+	if (state->offset == state->string.len)
 	{
-		/* Add delimiter, NULL counts as zero-length */
-		if (!PG_ARGISNULL(2)) {
-			text *delim = PG_GETARG_TEXT_PP(2);
-			prepareAppendStringAggState(state, VARSIZE_ANY_EXHDR(delim));
-			appendStringInfoText(&state->string, delim);
-		}
-		else
-			prepareAppendStringAggState(state, 0);
+		/* Buffer is empty, ignore delimiter */
+		delim = NULL;
+		delimLen = -1;
+	}
+	else if (!PG_ARGISNULL(2))
+	{
+		/* Delimiter is non-NULL */
+		delim = PG_GETARG_TEXT_PP(2);
+		delimLen = VARSIZE_ANY_EXHDR(delim);
 	}
 	else
-		prepareAppendStringAggState(state, -1);
+	{
+		/* Delimiter is NULL, treat as zero-length string */
+		delim = NULL;
+		delimLen = 0;
+	}
 
-	/* Append value */
-	appendStringInfoText(&state->string, PG_GETARG_TEXT_PP(1));
+	/* Append delimiter (if non-NULL) and value */
+	prepareAppendStringAggState(state, delimLen, VARSIZE_ANY_EXHDR(value));
+	if (delim)
+		appendStringInfoText(&state->string, delim);
+	appendStringInfoText(&state->string, value);
 
 	/*
 	 * The transition type for string_agg() is declared to be "internal",
@@ -3888,10 +3976,10 @@ string_agg_transfn(PG_FUNCTION_ARGS)
 	PG_RETURN_POINTER(state);
 }
 
-/* this functions works for both the string and the bytea case */
 Datum
-string_and_bytea_agg_invtransfn(PG_FUNCTION_ARGS)
+string_agg_invtransfn(PG_FUNCTION_ARGS)
 {
+	int				valueLen;
 	StringAggState *state;
 	
 	/*
@@ -3900,27 +3988,30 @@ string_and_bytea_agg_invtransfn(PG_FUNCTION_ARGS)
 	 * Must also prevent direct calls because of the "interal" argument
 	 */
 	if (PG_ARGISNULL(0))
-		elog(ERROR, "string_or_bytea_agg_invtransfn called with NULL state");
+		elog(ERROR, "string_agg_invtransfn called with NULL state");
 	else if (!AggCheckCallContext(fcinfo, NULL))
-		elog(ERROR, "string_or_bytea_agg_invtransfn called in non-aggregate context");
-	
+		elog(ERROR, "string_agg_invtransfn called in non-aggregate context");
+
 	state = (StringAggState *) PG_GETARG_POINTER(0);
-	
+
 	/* We append nothing if the string is NULL, so skip here as well */
 	if (PG_ARGISNULL(1))
 		PG_RETURN_POINTER(state);
-		
-	/* Remove the string and the following delimiter
-	 * Note that only need the length, so we don't de-toast
-	 */
-	if (!undoAppendStringAggState(state, VARSIZE_ANY_EXHDR(PG_GETARG_RAW_VARLENA_P(1))))
-		PG_RETURN_NULL();
-		
+
+	/* No need to de-toast value, need only the length */
+	valueLen = VARSIZE_ANY_EXHDR(PG_GETARG_RAW_VARLENA_P(1));
+
 	/*
+	 * Attempt to remove value plus following delimiter if possible, return
+	 * NULL otherwise to force an aggregation restart.
+	 *
 	 * The transition type for string_agg() is declared to be "internal",
 	 * which is a pass-by-value type the same size as a pointer.
 	 */
-	PG_RETURN_POINTER(state);
+	if (removeFromStringAggState(state, valueLen))
+		PG_RETURN_POINTER(state);
+	else
+		PG_RETURN_NULL();
 }
 
 Datum
