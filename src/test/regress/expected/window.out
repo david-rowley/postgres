@@ -1761,11 +1761,112 @@ FROM (VALUES(1,1::numeric),(2,2),(3,'NaN'),(4,3),(5,4)) t(a,b);
  5 |   4 |   7
 (5 rows)
 
---
---
 -- Test the MIN, MAX and boolean inverse transition functions
---
---
+SELECT v,MAX(v) OVER w,MIN(v) OVER w
+FROM (VALUES(1,10),(2,20),(3,30),(4,40)) v(i,v)
+WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING);
+ v  | max | min 
+----+-----+-----
+ 10 |  20 |  10
+ 20 |  30 |  20
+ 30 |  40 |  30
+ 40 |  40 |  40
+(4 rows)
+
+SELECT v,MAX(v) OVER w,MIN(v) OVER w
+FROM (VALUES(1,10::int),(2,20),(3,NULL),(4,40)) v(i,v)
+WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING);
+ v  | max | min 
+----+-----+-----
+ 10 |  20 |  10
+ 20 |  20 |  20
+    |  40 |  40
+ 40 |  40 |  40
+(4 rows)
+
+SELECT v,MAX(v) FILTER(WHERE v <> 40) OVER w,MIN(v) OVER w
+FROM (VALUES(1,10::int),(2,20),(3,30),(4,40)) v(i,v)
+WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING);
+ v  | max | min 
+----+-----+-----
+ 10 |  20 |  10
+ 20 |  30 |  20
+ 30 |  30 |  30
+ 40 |     |  40
+(4 rows)
+
+SELECT v,MAX(v) OVER w,MIN(v) OVER w
+FROM (VALUES(1,40::int),(2,40),(3,20),(4,NULL),(5,10)) v(i,v)
+WINDOW w AS (ORDER BY i RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING);
+ v  | max | min 
+----+-----+-----
+ 40 |  40 |  10
+ 40 |  40 |  10
+ 20 |  20 |  10
+    |  10 |  10
+ 10 |  10 |  10
+(5 rows)
+
+SELECT v,MAX(CASE WHEN v <= 20 THEN NULL ELSE v END) OVER w,MIN(v) OVER w
+FROM (VALUES(1,40::int),(2,40),(3,20),(4,NULL),(5,10)) v(i,v)
+WINDOW w AS (ORDER BY i RANGE BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING);
+ v  | max | min 
+----+-----+-----
+ 40 |  40 |  10
+ 40 |  40 |  10
+ 20 |     |  10
+    |     |  10
+ 10 |     |  10
+(5 rows)
+
+SELECT v,MAX(v) OVER w,MIN(v) OVER w
+FROM (VALUES(1,'ad'),(2,'ab'),(3,'ad'),(4,'aa'),(5,'ae')) v(i,v)
+WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING);
+ v  | max | min 
+----+-----+-----
+ ad | ad  | ab
+ ab | ad  | ab
+ ad | ad  | aa
+ aa | ae  | aa
+ ae | ae  | ae
+(5 rows)
+
+SELECT v,MAX(v) OVER w,MIN(v) OVER w
+FROM (VALUES(1,'ad'),(2,'ab'),(3,'ad'),(4,'aa'),(5,'ae')) v(i,v)
+WINDOW w AS (ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING);
+ v  | max | min 
+----+-----+-----
+ ad | ad  | ab
+ ab | ad  | ab
+ ad | ad  | aa
+ aa | ae  | aa
+ ae | ae  | ae
+(5 rows)
+
+SELECT v,p,MAX(v) OVER w,MIN(v) OVER w
+FROM (VALUES(1,100,'ad'),(2,100,'ab'),(3,200,'ad'),(4,200,'aa'),(5,100,'ae')) v(i,p,v)
+WINDOW w AS (PARTITION BY p ORDER BY i ROWS BETWEEN CURRENT ROW AND UNBOUNDED FOLLOWING);
+ v  |  p  | max | min 
+----+-----+-----+-----
+ ad | 100 | ae  | ab
+ ab | 100 | ae  | ab
+ ae | 100 | ae  | ae
+ ad | 200 | ad  | aa
+ aa | 200 | aa  | aa
+(5 rows)
+
+SELECT b,bool_and(b) OVER w, bool_or(b) OVER w
+FROM (VALUES(1,true),(2,true),(3,false),(4,false),(5,true)) v(i,b)
+WINDOW w AS (ORDER BY i ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING);
+ b | bool_and | bool_or 
+---+----------+---------
+ t | t        | t
+ t | f        | t
+ f | f        | f
+ f | f        | t
+ t | t        | t
+(5 rows)
+
 --
 --
 -- Tests of the collecting inverse transition functions
