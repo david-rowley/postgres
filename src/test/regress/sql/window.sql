@@ -485,10 +485,10 @@ SELECT
 	coalesce(string_agg(s,',')       OVER wnd, '-') AS str_del,
 	coalesce(string_agg(s, nullif(repeat('|', i%3), ''))
 			 OVER wnd, '-') AS str_vardel,
-	coalesce(string_agg(b,'')        OVER wnd, '-') AS bin,
-	coalesce(string_agg(b, E'\\x00') OVER wnd, '-') AS bin_del,
-	coalesce(string_agg(b, nullif(decode(repeat('00', i%3), 'hex'), ''))
-			 OVER wnd, '-') AS bin_vardel,
+	coalesce((string_agg(b,'')        OVER wnd)::text, '-') AS bin,
+	coalesce((string_agg(b, E'\\x00') OVER wnd)::text, '-') AS bin_del,
+	coalesce((string_agg(b, nullif(decode(repeat('00', i%3), 'hex'), ''))
+			 OVER wnd)::text, '-') AS bin_vardel,
 	array_agg(n) OVER wnd AS ary
 FROM (VALUES
 	(1,  '1',  E'\\x0100'::bytea, NULL::int8),

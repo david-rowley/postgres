@@ -55,6 +55,7 @@ typedef struct StringAggState
 	StringInfoData 	string; 	/* Contents */
 	int 			offset;		/* Offset into stringinfo's data */
 	int 			delimLen;	/* Delim length, -1 initially, -2 if multiple */
+	int64			notNullCount;/* Number of non-NULL inputs */  
 } StringAggState;
 
 #define DatumGetUnknownP(X)			((unknown *) PG_DETOAST_DATUM(X))
@@ -131,6 +132,7 @@ makeStringAggState(FunctionCallInfo fcinfo)
 	initStringInfo(&state->string);
 	state->offset = 0;
 	state->delimLen = -1;
+	state->notNullCount = 0;
 	MemoryContextSwitchTo(oldcontext);
 
 	return state;
@@ -553,6 +555,7 @@ bytea_string_agg_transfn(PG_FUNCTION_ARGS)
 
 	value = PG_GETARG_BYTEA_PP(1);
 	valueLen = VARSIZE_ANY_EXHDR(value);
+	state->notNullCount++;
 
 	Assert(state->offset <= state->string.len);
 	if (state->offset == state->string.len)
@@ -612,6 +615,8 @@ bytea_string_agg_invtransfn(PG_FUNCTION_ARGS)
 
 	/* No need to de-toast value, need only the length */
 	valueLen = VARSIZE_ANY_EXHDR(PG_GETARG_RAW_VARLENA_P(1));
+	Assert(state->notNullCount >= 1);
+	state->notNullCount--;
 
 	/*
 	 * Attempt to remove value plus following delimiter if possible, return
@@ -636,7 +641,14 @@ bytea_string_agg_finalfn(PG_FUNCTION_ARGS)
 
 	state = PG_ARGISNULL(0) ? NULL : (StringAggState *) PG_GETARG_POINTER(0);
 
-	if (state != NULL)
+	/*
+	 * string_agg() is supposed to return NULL if all inputs were NULL
+	 *
+	 * That happens automatically for strict aggregates, but we can't make
+	 * string_agg() strict because NULL is a valid delimiter value. So we
+	 * need to keep track of the number of non-NULL 1st arguments ourselves.
+	 */
+	if (state != NULL && state->notNullCount > 0)
 	{
 		int			resultLen = state->string.len  - state->offset;
 		bytea	   *result;
@@ -3942,6 +3954,7 @@ string_agg_transfn(PG_FUNCTION_ARGS)
 		state = makeStringAggState(fcinfo);
 
 	value = PG_GETARG_TEXT_PP(1);
+	state->notNullCount++;
 
 	Assert(state->offset <= state->string.len);
 	if (state->offset == state->string.len)
@@ -4000,6 +4013,8 @@ string_agg_invtransfn(PG_FUNCTION_ARGS)
 
 	/* No need to de-toast value, need only the length */
 	valueLen = VARSIZE_ANY_EXHDR(PG_GETARG_RAW_VARLENA_P(1));
+	Assert(state->notNullCount >= 1);
+	state->notNullCount--;
 
 	/*
 	 * Attempt to remove value plus following delimiter if possible, return
@@ -4024,7 +4039,14 @@ string_agg_finalfn(PG_FUNCTION_ARGS)
 
 	state = PG_ARGISNULL(0) ? NULL : (StringAggState *) PG_GETARG_POINTER(0);
 
-	if (state != NULL)
+	/*
+	 * string_agg() is supposed to return NULL if all inputs were NULL
+	 *
+	 * That happens automatically for strict aggregates, but we can't make
+	 * string_agg() strict because NULL is a valid delimiter value. So we
+	 * need to keep track of the number of non-NULL 1st arguments ourselves.
+	 */
+	if (state != NULL && state->notNullCount > 0)
 		PG_RETURN_TEXT_P(cstring_to_text_with_len(state->string.data + state->offset,
 												  state->string.len - state->offset));
 	else
