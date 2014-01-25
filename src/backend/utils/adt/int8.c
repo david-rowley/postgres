@@ -803,6 +803,20 @@ int8larger(PG_FUNCTION_ARGS)
 }
 
 Datum
+int8larger_inv(PG_FUNCTION_ARGS)
+{
+	int64		arg1 = PG_GETARG_INT64(0);
+	int64		arg2 = PG_GETARG_INT64(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
+	if (arg1 > arg2)
+		PG_RETURN_INT64(arg1);
+	PG_RETURN_NULL(); /* Unable to perform inverse transition */
+}
+
+Datum
 int8smaller(PG_FUNCTION_ARGS)
 {
 	int64		arg1 = PG_GETARG_INT64(0);
@@ -812,6 +826,20 @@ int8smaller(PG_FUNCTION_ARGS)
 	result = ((arg1 < arg2) ? arg1 : arg2);
 
 	PG_RETURN_INT64(result);
+}
+
+Datum
+int8smaller_inv(PG_FUNCTION_ARGS)
+{
+	int64		arg1 = PG_GETARG_INT64(0);
+	int64		arg2 = PG_GETARG_INT64(1);
+
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "aggregate inverse transition function called in non-aggregate context");
+
+	if (arg1 < arg2)
+		PG_RETURN_INT64(arg1);
+	PG_RETURN_NULL(); /* Unable to perform inverse transition */
 }
 
 Datum

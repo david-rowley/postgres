@@ -122,48 +122,48 @@ DATA(insert ( 2113	n 0 interval_pl			interval_mi				-				0	1186	0	_null_ ));
 DATA(insert ( 2114	n 0 numeric_avg_accum	numeric_avg_accum_inv	numeric_sum 0	2281	128 _null_ ));
 
 /* max */
-DATA(insert ( 2115	n 0 int8larger		-	-				413		20		0	_null_ ));
-DATA(insert ( 2116	n 0 int4larger		-	-				521		23		0	_null_ ));
-DATA(insert ( 2117	n 0 int2larger		-	-				520		21		0	_null_ ));
-DATA(insert ( 2118	n 0 oidlarger		-	-				610		26		0	_null_ ));
-DATA(insert ( 2119	n 0 float4larger	-	-				623		700		0	_null_ ));
-DATA(insert ( 2120	n 0 float8larger	-	-				674		701		0	_null_ ));
-DATA(insert ( 2121	n 0 int4larger		-	-				563		702		0	_null_ ));
-DATA(insert ( 2122	n 0 date_larger		-	-				1097	1082	0	_null_ ));
-DATA(insert ( 2123	n 0 time_larger		-	-				1112	1083	0	_null_ ));
-DATA(insert ( 2124	n 0 timetz_larger	-	-				1554	1266	0	_null_ ));
-DATA(insert ( 2125	n 0 cashlarger		-	-				903		790		0	_null_ ));
-DATA(insert ( 2126	n 0 timestamp_larger	-	-			2064	1114	0	_null_ ));
-DATA(insert ( 2127	n 0 timestamptz_larger	-	-			1324	1184	0	_null_ ));
-DATA(insert ( 2128	n 0 interval_larger -	-				1334	1186	0	_null_ ));
-DATA(insert ( 2129	n 0 text_larger		-	-				666		25		0	_null_ ));
-DATA(insert ( 2130	n 0 numeric_larger	-	-				1756	1700	0	_null_ ));
-DATA(insert ( 2050	n 0 array_larger	-	-				1073	2277	0	_null_ ));
-DATA(insert ( 2244	n 0 bpchar_larger	-	-				1060	1042	0	_null_ ));
-DATA(insert ( 2797	n 0 tidlarger		-	-				2800	27		0	_null_ ));
-DATA(insert ( 3526	n 0 enum_larger		-	-				3519	3500	0	_null_ ));
+DATA(insert ( 2115	n 0 int8larger			int8larger_inv			-		413		20		0	_null_ ));
+DATA(insert ( 2116	n 0 int4larger			int4larger_inv			-		521		23		0	_null_ ));
+DATA(insert ( 2117	n 0 int2larger			int2larger_inv			-		520		21		0	_null_ ));
+DATA(insert ( 2118	n 0 oidlarger			oidlarger_inv			-		610		26		0	_null_ ));
+DATA(insert ( 2119	n 0 float4larger		float4larger_inv		-		623		700		0	_null_ ));
+DATA(insert ( 2120	n 0 float8larger		float8larger_inv		-		674		701		0	_null_ ));
+DATA(insert ( 2121	n 0 int4larger			int4larger_inv			-		563		702		0	_null_ ));
+DATA(insert ( 2122	n 0 date_larger			date_larger_inv			-		1097	1082	0	_null_ ));
+DATA(insert ( 2123	n 0 time_larger			time_larger_inv			-		1112	1083	0	_null_ ));
+DATA(insert ( 2124	n 0 timetz_larger		timetz_larger_inv		-		1554	1266	0	_null_ ));
+DATA(insert ( 2125	n 0 cashlarger			cashlarger_inv			-		903		790		0	_null_ ));
+DATA(insert ( 2126	n 0 timestamp_larger	timestamp_larger_inv	-		2064	1114	0	_null_ ));
+DATA(insert ( 2127	n 0 timestamptz_larger	timestamptz_larger_inv	-		1324	1184	0	_null_ ));
+DATA(insert ( 2128	n 0 interval_larger		interval_larger_inv		-		1334	1186	0	_null_ ));
+DATA(insert ( 2129	n 0 text_larger			text_larger_inv			-		666		25		0	_null_ ));
+DATA(insert ( 2130	n 0 numeric_larger		numeric_larger_inv		-		1756	1700	0	_null_ ));
+DATA(insert ( 2050	n 0 array_larger		array_larger_inv		-		1073	2277	0	_null_ ));
+DATA(insert ( 2244	n 0 bpchar_larger		bpchar_larger_inv		-		1060	1042	0	_null_ ));
+DATA(insert ( 2797	n 0 tidlarger			tidlarger_inv			-		2800	27		0	_null_ ));
+DATA(insert ( 3526	n 0 enum_larger			enum_larger_inv			-		3519	3500	0	_null_ ));
 
 /* min */
-DATA(insert ( 2131	n 0 int8smaller		-	-				412		20		0	_null_ ));
-DATA(insert ( 2132	n 0 int4smaller		-	-				97		23		0	_null_ ));
-DATA(insert ( 2133	n 0 int2smaller		-	-				95		21		0	_null_ ));
-DATA(insert ( 2134	n 0 oidsmaller		-	-				609		26		0	_null_ ));
-DATA(insert ( 2135	n 0 float4smaller	-	-				622		700		0	_null_ ));
-DATA(insert ( 2136	n 0 float8smaller	-	-				672		701		0	_null_ ));
-DATA(insert ( 2137	n 0 int4smaller		-	-				562		702		0	_null_ ));
-DATA(insert ( 2138	n 0 date_smaller	-	-				1095	1082	0	_null_ ));
-DATA(insert ( 2139	n 0 time_smaller	-	-				1110	1083	0	_null_ ));
-DATA(insert ( 2140	n 0 timetz_smaller	-	-				1552	1266	0	_null_ ));
-DATA(insert ( 2141	n 0 cashsmaller		-	-				902		790		0	_null_ ));
-DATA(insert ( 2142	n 0 timestamp_smaller	-	-			2062	1114	0	_null_ ));
-DATA(insert ( 2143	n 0 timestamptz_smaller -	-			1322	1184	0	_null_ ));
-DATA(insert ( 2144	n 0 interval_smaller	-	-			1332	1186	0	_null_ ));
-DATA(insert ( 2145	n 0 text_smaller	-	-				664		25		0	_null_ ));
-DATA(insert ( 2146	n 0 numeric_smaller -	-				1754	1700	0	_null_ ));
-DATA(insert ( 2051	n 0 array_smaller	-	-				1072	2277	0	_null_ ));
-DATA(insert ( 2245	n 0 bpchar_smaller	-	-				1058	1042	0	_null_ ));
-DATA(insert ( 2798	n 0 tidsmaller		-	-				2799	27		0	_null_ ));
-DATA(insert ( 3527	n 0 enum_smaller	-	-				3518	3500	0	_null_ ));
+DATA(insert ( 2131	n 0 int8smaller			int8smaller_inv			-		412		20		0	_null_ ));
+DATA(insert ( 2132	n 0 int4smaller			int4smaller_inv			-		97		23		0	_null_ ));
+DATA(insert ( 2133	n 0 int2smaller			int2smaller_inv			-		95		21		0	_null_ ));
+DATA(insert ( 2134	n 0 oidsmaller			oidsmaller_inv			-		609		26		0	_null_ ));
+DATA(insert ( 2135	n 0 float4smaller		float4smaller_inv		-		622		700		0	_null_ ));
+DATA(insert ( 2136	n 0 float8smaller		float8smaller_inv		-		672		701		0	_null_ ));
+DATA(insert ( 2137	n 0 int4smaller			int4smaller_inv			-		562		702		0	_null_ ));
+DATA(insert ( 2138	n 0 date_smaller		date_smaller_inv		-		1095	1082	0	_null_ ));
+DATA(insert ( 2139	n 0 time_smaller		time_smaller_inv		-		1110	1083	0	_null_ ));
+DATA(insert ( 2140	n 0 timetz_smaller		timetz_smaller_inv		-		1552	1266	0	_null_ ));
+DATA(insert ( 2141	n 0 cashsmaller			cashsmaller_inv			-		902		790		0	_null_ ));
+DATA(insert ( 2142	n 0 timestamp_smaller	timestamp_smaller_inv	-		2062	1114	0	_null_ ));
+DATA(insert ( 2143	n 0 timestamptz_smaller timestamptz_smaller_inv	-		1322	1184	0	_null_ ));
+DATA(insert ( 2144	n 0 interval_smaller	interval_smaller_inv	-		1332	1186	0	_null_ ));
+DATA(insert ( 2145	n 0 text_smaller		text_smaller_inv		-		664		25		0	_null_ ));
+DATA(insert ( 2146	n 0 numeric_smaller		numeric_smaller_inv		-		1754	1700	0	_null_ ));
+DATA(insert ( 2051	n 0 array_smaller		array_smaller_inv		-		1072	2277	0	_null_ ));
+DATA(insert ( 2245	n 0 bpchar_smaller		bpchar_smaller_inv		-		1058	1042	0	_null_ ));
+DATA(insert ( 2798	n 0 tidsmaller			tidsmaller_inv			-		2799	27		0	_null_ ));
+DATA(insert ( 3527	n 0 enum_smaller		enum_smaller_inv		-		3518	3500	0	_null_ ));
 
 /* count */
 DATA(insert ( 2147	n 0 int8inc_any		int8inc_any_inv	-		0		20		0	"0" ));
@@ -232,9 +232,9 @@ DATA(insert ( 2828	n 0 float8_regr_accum	-	float8_covar_samp		0	1022	0	"{0,0,0,0
 DATA(insert ( 2829	n 0 float8_regr_accum	-	float8_corr				0	1022	0	"{0,0,0,0,0,0}" ));
 
 /* boolean-and and boolean-or */
-DATA(insert ( 2517	n 0 booland_statefunc	-	-			58	16		0	_null_ ));
-DATA(insert ( 2518	n 0 boolor_statefunc	-	-			59	16		0	_null_ ));
-DATA(insert ( 2519	n 0 booland_statefunc	-	-			58	16		0	_null_ ));
+DATA(insert ( 2517	n 0 bool_accum		bool_accum_inv		bool_alltrue	58	2281		16	_null_ ));
+DATA(insert ( 2518	n 0 bool_accum		bool_accum_inv		bool_anytrue	59	2281		16	_null_ ));
+DATA(insert ( 2519	n 0 bool_accum		bool_accum_inv		bool_alltrue	58	2281		16	_null_ ));
 
 /* bitwise integer */
 DATA(insert ( 2236	n 0 int2and		-	-					0	21		0	_null_ ));
