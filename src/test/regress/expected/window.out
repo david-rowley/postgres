@@ -1771,3 +1771,47 @@ FROM (VALUES(1,1::numeric),(2,2),(3,'NaN'),(4,3),(5,4)) t(a,b);
 -- Tests of the collecting inverse transition functions
 --
 --
+SELECT
+	i::text || ':' || COALESCE(s, '-') || ',' ||
+					  COALESCE(encode(b, 'hex'), '----') || ',' ||
+					  COALESCE(n::text, '-') AS row,
+	coalesce(string_agg(s,'')        OVER wnd, '-') AS str,
+	coalesce(string_agg(s,',')       OVER wnd, '-') AS str_del,
+	coalesce(string_agg(s, nullif(repeat('|', i%3), ''))
+			 OVER wnd, '-') AS str_vardel,
+	coalesce((string_agg(b,'')        OVER wnd)::text, '-') AS bin,
+	coalesce((string_agg(b, E'\\x00') OVER wnd)::text, '-') AS bin_del,
+	coalesce((string_agg(b, nullif(decode(repeat('00', i%3), 'hex'), ''))
+			 OVER wnd)::text, '-') AS bin_vardel,
+	array_agg(n) OVER wnd AS ary
+FROM (VALUES
+	(1,  '1',  E'\\x0100'::bytea, NULL::int8),
+	(2,  NULL, E'\\x0200'::bytea, 2::int8),
+	(3,  '3',  NULL,              3::int8),
+	(4,  NULL, E'\\x0400'::bytea, 4::int8),
+	(5,  '5',  NULL,              NULL::int8),
+	(6,  '6',  E'\\x0600'::bytea, 6::int8),
+	(7,  '7',  E'\\x0700'::bytea, NULL::int8),
+	(8,  '8',  E'\\x0800'::bytea, 8::int8),
+	(9,  NULL, NULL,              NULL),
+	(10, NULL, NULL,              NULL),
+	(11, NULL, NULL,              NULL),
+	(12, NULL, NULL,              NULL)
+) AS v(i, s, b, n)
+WINDOW wnd AS (ORDER BY i ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING);
+     row     | str | str_del | str_vardel |      bin       |      bin_del       |      bin_vardel      |       ary        
+-------------+-----+---------+------------+----------------+--------------------+----------------------+------------------
+ 1:1,0100,-  | -   | -       | -          | -              | -                  | -                    | 
+ 2:-,0200,2  | 1   | 1       | 1          | \x0100         | \x0100             | \x0100               | {NULL}
+ 3:3,----,3  | 1   | 1       | 1          | \x01000200     | \x0100000200       | \x010000000200       | {NULL,2}
+ 4:-,0400,4  | 13  | 1,3     | 13         | \x01000200     | \x0100000200       | \x010000000200       | {NULL,2,3}
+ 5:5,----,-  | 3   | 3       | 3          | \x02000400     | \x0200000400       | \x0200000400         | {2,3,4}
+ 6:6,0600,6  | 35  | 3,5     | 3||5       | \x0400         | \x0400             | \x0400               | {3,4,NULL}
+ 7:7,0700,-  | 56  | 5,6     | 56         | \x04000600     | \x0400000600       | \x04000600           | {4,NULL,6}
+ 8:8,0800,8  | 567 | 5,6,7   | 56|7       | \x06000700     | \x0600000700       | \x0600000700         | {NULL,6,NULL}
+ 9:-,----,-  | 678 | 6,7,8   | 6|7||8     | \x060007000800 | \x0600000700000800 | \x060000070000000800 | {6,NULL,8}
+ 10:-,----,- | 78  | 7,8     | 7||8       | \x07000800     | \x0700000800       | \x070000000800       | {NULL,8,NULL}
+ 11:-,----,- | 8   | 8       | 8          | \x0800         | \x0800             | \x0800               | {8,NULL,NULL}
+ 12:-,----,- | -   | -       | -          | -              | -                  | -                    | {NULL,NULL,NULL}
+(12 rows)
+

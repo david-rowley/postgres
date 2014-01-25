@@ -617,3 +617,32 @@ FROM (VALUES(1,1::numeric),(2,2),(3,'NaN'),(4,3),(5,4)) t(a,b);
 -- Tests of the collecting inverse transition functions
 --
 --
+
+SELECT
+	i::text || ':' || COALESCE(s, '-') || ',' ||
+					  COALESCE(encode(b, 'hex'), '----') || ',' ||
+					  COALESCE(n::text, '-') AS row,
+	coalesce(string_agg(s,'')        OVER wnd, '-') AS str,
+	coalesce(string_agg(s,',')       OVER wnd, '-') AS str_del,
+	coalesce(string_agg(s, nullif(repeat('|', i%3), ''))
+			 OVER wnd, '-') AS str_vardel,
+	coalesce((string_agg(b,'')        OVER wnd)::text, '-') AS bin,
+	coalesce((string_agg(b, E'\\x00') OVER wnd)::text, '-') AS bin_del,
+	coalesce((string_agg(b, nullif(decode(repeat('00', i%3), 'hex'), ''))
+			 OVER wnd)::text, '-') AS bin_vardel,
+	array_agg(n) OVER wnd AS ary
+FROM (VALUES
+	(1,  '1',  E'\\x0100'::bytea, NULL::int8),
+	(2,  NULL, E'\\x0200'::bytea, 2::int8),
+	(3,  '3',  NULL,              3::int8),
+	(4,  NULL, E'\\x0400'::bytea, 4::int8),
+	(5,  '5',  NULL,              NULL::int8),
+	(6,  '6',  E'\\x0600'::bytea, 6::int8),
+	(7,  '7',  E'\\x0700'::bytea, NULL::int8),
+	(8,  '8',  E'\\x0800'::bytea, 8::int8),
+	(9,  NULL, NULL,              NULL),
+	(10, NULL, NULL,              NULL),
+	(11, NULL, NULL,              NULL),
+	(12, NULL, NULL,              NULL)
+) AS v(i, s, b, n)
+WINDOW wnd AS (ORDER BY i ROWS BETWEEN 3 PRECEDING AND 1 PRECEDING);

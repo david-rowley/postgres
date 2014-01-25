@@ -812,9 +812,11 @@ extern Datum unknownsend(PG_FUNCTION_ARGS);
 extern Datum pg_column_size(PG_FUNCTION_ARGS);
 
 extern Datum bytea_string_agg_transfn(PG_FUNCTION_ARGS);
+extern Datum bytea_string_agg_invtransfn(PG_FUNCTION_ARGS);
 extern Datum bytea_string_agg_finalfn(PG_FUNCTION_ARGS);
 extern Datum string_agg_transfn(PG_FUNCTION_ARGS);
 extern Datum string_agg_finalfn(PG_FUNCTION_ARGS);
+extern Datum string_agg_invtransfn(PG_FUNCTION_ARGS);
 
 extern Datum text_concat(PG_FUNCTION_ARGS);
 extern Datum text_concat_ws(PG_FUNCTION_ARGS);

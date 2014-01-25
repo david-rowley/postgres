@@ -471,7 +471,7 @@ create_singleton_array(FunctionCallInfo fcinfo,
 
 
 /*
- * ARRAY_AGG aggregate function
+ * ARRAY_AGG aggregate transition function
  */
 Datum
 array_agg_transfn(PG_FUNCTION_ARGS)
@@ -505,6 +505,30 @@ array_agg_transfn(PG_FUNCTION_ARGS)
 	 * is a pass-by-value type the same size as a pointer.	So we can safely
 	 * pass the ArrayBuildState pointer through nodeAgg.c's machinations.
 	 */
+	PG_RETURN_POINTER(state);
+}
+
+/*
+ * ARRAY_AGG aggregate inverse transition function
+ */
+Datum
+array_agg_invtransfn(PG_FUNCTION_ARGS)
+{
+	ArrayBuildState *state;
+
+	/*
+	 * Shouldn't happen, but we cannot mark this function strict, since NULLs
+	 * need to be removed just like any other value.
+	 * Must also prevent direct calls because of the "interal" argument
+	 */
+	if (PG_ARGISNULL(0))
+		elog(ERROR, "array_agg_invtransfn called with NULL state");
+	if (!AggCheckCallContext(fcinfo, NULL))
+		elog(ERROR, "array_agg_invtransfn called in non-aggregate context");
+	
+	state = (ArrayBuildState *) PG_GETARG_POINTER(0);
+	shiftArrayResult(state, 1);
+	
 	PG_RETURN_POINTER(state);
 }
 
