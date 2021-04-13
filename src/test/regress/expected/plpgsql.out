@@ -5552,13 +5552,17 @@ CREATE TRIGGER transition_table_base_upd_trig
 UPDATE transition_table_base
   SET val = '*' || val || '*'
   WHERE id BETWEEN 2 AND 3;
-INFO:  Hash Full Join
+INFO:  Merge Full Join
   Output: COALESCE(ot.id, nt.id), ot.val, nt.val
-  Hash Cond: (ot.id = nt.id)
-  ->  Named Tuplestore Scan
+  Merge Cond: (ot.id = nt.id)
+  ->  Sort
         Output: ot.id, ot.val
-  ->  Hash
+        Sort Key: ot.id
+        ->  Named Tuplestore Scan
+              Output: ot.id, ot.val
+  ->  Sort
         Output: nt.id, nt.val
+        Sort Key: nt.id
         ->  Named Tuplestore Scan
               Output: nt.id, nt.val
 

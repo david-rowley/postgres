@@ -1492,11 +1492,11 @@ EXPLAIN (COSTS OFF) SELECT * FROM my_credit_card_usage_secure
 ------------------------------------------------------------------------------------
  Subquery Scan on my_credit_card_usage_secure
    Filter: f_leak(my_credit_card_usage_secure.cnum)
-   ->  Nested Loop
-         Join Filter: (l.cid = r.cid)
+   ->  Hash Join
+         Hash Cond: (r.cid = l.cid)
          ->  Seq Scan on credit_usage r
                Filter: ((ymd >= '10-01-2011'::date) AND (ymd < '11-01-2011'::date))
-         ->  Materialize
+         ->  Hash
                ->  Hash Join
                      Hash Cond: (r_1.cid = l.cid)
                      ->  Seq Scan on credit_card r_1

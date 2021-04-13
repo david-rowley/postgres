@@ -2341,7 +2341,7 @@ where b.f1 = t.thousand and a.f1 = b.f1 and (a.f1+b.f1+999) = t.tenthous;
 -----------------------------------------------------------------------------------------------------------------
  Nested Loop
    ->  Nested Loop
-         Join Filter: ((sum(i4b.f1)) = ((sum(i4a.f1) + 1)))
+         Join Filter: (((sum(i4a.f1) + 1)) = (sum(i4b.f1)))
          ->  Aggregate
                ->  Seq Scan on int4_tbl i4a
          ->  Aggregate
@@ -5302,8 +5302,8 @@ select * from
   on t1.f1 = 'doh!'
   left join int4_tbl i4
   on i8.q1 = i4.f1;
-                       QUERY PLAN                       
---------------------------------------------------------
+                          QUERY PLAN                          
+--------------------------------------------------------------
  Nested Loop Left Join
    Output: t1.f1, i8.q1, i8.q2, t2.f1, i4.f1
    ->  Seq Scan on public.text_tbl t2
@@ -5312,18 +5312,20 @@ select * from
          Output: i8.q1, i8.q2, i4.f1, t1.f1
          ->  Nested Loop
                Output: i8.q1, i8.q2, i4.f1, t1.f1
-               ->  Nested Loop Left Join
+               ->  Hash Right Join
                      Output: i8.q1, i8.q2, i4.f1
-                     Join Filter: (i8.q1 = i4.f1)
-                     ->  Seq Scan on public.int8_tbl i8
-                           Output: i8.q1, i8.q2
-                           Filter: (i8.q2 = 456)
+                     Hash Cond: (i4.f1 = i8.q1)
                      ->  Seq Scan on public.int4_tbl i4
                            Output: i4.f1
+                     ->  Hash
+                           Output: i8.q1, i8.q2
+                           ->  Seq Scan on public.int8_tbl i8
+                                 Output: i8.q1, i8.q2
+                                 Filter: (i8.q2 = 456)
                ->  Seq Scan on public.text_tbl t1
                      Output: t1.f1
                      Filter: (t1.f1 = 'doh!'::text)
-(19 rows)
+(21 rows)
 
 select * from
   text_tbl t1
@@ -8803,42 +8805,42 @@ select c.*,a.*,ss1.q1,ss2.q1,ss3.* from
     lateral (select q1, coalesce(ss1.x,q2) as y from int8_tbl d) ss2
   ) on c.q2 = ss2.q1,
   lateral (select * from int4_tbl i where ss2.y > f1) ss3;
-                                               QUERY PLAN                                                
----------------------------------------------------------------------------------------------------------
- Nested Loop
+                                         QUERY PLAN                                          
+---------------------------------------------------------------------------------------------
+ Hash Right Join
    Output: c.q1, c.q2, a.q1, a.q2, b.q1, d.q1, i.f1
-   Join Filter: ((COALESCE((COALESCE(b.q2, (b2.f1)::bigint)), d.q2)) > i.f1)
-   ->  Hash Right Join
-         Output: c.q1, c.q2, a.q1, a.q2, b.q1, d.q1, (COALESCE((COALESCE(b.q2, (b2.f1)::bigint)), d.q2))
-         Hash Cond: (d.q1 = c.q2)
-         ->  Nested Loop
-               Output: a.q1, a.q2, b.q1, d.q1, (COALESCE((COALESCE(b.q2, (b2.f1)::bigint)), d.q2))
-               ->  Hash Right Join
-                     Output: a.q1, a.q2, b.q1, (COALESCE(b.q2, (b2.f1)::bigint))
-                     Hash Cond: (b.q1 = a.q2)
-                     ->  Nested Loop
-                           Output: b.q1, COALESCE(b.q2, (b2.f1)::bigint)
-                           Join Filter: (b.q1 < b2.f1)
-                           ->  Seq Scan on public.int8_tbl b
-                                 Output: b.q1, b.q2
-                           ->  Materialize
+   Hash Cond: (d.q1 = c.q2)
+   Filter: ((COALESCE((COALESCE(b.q2, (b2.f1)::bigint)), d.q2)) > i.f1)
+   ->  Nested Loop
+         Output: a.q1, a.q2, b.q1, d.q1, (COALESCE((COALESCE(b.q2, (b2.f1)::bigint)), d.q2))
+         ->  Hash Right Join
+               Output: a.q1, a.q2, b.q1, (COALESCE(b.q2, (b2.f1)::bigint))
+               Hash Cond: (b.q1 = a.q2)
+               ->  Nested Loop
+                     Output: b.q1, COALESCE(b.q2, (b2.f1)::bigint)
+                     Join Filter: (b.q1 < b2.f1)
+                     ->  Seq Scan on public.int8_tbl b
+                           Output: b.q1, b.q2
+                     ->  Materialize
+                           Output: b2.f1
+                           ->  Seq Scan on public.int4_tbl b2
                                  Output: b2.f1
-                                 ->  Seq Scan on public.int4_tbl b2
-                                       Output: b2.f1
-                     ->  Hash
+               ->  Hash
+                     Output: a.q1, a.q2
+                     ->  Seq Scan on public.int8_tbl a
                            Output: a.q1, a.q2
-                           ->  Seq Scan on public.int8_tbl a
-                                 Output: a.q1, a.q2
-               ->  Seq Scan on public.int8_tbl d
-                     Output: d.q1, COALESCE((COALESCE(b.q2, (b2.f1)::bigint)), d.q2)
-         ->  Hash
-               Output: c.q1, c.q2
+         ->  Seq Scan on public.int8_tbl d
+               Output: d.q1, COALESCE((COALESCE(b.q2, (b2.f1)::bigint)), d.q2)
+   ->  Hash
+         Output: c.q1, c.q2, i.f1
+         ->  Nested Loop
+               Output: c.q1, c.q2, i.f1
                ->  Seq Scan on public.int8_tbl c
                      Output: c.q1, c.q2
-   ->  Materialize
-         Output: i.f1
-         ->  Seq Scan on public.int4_tbl i
-               Output: i.f1
+               ->  Materialize
+                     Output: i.f1
+                     ->  Seq Scan on public.int4_tbl i
+                           Output: i.f1
 (34 rows)
 
 -- check processing of postponed quals (bug #9041)
@@ -9206,15 +9208,15 @@ select * from fkest f1
                      QUERY PLAN                      
 -----------------------------------------------------
  Hash Join
-   Hash Cond: ((f2.x = f1.x) AND (f2.x10b = f1.x10))
+   Hash Cond: ((f1.x = f2.x) AND (f1.x10 = f2.x10b))
    ->  Hash Join
-         Hash Cond: (f3.x = f2.x)
+         Hash Cond: (f3.x = f1.x)
          ->  Seq Scan on fkest f3
          ->  Hash
-               ->  Seq Scan on fkest f2
+               ->  Seq Scan on fkest f1
                      Filter: (x100 = 2)
    ->  Hash
-         ->  Seq Scan on fkest f1
+         ->  Seq Scan on fkest f2
                Filter: (x100 = 2)
 (11 rows)
 
@@ -9496,13 +9498,14 @@ inner join j2 on j1.id1 = j2.id1 where j1.id2 = 1;
 ------------------------------------------
  Nested Loop
    Output: j1.id1, j1.id2, j2.id1, j2.id2
+   Inner Unique: true
    Join Filter: (j1.id1 = j2.id1)
+   ->  Seq Scan on public.j2
+         Output: j2.id1, j2.id2
    ->  Seq Scan on public.j1
          Output: j1.id1, j1.id2
          Filter: (j1.id2 = 1)
-   ->  Seq Scan on public.j2
-         Output: j2.id1, j2.id2
-(8 rows)
+(9 rows)
 
 -- as above, but for left joins.
 explain (verbose, costs off)
