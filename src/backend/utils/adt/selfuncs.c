@@ -499,16 +499,28 @@ var_eq_non_const(VariableStatData *vardata, Oid operator, Oid collation,
 		/*
 		 * Search is for a value that we do not know a priori, but we will
 		 * assume it is not NULL.  Estimate the selectivity as non-null
-		 * fraction divided by number of distinct values, so that we get a
-		 * result averaged over all possible values whether common or
-		 * uncommon.  (Essentially, we are assuming that the not-yet-known
-		 * comparison value is equally likely to be any of the possible
-		 * values, regardless of their frequency in the table.  Is that a good
-		 * idea?)
+		 * fraction and in the general case, divide it by the estimated
+		 * number of distinct values, so that we get a result averaged over
+		 * all possible values whether common or uncommon.  However, when the
+		 * numdistinct estimate comes back fairly low (less than or equal to
+		 * DEFAULT_NUM_DISTINCT), we instead base the selectivity from
+		 * DEFAULT_NUM_DISTINCT.  The reason for this is that we don't know
+		 * if the parameter's value will match any values which are stored in
+		 * the table.  The worst-case scenario here is that there is only 1
+		 * distinct value, resulting in a selectivity estimate of 1.0.  Here
+		 * the query planner is likely to end up choosing a Seq Scan rather
+		 * than an Index Scan.  That's likely a good move if the parameter's
+		 * value happens to be the same as that distinct value that's in the
+		 * table, but if it's not, then seq scanning is likely a very poor
+		 * choice.  Ensuring the divisor is at least DEFAULT_NUM_DISTINCT
+		 * reduces the selectivity estimate resulting in encouraging the
+		 * planner into using a suitable index rather than seq scanning.
 		 */
 		selec = 1.0 - nullfrac;
 		ndistinct = get_variable_numdistinct(vardata, &isdefault);
-		if (ndistinct > 1)
+		if (ndistinct >= 1 && ndistinct <= DEFAULT_NUM_DISTINCT)
+			selec /= DEFAULT_NUM_DISTINCT;
+		else if (ndistinct > 1)
 			selec /= ndistinct;
 
 		/*
