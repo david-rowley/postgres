@@ -130,7 +130,8 @@ static ForeignScan *fileGetForeignPlan(PlannerInfo *root,
 									   ForeignPath *best_path,
 									   List *tlist,
 									   List *scan_clauses,
-									   Plan *outer_plan);
+									   Plan *outer_plan,
+									   double est_calls);
 static void fileExplainForeignScan(ForeignScanState *node, ExplainState *es);
 static void fileBeginForeignScan(ForeignScanState *node, int eflags);
 static TupleTableSlot *fileIterateForeignScan(ForeignScanState *node);
@@ -594,7 +595,8 @@ fileGetForeignPlan(PlannerInfo *root,
 				   ForeignPath *best_path,
 				   List *tlist,
 				   List *scan_clauses,
-				   Plan *outer_plan)
+				   Plan *outer_plan,
+				   double est_calls)
 {
 	Index		scan_relid = baserel->relid;
 

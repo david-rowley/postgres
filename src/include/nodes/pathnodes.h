@@ -140,6 +140,9 @@ typedef struct PlannerGlobal
 	/* highest plan node ID assigned */
 	int			lastPlanNodeId;
 
+	/* OR mask of jitFlags for each plan node */
+	int			jitFlags;		
+
 	/* redo plan when TransactionXmin changes? */
 	bool		transientPlan;
 
@@ -1880,6 +1883,8 @@ typedef struct MemoizePath
 	uint32		est_entries;	/* The maximum number of entries that the
 								 * planner expects will fit in the cache, or 0
 								 * if unknown */
+	double		est_hitratio;	/* An estimate on the ratio of how many calls
+								 * will result in a cache hit. */
 } MemoizePath;
 
 /*
