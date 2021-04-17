@@ -4051,6 +4051,21 @@ timestamp_trunc(PG_FUNCTION_ARGS)
 	PG_RETURN_TIMESTAMP(result);
 }
 
+Datum
+timestamp_trunc_support(PG_FUNCTION_ARGS)
+{
+	Node	   *rawreq = (Node *)PG_GETARG_POINTER(0);
+	Node	   *ret = NULL;
+
+	if (IsA(rawreq, SupportRequestFuncOrderParameter))
+	{
+		SupportRequestFuncOrderParameter *req = (SupportRequestFuncOrderParameter *) rawreq;
+
+		ret = list_nth(req->args, 1);
+	}
+	PG_RETURN_POINTER(ret);
+}
+
 /* timestamptz_bin()
  * Bin timestamptz into specified interval using specified origin.
  */

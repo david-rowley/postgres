@@ -299,4 +299,14 @@ typedef struct SupportRequestWFuncMonotonic
 	MonotonicFunction monotonic;
 } SupportRequestWFuncMonotonic;
 
+/*
+ *
+ */
+typedef struct SupportRequestFuncOrderParameter
+{
+	NodeTag		type;
+
+	List	   *args;
+} SupportRequestFuncOrderParameter;
+
 #endif							/* SUPPORTNODES_H */
