@@ -18,14 +18,49 @@
 #include "postgres.h"
 
 #include "access/xlogutils.h"
+#include "common/hashfn.h"
 #include "lib/ilist.h"
 #include "storage/bufmgr.h"
 #include "storage/ipc.h"
 #include "storage/md.h"
 #include "storage/smgr.h"
-#include "utils/hsearch.h"
 #include "utils/inval.h"
 
+/* Hash table entry type for SMgrRelationHash */
+typedef struct SMgrEntry
+{
+	int			status;			/* Hash table status */
+	uint32		hash;			/* Hash value (cached) */
+	SMgrRelation data;			/* Pointer to the SMgrRelationData */
+} SMgrEntry;
+
+static inline uint32 relfilenodebackend_hash(RelFileLocatorBackend *rlocator);
+
+/*
+ * Because simplehash.h does not provide a stable pointer to hash table
+ * entries, we don't make the element type a SMgrRelation directly, instead we
+ * use an SMgrEntry type which has a pointer to the data field.  simplehash can
+ * move entries around when adding or removing items from the hash table so
+ * having the SMgrRelation as a pointer inside the SMgrEntry allows external
+ * code to keep their own pointers to the SMgrRelation.  Relcache does this.
+ * We use the SH_ENTRY_INITIALIZER to allocate memory for the SMgrRelationData
+ * when a new entry is created.  We also define SH_ENTRY_CLEANUP to execute
+ * some cleanup when removing an item from the table.
+ */
+#define SH_PREFIX		smgrtable
+#define SH_ELEMENT_TYPE	SMgrEntry
+#define SH_KEY_TYPE		RelFileLocatorBackend
+#define SH_KEY			data->smgr_rlocator
+#define SH_HASH_KEY(tb, key)	relfilenodebackend_hash(&key)
+#define SH_EQUAL(tb, a, b)		(memcmp(&a, &b, sizeof(RelFileLocatorBackend)) == 0)
+#define SH_SCOPE		static inline
+#define SH_STORE_HASH
+#define SH_GET_HASH(tb, a) a->hash
+#define SH_ENTRY_INITIALIZER(a) a->data = MemoryContextAlloc(TopMemoryContext, sizeof(SMgrRelationData))
+#define SH_ENTRY_CLEANUP(a) pfree(a->data)
+#define SH_DEFINE
+#define SH_DECLARE
+#include "lib/simplehash.h"
 
 /*
  * This struct of function pointers defines the API between smgr.c and
@@ -91,12 +126,42 @@ static const int NSmgr = lengthof(smgrsw);
  * Each backend has a hashtable that stores all extant SMgrRelation objects.
  * In addition, "unowned" SMgrRelation objects are chained together in a list.
  */
-static HTAB *SMgrRelationHash = NULL;
+static smgrtable_hash *SMgrRelationHash = NULL;
 
 static dlist_head unowned_relns;
 
 /* local function prototypes */
 static void smgrshutdown(int code, Datum arg);
+
+/*
+ * relfilenodebackend_hash
+ *		Custom rolled hash function for simplehash table.
+ *
+ * smgropen() is often a bottleneck in CPU bound workloads during crash
+ * recovery.  We make use of this custom hash function rather than using
+ * hash_bytes as it gives us a little bit more performance.
+ *
+ * XXX What if sizeof(Oid) is not 4?
+ */
+static inline uint32
+relfilenodebackend_hash(RelFileLocatorBackend *rlocator)
+{
+	uint32		hashkey;
+
+	hashkey = murmurhash32((uint32) rlocator->locator.spcOid);
+
+	/* rotate hashkey left 1 bit at each step */
+	hashkey = pg_rotate_right32(hashkey, 31);
+	hashkey ^= murmurhash32((uint32) rlocator->locator.dbOid);
+
+	hashkey = pg_rotate_right32(hashkey, 31);
+	hashkey ^= murmurhash32((uint32) rlocator->locator.relNumber);
+
+	hashkey = pg_rotate_right32(hashkey, 31);
+	hashkey ^= murmurhash32((uint32) rlocator->backend);
+
+	return hashkey;
+}
 
 
 /*
@@ -147,31 +212,26 @@ smgropen(RelFileLocator rlocator, BackendId backend)
 {
 	RelFileLocatorBackend brlocator;
 	SMgrRelation reln;
+	SMgrEntry  *entry;
 	bool		found;
 
-	if (SMgrRelationHash == NULL)
+	if (unlikely(SMgrRelationHash == NULL))
 	{
 		/* First time through: initialize the hash table */
-		HASHCTL		ctl;
-
-		ctl.keysize = sizeof(RelFileLocatorBackend);
-		ctl.entrysize = sizeof(SMgrRelationData);
-		SMgrRelationHash = hash_create("smgr relation table", 400,
-									   &ctl, HASH_ELEM | HASH_BLOBS);
+		SMgrRelationHash = smgrtable_create(TopMemoryContext, 400, NULL);
 		dlist_init(&unowned_relns);
 	}
 
 	/* Look up or create an entry */
 	brlocator.locator = rlocator;
 	brlocator.backend = backend;
-	reln = (SMgrRelation) hash_search(SMgrRelationHash,
-									  (void *) &brlocator,
-									  HASH_ENTER, &found);
+	entry = smgrtable_insert(SMgrRelationHash, brnode, &found);
+	reln = entry->data;
 
 	/* Initialize it if not present before */
 	if (!found)
 	{
-		/* hash_search already filled in the lookup key */
+		/* smgrtable_insert already filled in the lookup key */
 		reln->smgr_owner = NULL;
 		reln->smgr_targblock = InvalidBlockNumber;
 		for (int i = 0; i <= MAX_FORKNUM; ++i)
@@ -266,9 +326,7 @@ smgrclose(SMgrRelation reln)
 	if (!owner)
 		dlist_delete(&reln->node);
 
-	if (hash_search(SMgrRelationHash,
-					(void *) &(reln->smgr_rlocator),
-					HASH_REMOVE, NULL) == NULL)
+	if (!smgrtable_delete(SMgrRelationHash, reln->smgr_rlocator))
 		elog(ERROR, "SMgrRelation hashtable corrupted");
 
 	/*
@@ -302,16 +360,16 @@ smgrrelease(SMgrRelation reln)
 void
 smgrreleaseall(void)
 {
-	HASH_SEQ_STATUS status;
-	SMgrRelation reln;
+	smgrtable_iterator iterator;
+	SMgrEntry  *entry;
 
 	/* Nothing to do if hashtable not set up */
 	if (SMgrRelationHash == NULL)
 		return;
 
-	hash_seq_init(&status, SMgrRelationHash);
+	smgrtable_start_iterate(SMgrRelationHash, &iterator);
 
-	while ((reln = (SMgrRelation) hash_seq_search(&status)) != NULL)
+	while ((entry = smgrtable_iterate(SMgrRelationHash, &iterator)) != NULL)
 		smgrrelease(reln);
 }
 
@@ -321,17 +379,17 @@ smgrreleaseall(void)
 void
 smgrcloseall(void)
 {
-	HASH_SEQ_STATUS status;
-	SMgrRelation reln;
+	smgrtable_iterator iterator;
+	SMgrEntry  *entry;
 
 	/* Nothing to do if hashtable not set up */
 	if (SMgrRelationHash == NULL)
 		return;
 
-	hash_seq_init(&status, SMgrRelationHash);
+	smgrtable_start_iterate(SMgrRelationHash, &iterator);
 
-	while ((reln = (SMgrRelation) hash_seq_search(&status)) != NULL)
-		smgrclose(reln);
+	while ((entry = smgrtable_iterate(SMgrRelationHash, &iterator)) != NULL)
+		smgrclose(entry->data);
 }
 
 /*
@@ -345,17 +403,15 @@ smgrcloseall(void)
 void
 smgrcloserellocator(RelFileLocatorBackend rlocator)
 {
-	SMgrRelation reln;
+	SMgrEntry  *entry;
 
 	/* Nothing to do if hashtable not set up */
 	if (SMgrRelationHash == NULL)
 		return;
 
-	reln = (SMgrRelation) hash_search(SMgrRelationHash,
-									  (void *) &rlocator,
-									  HASH_FIND, NULL);
-	if (reln != NULL)
-		smgrclose(reln);
+	entry = smgrtable_lookup(SMgrRelationHash, rlocator);
+	if (entry != NULL)
+		smgrclose(entry->data);
 }
 
 /*

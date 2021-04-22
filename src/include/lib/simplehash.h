@@ -50,6 +50,13 @@
  *	  - SH_HASH_KEY(table, key) - generate hash for the key
  *	  - SH_STORE_HASH - if defined the hash is stored in the elements
  *	  - SH_GET_HASH(tb, a) - return the field to store the hash in
+ *	  - SH_ENTRY_INITIALIZER(a) - if defined, the code in this macro is called
+ *		for new entries directly before any other internal code makes any
+ *		changes to setup the new entry.  This could be used to do things like
+ *		initialize memory for the bucket.
+ *	  - SH_ENTRY_CLEANUP(a) - if defined, the code in this macro is called
+ *		when an entry is removed from the hash table.  This could be used to
+ *		free memory allocated in the bucket by SH_ENTRY_INITIALIZER
  *
  *	  The element type is required to contain a "status" member that can store
  *	  the range of values defined in the SH_STATUS enum.
@@ -465,6 +472,17 @@ SH_DESTROY(SH_TYPE * tb)
 SH_SCOPE void
 SH_RESET(SH_TYPE * tb)
 {
+#ifdef SH_ENTRY_CLEANUP
+	/* Execute the cleanup code when SH_ENTRY_CLEANUP has been defined */
+	for (int i = 0; i < tb->size; i++)
+	{
+		SH_ELEMENT_TYPE *entry = &tb->data[i];
+
+		if (entry->status == SH_STATUS_IN_USE)
+			SH_ENTRY_CLEANUP(entry);
+	}
+#endif
+
 	memset(tb->data, 0, sizeof(SH_ELEMENT_TYPE) * tb->size);
 	tb->members = 0;
 }
@@ -633,6 +651,9 @@ restart:
 		if (entry->status == SH_STATUS_EMPTY)
 		{
 			tb->members++;
+#ifdef SH_ENTRY_INITIALIZER
+			SH_ENTRY_INITIALIZER(entry);
+#endif
 			entry->SH_KEY = key;
 #ifdef SH_STORE_HASH
 			SH_GET_HASH(tb, entry) = hash;
@@ -720,6 +741,9 @@ restart:
 
 			/* and fill the now empty spot */
 			tb->members++;
+#ifdef SH_ENTRY_INITIALIZER
+			SH_ENTRY_INITIALIZER(entry);
+#endif
 
 			entry->SH_KEY = key;
 #ifdef SH_STORE_HASH
@@ -855,6 +879,9 @@ SH_DELETE(SH_TYPE * tb, SH_KEY_TYPE key)
 			SH_ELEMENT_TYPE *lastentry = entry;
 
 			tb->members--;
+#ifdef SH_ENTRY_CLEANUP
+			SH_ENTRY_CLEANUP(entry);
+#endif
 
 			/*
 			 * Backward shift following elements till either an empty element
@@ -918,6 +945,9 @@ SH_DELETE_ITEM(SH_TYPE * tb, SH_ELEMENT_TYPE * entry)
 	curelem = entry - &tb->data[0];
 
 	tb->members--;
+#ifdef SH_ENTRY_CLEANUP
+	SH_ENTRY_CLEANUP(entry);
+#endif
 
 	/*
 	 * Backward shift following elements till either an empty element or an
@@ -1132,6 +1162,8 @@ SH_STAT(SH_TYPE * tb)
 #undef SH_DECLARE
 #undef SH_DEFINE
 #undef SH_GET_HASH
+#undef SH_ENTRY_INITIALIZER
+#undef SH_ENTRY_CLEANUP
 #undef SH_STORE_HASH
 #undef SH_USE_NONDEFAULT_ALLOCATOR
 #undef SH_EQUAL
