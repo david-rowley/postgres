@@ -21,6 +21,7 @@
  */
 #include "postgres.h"
 
+#include "common/hashfn.h"
 #include "storage/buf_internals.h"
 
 /* entry for buffer lookup hashtable */
@@ -43,6 +44,31 @@ BufTableShmemSize(int size)
 	return hash_estimate_size(size, sizeof(BufferLookupEnt));
 }
 
+
+static uint32
+BufferTag_hash(const void *key, Size unused)
+{
+	BufferTag *tagptr = (BufferTag *) key;
+	uint32 hashkey;
+
+	hashkey = murmurhash32((uint32) tagptr->spcOid);
+
+	/* rotate hashkey left 1 bit at each step */
+	hashkey = (hashkey << 1) | ((hashkey & 0x80000000) ? 1 : 0);
+	hashkey ^= murmurhash32((uint32) tagptr->dbOid);
+
+	hashkey = (hashkey << 1) | ((hashkey & 0x80000000) ? 1 : 0);
+	hashkey ^= murmurhash32((uint32) tagptr->relNumber);
+
+	hashkey = (hashkey << 1) | ((hashkey & 0x80000000) ? 1 : 0);
+	hashkey ^= murmurhash32((uint32) tagptr->forkNum);
+
+	hashkey = (hashkey << 1) | ((hashkey & 0x80000000) ? 1 : 0);
+	hashkey ^= murmurhash32((uint32) tagptr->blockNum);
+
+	return hashkey;
+}
+
 /*
  * Initialize shmem hash table for mapping buffers
  *		size is the desired hash table size (possibly more than NBuffers)
@@ -57,12 +83,13 @@ InitBufTable(int size)
 	/* BufferTag maps to Buffer */
 	info.keysize = sizeof(BufferTag);
 	info.entrysize = sizeof(BufferLookupEnt);
+	info.hash = BufferTag_hash;
 	info.num_partitions = NUM_BUFFER_PARTITIONS;
 
 	SharedBufHash = ShmemInitHash("Shared Buffer Lookup Table",
 								  size, size,
 								  &info,
-								  HASH_ELEM | HASH_BLOBS | HASH_PARTITION | HASH_FIXED_SIZE);
+								  HASH_ELEM | HASH_FUNCTION | HASH_PARTITION | HASH_FIXED_SIZE);
 }
 
 /*
