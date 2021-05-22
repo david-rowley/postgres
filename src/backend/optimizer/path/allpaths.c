@@ -1869,7 +1869,7 @@ generate_orderedappend_paths(PlannerInfo *root, RelOptInfo *rel,
 			 * Collect the appropriate child paths.  The required logic varies
 			 * for the Append and MergeAppend cases.
 			 */
-			if (match_partition_order)
+			if (match_partition_order || match_partition_order_desc)
 			{
 				/*
 				 * We're going to make a plain Append path.  We don't need
@@ -1910,6 +1910,13 @@ generate_orderedappend_paths(PlannerInfo *root, RelOptInfo *rel,
 		/* ... and build the Append or MergeAppend paths */
 		if (match_partition_order)
 		{
+			/*
+			 * When in DESC partition order, reverse the order of the list
+			 * so that we scan the partitions in reverse order
+			 */
+			if (match_partition_order_desc)
+				startup_subpaths = list_reverse(startup_subpaths);
+
 			/* We only need Append */
 			add_path(rel, (Path *) create_append_path(root,
 													  rel,
@@ -1921,6 +1928,11 @@ generate_orderedappend_paths(PlannerInfo *root, RelOptInfo *rel,
 													  false,
 													  -1));
 			if (startup_neq_total)
+			{
+				/* reverse order of path list when in partition DESC order */
+				if (match_partition_order_desc)
+					total_subpaths = list_reverse(total_subpaths);
+
 				add_path(rel, (Path *) create_append_path(root,
 														  rel,
 														  total_subpaths,
@@ -1930,8 +1942,13 @@ generate_orderedappend_paths(PlannerInfo *root, RelOptInfo *rel,
 														  0,
 														  false,
 														  -1));
-
+			}
 			if (fractional_subpaths)
+			{
+				/* reverse order of path list when in partition DESC order */
+				if (match_partition_order_desc)
+					fractional_subpaths = list_reverse(fractional_subpaths);
+
 				add_path(rel, (Path *) create_append_path(root,
 														  rel,
 														  fractional_subpaths,
@@ -1941,6 +1958,7 @@ generate_orderedappend_paths(PlannerInfo *root, RelOptInfo *rel,
 														  0,
 														  false,
 														  -1));
+			}
 		}
 		else
 		{
