@@ -614,10 +614,13 @@ get_eclass_for_sort_expr(PlannerInfo *root,
 	/*
 	 * Scan through the existing EquivalenceClasses for a match
 	 */
+
 	foreach(lc1, root->eq_classes)
 	{
 		EquivalenceClass *cur_ec = (EquivalenceClass *) lfirst(lc1);
 		ListCell   *lc2;
+		int		i;
+		int		len;
 
 		/*
 		 * Never match to a volatile EC, except when we are looking at another
@@ -632,9 +635,22 @@ get_eclass_for_sort_expr(PlannerInfo *root,
 		if (!equal(opfamilies, cur_ec->ec_opfamilies))
 			continue;
 
+		len = list_length(cur_ec->ec_members);
+		if (IsA(expr, Var) && ((Var *) expr)->varno > 0)
+			i = ((Var *) expr)->varno - 1;
+		else
+			i = 0;
+
 		foreach(lc2, cur_ec->ec_members)
 		{
-			EquivalenceMember *cur_em = (EquivalenceMember *) lfirst(lc2);
+			EquivalenceMember *cur_em;
+
+			if (i >= len)
+				i = 0;
+
+			cur_em = (EquivalenceMember *) list_nth(cur_ec->ec_members, i);
+
+			i++;
 
 			/*
 			 * Ignore child members unless they match the request.
@@ -762,15 +778,30 @@ find_ec_member_matching_expr(EquivalenceClass *ec,
 							 Relids relids)
 {
 	ListCell   *lc;
+	int		i;
+	int		len;
 
 	/* We ignore binary-compatible relabeling on both ends */
 	while (expr && IsA(expr, RelabelType))
 		expr = ((RelabelType *) expr)->arg;
 
+	len = list_length(ec->ec_members);
+	if (IsA(expr, Var) && ((Var *) expr)->varno > 0)
+		i = ((Var *)expr)->varno - 1;
+	else
+		i = 0;
+
 	foreach(lc, ec->ec_members)
 	{
-		EquivalenceMember *em = (EquivalenceMember *) lfirst(lc);
+		EquivalenceMember *em;
 		Expr	   *emexpr;
+
+		if (i >= len)
+			i = 0;
+
+		em = (EquivalenceMember *) list_nth(ec->ec_members, i);
+
+		i++;
 
 		/*
 		 * We shouldn't be trying to sort by an equivalence class that
@@ -2673,7 +2704,7 @@ add_child_rel_equivalences(PlannerInfo *root,
 			 * may add targeted combinations for partitionwise-join purposes.)
 			 */
 			if (cur_em->em_is_child)
-				continue;		/* ignore children here */
+				break;		/* ignore children here -- children always come after parents */
 
 			/*
 			 * Consider only members that reference and can be computed at
