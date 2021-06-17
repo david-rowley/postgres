@@ -38,6 +38,7 @@
 #include "access/xact.h"
 #include "access/xlog.h"
 #include "access/xlogutils.h"
+#include "common/hashfn.h"
 #include "miscadmin.h"
 #include "pg_trace.h"
 #include "pgstat.h"
@@ -271,6 +272,19 @@ typedef struct
 
 static volatile FastPathStrongRelationLockData *FastPathStrongRelationLocks;
 
+#define DH_PREFIX				locallocktable
+#define DH_ELEMENT_TYPE			LOCALLOCK
+#define DH_KEY_TYPE				LOCALLOCKTAG
+#define DH_KEY					tag
+#define DH_HASH_KEY(tb, key)	hash_bytes((unsigned char *) &key, sizeof(LOCALLOCKTAG))
+#define DH_EQUAL(tb, a, b)		(memcmp(&a, &b, sizeof(LOCALLOCKTAG)) == 0)
+#define DH_ALLOCATE(b)			MemoryContextAllocExtended(TopMemoryContext, b, MCXT_ALLOC_HUGE)
+#define DH_ALLOCATE_ZERO(b)		MemoryContextAllocExtended(TopMemoryContext, b, MCXT_ALLOC_HUGE | MCXT_ALLOC_ZERO)
+#define DH_FREE(p)				pfree(p)
+#define DH_SCOPE				static inline
+#define DH_DECLARE
+#define DH_DEFINE
+#include "lib/densehash.h"
 
 /*
  * Pointers to hash tables containing lock state
@@ -280,7 +294,7 @@ static volatile FastPathStrongRelationLockData *FastPathStrongRelationLocks;
  */
 static HTAB *LockMethodLockHash;
 static HTAB *LockMethodProcLockHash;
-static HTAB *LockMethodLocalHash;
+static locallocktable_hash *LockMethodLocalHash;
 
 
 /* private state for error cleanup */
@@ -468,15 +482,9 @@ InitLocks(void)
 	 * ought to be empty in the postmaster, but for safety let's zap it.)
 	 */
 	if (LockMethodLocalHash)
-		hash_destroy(LockMethodLocalHash);
+		locallocktable_destroy(LockMethodLocalHash);
 
-	info.keysize = sizeof(LOCALLOCKTAG);
-	info.entrysize = sizeof(LOCALLOCK);
-
-	LockMethodLocalHash = hash_create("LOCALLOCK hash",
-									  16,
-									  &info,
-									  HASH_ELEM | HASH_BLOBS);
+	LockMethodLocalHash = locallocktable_create(16);
 }
 
 
@@ -607,22 +615,37 @@ LockHeldByMe(const LOCKTAG *locktag, LOCKMODE lockmode)
 	localtag.lock = *locktag;
 	localtag.mode = lockmode;
 
-	locallock = (LOCALLOCK *) hash_search(LockMethodLocalHash,
-										  (void *) &localtag,
-										  HASH_FIND, NULL);
+	locallock = locallocktable_lookup(LockMethodLocalHash, localtag);
 
 	return (locallock && locallock->nLocks > 0);
 }
 
 #ifdef USE_ASSERT_CHECKING
 /*
- * GetLockMethodLocalHash -- return the hash of local locks, for modules that
- *		evaluate assertions based on all locks held.
+ * GetLockMethodLocalLocks -- returns an array of all LOCALLOCKs stored in
+ *		LockMethodLocalHash.
+ *
+ * The caller must pfree the return value when done. *size is set to the
+ * number of elements in the returned array.
  */
-HTAB *
-GetLockMethodLocalHash(void)
+LOCALLOCK **
+GetLockMethodLocalLocks(uint32 *size)
 {
-	return LockMethodLocalHash;
+	locallocktable_iterator iterator;
+	LOCALLOCK **locallocks;
+	LOCALLOCK  *locallock;
+	uint32		i = 0;
+
+	locallocks = (LOCALLOCK **) palloc(sizeof(LOCALLOCK *) *
+									   LockMethodLocalHash->members);
+
+	locallocktable_start_iterate(LockMethodLocalHash, &iterator);
+	while ((locallock = locallocktable_iterate(LockMethodLocalHash,
+											   &iterator)) != NULL)
+		locallocks[i++] = locallock;
+
+	*size = i;
+	return locallocks;
 }
 #endif
 
@@ -662,9 +685,7 @@ LockHasWaiters(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock)
 	localtag.lock = *locktag;
 	localtag.mode = lockmode;
 
-	locallock = (LOCALLOCK *) hash_search(LockMethodLocalHash,
-										  (void *) &localtag,
-										  HASH_FIND, NULL);
+	locallock = locallocktable_lookup(LockMethodLocalHash, localtag);
 
 	/*
 	 * let the caller print its own error message, too. Do not ereport(ERROR).
@@ -824,9 +845,7 @@ LockAcquireExtended(const LOCKTAG *locktag,
 	localtag.lock = *locktag;
 	localtag.mode = lockmode;
 
-	locallock = (LOCALLOCK *) hash_search(LockMethodLocalHash,
-										  (void *) &localtag,
-										  HASH_ENTER, &found);
+	locallock = locallocktable_insert(LockMethodLocalHash, localtag, &found);
 
 	/*
 	 * if it's a new locallock object, initialize it
@@ -1391,9 +1410,7 @@ RemoveLocalLock(LOCALLOCK *locallock)
 		SpinLockRelease(&FastPathStrongRelationLocks->mutex);
 	}
 
-	if (!hash_search(LockMethodLocalHash,
-					 (void *) &(locallock->tag),
-					 HASH_REMOVE, NULL))
+	if (!locallocktable_delete(LockMethodLocalHash, locallock->tag))
 		elog(WARNING, "locallock table corrupted");
 
 	/*
@@ -2003,9 +2020,7 @@ LockRelease(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock)
 	localtag.lock = *locktag;
 	localtag.mode = lockmode;
 
-	locallock = (LOCALLOCK *) hash_search(LockMethodLocalHash,
-										  (void *) &localtag,
-										  HASH_FIND, NULL);
+	locallock = locallocktable_lookup(LockMethodLocalHash, localtag);
 
 	/*
 	 * let the caller print its own error message, too. Do not ereport(ERROR).
@@ -2179,7 +2194,7 @@ LockRelease(const LOCKTAG *locktag, LOCKMODE lockmode, bool sessionLock)
 void
 LockReleaseAll(LOCKMETHODID lockmethodid, bool allLocks)
 {
-	HASH_SEQ_STATUS status;
+	locallocktable_iterator iterator;
 	LockMethod	lockMethodTable;
 	int			i,
 				numLockModes;
@@ -2217,9 +2232,10 @@ LockReleaseAll(LOCKMETHODID lockmethodid, bool allLocks)
 	 * pointers.  Fast-path locks are cleaned up during the locallock table
 	 * scan, though.
 	 */
-	hash_seq_init(&status, LockMethodLocalHash);
+	locallocktable_start_iterate(LockMethodLocalHash, &iterator);
 
-	while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
+	while ((locallock = locallocktable_iterate(LockMethodLocalHash,
+											   &iterator)) != NULL)
 	{
 		/*
 		 * If the LOCALLOCK entry is unused, we must've run out of shared
@@ -2453,15 +2469,16 @@ LockReleaseAll(LOCKMETHODID lockmethodid, bool allLocks)
 void
 LockReleaseSession(LOCKMETHODID lockmethodid)
 {
-	HASH_SEQ_STATUS status;
+	locallocktable_iterator iterator;
 	LOCALLOCK  *locallock;
 
 	if (lockmethodid <= 0 || lockmethodid >= lengthof(LockMethods))
 		elog(ERROR, "unrecognized lock method: %d", lockmethodid);
 
-	hash_seq_init(&status, LockMethodLocalHash);
+	locallocktable_start_iterate(LockMethodLocalHash, &iterator);
 
-	while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
+	while ((locallock = locallocktable_iterate(LockMethodLocalHash,
+											   &iterator)) != NULL)
 	{
 		/* Ignore items that are not of the specified lock method */
 		if (LOCALLOCK_LOCKMETHOD(*locallock) != lockmethodid)
@@ -2485,12 +2502,13 @@ LockReleaseCurrentOwner(LOCALLOCK **locallocks, int nlocks)
 {
 	if (locallocks == NULL)
 	{
-		HASH_SEQ_STATUS status;
+		locallocktable_iterator iterator;
 		LOCALLOCK  *locallock;
 
-		hash_seq_init(&status, LockMethodLocalHash);
+		locallocktable_start_iterate(LockMethodLocalHash, &iterator);
 
-		while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
+		while ((locallock = locallocktable_iterate(LockMethodLocalHash,
+												   &iterator)) != NULL)
 			ReleaseLockIfHeld(locallock, false);
 	}
 	else
@@ -2584,12 +2602,13 @@ LockReassignCurrentOwner(LOCALLOCK **locallocks, int nlocks)
 
 	if (locallocks == NULL)
 	{
-		HASH_SEQ_STATUS status;
+		locallocktable_iterator iterator;
 		LOCALLOCK  *locallock;
 
-		hash_seq_init(&status, LockMethodLocalHash);
+		locallocktable_start_iterate(LockMethodLocalHash, &iterator);
 
-		while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
+		while ((locallock = locallocktable_iterate(LockMethodLocalHash,
+												   &iterator)) != NULL)
 			LockReassignOwner(locallock, parent);
 	}
 	else
@@ -3241,7 +3260,7 @@ CheckForSessionAndXactLocks(void)
 
 	HASHCTL		hash_ctl;
 	HTAB	   *lockhtab;
-	HASH_SEQ_STATUS status;
+	locallocktable_iterator iterator;
 	LOCALLOCK  *locallock;
 
 	/* Create a local hash table keyed by LOCKTAG only */
@@ -3255,9 +3274,10 @@ CheckForSessionAndXactLocks(void)
 						   HASH_ELEM | HASH_BLOBS | HASH_CONTEXT);
 
 	/* Scan local lock table to find entries for each LOCKTAG */
-	hash_seq_init(&status, LockMethodLocalHash);
+	locallocktable_start_iterate(LockMethodLocalHash, &iterator);
 
-	while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
+	while ((locallock = locallocktable_iterate(LockMethodLocalHash,
+											   &iterator)) != NULL)
 	{
 		LOCALLOCKOWNER *lockOwners = locallock->lockOwners;
 		PerLockTagEntry *hentry;
@@ -3320,16 +3340,17 @@ CheckForSessionAndXactLocks(void)
 void
 AtPrepare_Locks(void)
 {
-	HASH_SEQ_STATUS status;
+	locallocktable_iterator iterator;
 	LOCALLOCK  *locallock;
 
 	/* First, verify there aren't locks of both xact and session level */
 	CheckForSessionAndXactLocks();
 
 	/* Now do the per-locallock cleanup work */
-	hash_seq_init(&status, LockMethodLocalHash);
+	locallocktable_start_iterate(LockMethodLocalHash, &iterator);
 
-	while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
+	while ((locallock = locallocktable_iterate(LockMethodLocalHash,
+											   &iterator)) != NULL)
 	{
 		TwoPhaseLockRecord record;
 		LOCALLOCKOWNER *lockOwners = locallock->lockOwners;
@@ -3417,7 +3438,7 @@ void
 PostPrepare_Locks(TransactionId xid)
 {
 	PGPROC	   *newproc = TwoPhaseGetDummyProc(xid, false);
-	HASH_SEQ_STATUS status;
+	locallocktable_iterator iterator;
 	LOCALLOCK  *locallock;
 	LOCK	   *lock;
 	PROCLOCK   *proclock;
@@ -3440,9 +3461,10 @@ PostPrepare_Locks(TransactionId xid)
 	 * pointing to the same proclock, and we daren't end up with any dangling
 	 * pointers.
 	 */
-	hash_seq_init(&status, LockMethodLocalHash);
+	locallocktable_start_iterate(LockMethodLocalHash, &iterator);
 
-	while ((locallock = (LOCALLOCK *) hash_seq_search(&status)) != NULL)
+	while ((locallock = locallocktable_iterate(LockMethodLocalHash,
+											   &iterator)) != NULL)
 	{
 		LOCALLOCKOWNER *lockOwners = locallock->lockOwners;
 		bool		haveSessionLock;
