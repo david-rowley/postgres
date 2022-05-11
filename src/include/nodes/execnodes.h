@@ -2162,6 +2162,8 @@ typedef struct MemoizeInstrumentation
 									 * able to free enough space to store the
 									 * current scan's tuples. */
 	uint64		mem_peak;		/* peak memory usage in bytes */
+	uint32		hashsize_orig;	/* Original hash bucket count */
+	uint32		hashsize_max;	/* Maximum hash table bucket count */
 } MemoizeInstrumentation;
 
 /* ----------------

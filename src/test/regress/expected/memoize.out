@@ -46,10 +46,11 @@ WHERE t2.unique1 < 1000;', false);
                Cache Key: t2.twenty
                Cache Mode: logical
                Hits: 980  Misses: 20  Evictions: Zero  Overflows: 0  Memory Usage: NkB
+               Hash Buckets: 32
                ->  Index Only Scan using tenk1_unique1 on tenk1 t1 (actual rows=1 loops=N)
                      Index Cond: (unique1 = t2.twenty)
                      Heap Fetches: N
-(12 rows)
+(13 rows)
 
 -- And check we get the expected results.
 SELECT COUNT(*),AVG(t1.unique1) FROM tenk1 t1
@@ -77,10 +78,11 @@ WHERE t1.unique1 < 1000;', false);
                Cache Key: t1.twenty
                Cache Mode: binary
                Hits: 980  Misses: 20  Evictions: Zero  Overflows: 0  Memory Usage: NkB
+               Hash Buckets: 32
                ->  Index Only Scan using tenk1_unique1 on tenk1 t2 (actual rows=1 loops=N)
                      Index Cond: (unique1 = t1.twenty)
                      Heap Fetches: N
-(12 rows)
+(13 rows)
 
 -- And check we get the expected results.
 SELECT COUNT(*),AVG(t2.unique1) FROM tenk1 t1,
@@ -114,10 +116,11 @@ WHERE t2.unique1 < 1200;', true);
                Cache Key: t2.thousand
                Cache Mode: logical
                Hits: N  Misses: N  Evictions: N  Overflows: 0  Memory Usage: NkB
+               Hash Buckets: 1024
                ->  Index Only Scan using tenk1_unique1 on tenk1 t1 (actual rows=1 loops=N)
                      Index Cond: (unique1 = t2.thousand)
                      Heap Fetches: N
-(12 rows)
+(13 rows)
 
 CREATE TABLE flt (f float);
 CREATE INDEX flt_f_idx ON flt (f);
@@ -136,10 +139,11 @@ SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f = f2.f;', false);
          Cache Key: f1.f
          Cache Mode: logical
          Hits: 1  Misses: 1  Evictions: Zero  Overflows: 0  Memory Usage: NkB
+         Hash Buckets: 2
          ->  Index Only Scan using flt_f_idx on flt f2 (actual rows=2 loops=N)
                Index Cond: (f = f1.f)
                Heap Fetches: N
-(10 rows)
+(11 rows)
 
 -- Ensure memoize operates in binary mode
 SELECT explain_memoize('
@@ -153,10 +157,11 @@ SELECT * FROM flt f1 INNER JOIN flt f2 ON f1.f >= f2.f;', false);
          Cache Key: f1.f
          Cache Mode: binary
          Hits: 0  Misses: 2  Evictions: Zero  Overflows: 0  Memory Usage: NkB
+         Hash Buckets: 4 (originally 2)
          ->  Index Only Scan using flt_f_idx on flt f2 (actual rows=2 loops=N)
                Index Cond: (f <= f1.f)
                Heap Fetches: N
-(10 rows)
+(11 rows)
 
 DROP TABLE flt;
 -- Exercise Memoize in binary mode with a large fixed width type and a
@@ -179,9 +184,10 @@ SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.n >= s2.n;', false);
          Cache Key: s1.n
          Cache Mode: binary
          Hits: 3  Misses: 3  Evictions: Zero  Overflows: 0  Memory Usage: NkB
+         Hash Buckets: 4
          ->  Index Scan using strtest_n_idx on strtest s2 (actual rows=4 loops=N)
                Index Cond: (n <= s1.n)
-(8 rows)
+(9 rows)
 
 -- Ensure we get 3 hits and 3 misses
 SELECT explain_memoize('
@@ -194,9 +200,10 @@ SELECT * FROM strtest s1 INNER JOIN strtest s2 ON s1.t >= s2.t;', false);
          Cache Key: s1.t
          Cache Mode: binary
          Hits: 3  Misses: 3  Evictions: Zero  Overflows: 0  Memory Usage: NkB
+         Hash Buckets: 4
          ->  Index Scan using strtest_t_idx on strtest s2 (actual rows=4 loops=N)
                Index Cond: (t <= s1.t)
-(8 rows)
+(9 rows)
 
 DROP TABLE strtest;
 -- Ensure memoize works with partitionwise join

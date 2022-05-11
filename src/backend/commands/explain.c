@@ -3213,6 +3213,11 @@ show_memoize_info(MemoizeState *mstate, List *ancestors, ExplainState *es)
 			ExplainPropertyInteger("Cache Evictions", NULL, mstate->stats.cache_evictions, es);
 			ExplainPropertyInteger("Cache Overflows", NULL, mstate->stats.cache_overflows, es);
 			ExplainPropertyInteger("Peak Memory Usage", "kB", memPeakKb, es);
+			ExplainPropertyInteger("Maximum Hash Buckets", NULL,
+				mstate->stats.hashsize_max, es);
+			ExplainPropertyInteger("Original Hash Buckets", NULL,
+				mstate->stats.hashsize_orig, es);
+
 		}
 		else
 		{
@@ -3224,6 +3229,14 @@ show_memoize_info(MemoizeState *mstate, List *ancestors, ExplainState *es)
 							 mstate->stats.cache_evictions,
 							 mstate->stats.cache_overflows,
 							 memPeakKb);
+			ExplainIndentText(es);
+			if (mstate->stats.hashsize_max != mstate->stats.hashsize_orig)
+				appendStringInfo(es->str, "Hash Buckets: %u (originally %u)\n",
+								 mstate->stats.hashsize_max,
+								 mstate->stats.hashsize_orig);
+			else
+				appendStringInfo(es->str, "Hash Buckets: %u\n",
+								 mstate->stats.hashsize_max);
 		}
 	}
 
@@ -3263,6 +3276,14 @@ show_memoize_info(MemoizeState *mstate, List *ancestors, ExplainState *es)
 							 si->cache_hits, si->cache_misses,
 							 si->cache_evictions, si->cache_overflows,
 							 memPeakKb);
+			ExplainIndentText(es);
+			if (si->hashsize_max != si->hashsize_orig)
+				appendStringInfo(es->str, "Hash Buckets: %u (originally %u)\n",
+								 si->hashsize_max,
+								 si->hashsize_orig);
+			else
+				appendStringInfo(es->str, "Hash Buckets: %u\n",
+								 si->hashsize_max);
 		}
 		else
 		{
@@ -3276,6 +3297,11 @@ show_memoize_info(MemoizeState *mstate, List *ancestors, ExplainState *es)
 								   si->cache_overflows, es);
 			ExplainPropertyInteger("Peak Memory Usage", "kB", memPeakKb,
 								   es);
+			ExplainPropertyInteger("Maximum Hash Buckets", NULL,
+								   si->hashsize_max, es);
+			ExplainPropertyInteger("Original Hash Buckets", NULL,
+								   si->hashsize_orig, es);
+
 		}
 
 		if (es->workers_state)

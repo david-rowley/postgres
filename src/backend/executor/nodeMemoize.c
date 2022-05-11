@@ -270,6 +270,10 @@ build_hash_table(MemoizeState *mstate, uint32 size)
 
 	/* memoize_create will convert the size to a power of 2 */
 	mstate->hashtable = memoize_create(mstate->tableContext, size, mstate);
+
+	/* Record the initial size of the hash table */
+	if (mstate->stats.hashsize_orig == 0)
+		mstate->stats.hashsize_orig = mstate->hashtable->size;
 }
 
 /*
@@ -537,6 +541,10 @@ cache_lookup(MemoizeState *mstate, bool *found)
 
 	/* Update the total cache memory utilization */
 	mstate->mem_used += EMPTY_ENTRY_MEMORY_BYTES(entry);
+
+	/* Record the maximum size of the hash table */
+	mstate->stats.hashsize_max = Max(mstate->stats.hashsize_max,
+									 mstate->hashtable->size);
 
 	/* Initialize this entry */
 	entry->complete = false;
