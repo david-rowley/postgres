@@ -15,8 +15,11 @@
 
 #include "postgres.h"
 
+#include <time.h>
+
 #include "funcapi.h"
 #include "mb/pg_wchar.h"
+#include "miscadmin.h"
 #include "storage/proc.h"
 #include "storage/procarray.h"
 #include "utils/array.h"
@@ -304,4 +307,215 @@ pg_log_backend_memory_contexts(PG_FUNCTION_ARGS)
 	}
 
 	PG_RETURN_BOOL(true);
+}
+
+typedef struct AllocateTestNext
+{
+	struct AllocateTestNext *next;		/* ptr to the next allocation */
+} AllocateTestNext;
+
+/* #define ALLOCATE_TEST_DEBUG */
+/*
+ * pg_allocate_memory_test
+ *		Used to test the performance of a memory context types
+ */
+Datum
+pg_allocate_memory_test(PG_FUNCTION_ARGS)
+{
+	int32	chunk_size = PG_GETARG_INT32(0);
+	int64	keep_memory = PG_GETARG_INT64(1);
+	int64	total_alloc = PG_GETARG_INT64(2);
+	text   *context_type_text = PG_GETARG_TEXT_PP(3);
+	char   *context_type;
+	int64	curr_memory_use = 0;
+	int64	remaining_alloc_bytes = total_alloc;
+	MemoryContext context;
+	MemoryContext oldContext;
+	AllocateTestNext	   *next_free_ptr = NULL;
+	AllocateTestNext	   *last_alloc = NULL;
+	clock_t	start, end;
+
+	if (chunk_size < sizeof(AllocateTestNext))
+		elog(ERROR, "chunk_size (%d) must be at least %ld bytes", chunk_size,
+			 sizeof(AllocateTestNext));
+	if (keep_memory > total_alloc)
+		elog(ERROR, "keep_memory (" INT64_FORMAT ") must be less than total_alloc (" INT64_FORMAT ")",
+			 keep_memory, total_alloc);
+
+	context_type = text_to_cstring(context_type_text);
+
+	start = clock();
+
+	if (strcmp(context_type, "generation") == 0)
+		context = GenerationContextCreate(CurrentMemoryContext,
+										  "pg_allocate_memory_test",
+										  ALLOCSET_DEFAULT_SIZES);
+	else if (strcmp(context_type, "aset") == 0)
+		context = AllocSetContextCreate(CurrentMemoryContext,
+										"pg_allocate_memory_test",
+										ALLOCSET_DEFAULT_SIZES);
+	else if (strcmp(context_type, "slab") == 0)
+		context = SlabContextCreate(CurrentMemoryContext,
+									"pg_allocate_memory_test",
+									ALLOCSET_DEFAULT_MAXSIZE,
+									chunk_size);
+	else
+		elog(ERROR, "context_type must be \"generation\", \"aset\" or \"slab\"");
+
+	oldContext = MemoryContextSwitchTo(context);
+
+	while (remaining_alloc_bytes > 0)
+	{
+		AllocateTestNext *curr_alloc;
+
+		CHECK_FOR_INTERRUPTS();
+
+		/* Allocate the memory and update the counters */
+		curr_alloc = (AllocateTestNext *) palloc(chunk_size);
+		remaining_alloc_bytes -= chunk_size;
+		curr_memory_use += chunk_size;
+
+#ifdef ALLOCATE_TEST_DEBUG
+		elog(NOTICE, "alloc %p (curr_memory_use " INT64_FORMAT " bytes, remaining_alloc_bytes " INT64_FORMAT ")", curr_alloc, curr_memory_use, remaining_alloc_bytes);
+#endif
+
+		/*
+		 * Point the last allocate to this one so that we can free allocations
+		 * starting with the oldest first.
+		 */
+		curr_alloc->next = NULL;
+		if (last_alloc != NULL)
+			last_alloc->next = curr_alloc;
+
+		if (next_free_ptr == NULL)
+		{
+			/*
+			 * Remember the first chunk to free. We will follow the ->next
+			 * pointers to find the next chunk to free when freeing memory
+			 */
+			next_free_ptr = curr_alloc;
+		}
+
+		/*
+		 * If the currently allocated memory has reached or exceeded the amount
+		 * of memory we want to keep allocated at once then we'd better free
+		 * some.  Since all allocations are the same size we only need to free
+		 * one allocation per loop.
+		 */
+		if (curr_memory_use >= keep_memory)
+		{
+			AllocateTestNext	 *next = next_free_ptr->next;
+
+			/* free the memory and update the current memory usage */
+			pfree(next_free_ptr);
+			curr_memory_use -= chunk_size;
+
+#ifdef ALLOCATE_TEST_DEBUG
+			elog(NOTICE, "free %p (curr_memory_use " INT64_FORMAT " bytes, remaining_alloc_bytes " INT64_FORMAT ")", next_free_ptr, curr_memory_use, remaining_alloc_bytes);
+#endif
+			/* get the next chunk to free */
+			next_free_ptr = next;
+		}
+
+		if (curr_memory_use > 0)
+			last_alloc = curr_alloc;
+		else
+			last_alloc = NULL;
+	}
+
+	/* cleanup loop -- pfree remaining memory */
+	while (next_free_ptr != NULL)
+	{
+		AllocateTestNext	 *next = next_free_ptr->next;
+
+		/* free the memory and update the current memory usage */
+		pfree(next_free_ptr);
+		curr_memory_use -= chunk_size;
+
+#ifdef ALLOCATE_TEST_DEBUG
+		elog(NOTICE, "free %p (curr_memory_use " INT64_FORMAT " bytes, remaining_alloc_bytes " INT64_FORMAT ")", next_free_ptr, curr_memory_use, remaining_alloc_bytes);
+#endif
+
+		next_free_ptr = next;
+	}
+
+	MemoryContextSwitchTo(oldContext);
+
+	end = clock();
+
+	PG_RETURN_FLOAT8((double) (end - start) / CLOCKS_PER_SEC);
+}
+
+Datum
+pg_allocate_memory_test_reset(PG_FUNCTION_ARGS)
+{
+	int32	chunk_size = PG_GETARG_INT32(0);
+	int64	keep_memory = PG_GETARG_INT64(1);
+	int64	total_alloc = PG_GETARG_INT64(2);
+	text   *context_type_text = PG_GETARG_TEXT_PP(3);
+	char   *context_type;
+	int64	curr_memory_use = 0;
+	int64	remaining_alloc_bytes = total_alloc;
+	MemoryContext context;
+	MemoryContext oldContext;
+	clock_t	start, end;
+
+	if (chunk_size < 1)
+		elog(ERROR, "size of chunk must be above 0");
+	if (keep_memory > total_alloc)
+		elog(ERROR, "keep_memory (" INT64_FORMAT ") must be less than total_alloc (" INT64_FORMAT ")",
+			 keep_memory, total_alloc);
+
+	context_type = text_to_cstring(context_type_text);
+
+	start = clock();
+
+	if (strcmp(context_type, "generation") == 0)
+		context = GenerationContextCreate(CurrentMemoryContext,
+										  "pg_allocate_memory_test",
+										  ALLOCSET_DEFAULT_SIZES);
+	else if (strcmp(context_type, "aset") == 0)
+		context = AllocSetContextCreate(CurrentMemoryContext,
+										"pg_allocate_memory_test",
+										ALLOCSET_DEFAULT_SIZES);
+	else if (strcmp(context_type, "slab") == 0)
+		context = SlabContextCreate(CurrentMemoryContext,
+									"pg_allocate_memory_test",
+									ALLOCSET_DEFAULT_MAXSIZE,
+									chunk_size);
+	else
+		elog(ERROR, "context_type must be \"generation\", \"aset\" or \"slab\"");
+
+	oldContext = MemoryContextSwitchTo(context);
+
+	while (remaining_alloc_bytes > 0)
+	{
+		CHECK_FOR_INTERRUPTS();
+
+		/* Allocate the memory and update the counters */
+		(void) palloc(chunk_size);
+		remaining_alloc_bytes -= chunk_size;
+		curr_memory_use += chunk_size;
+
+#ifdef ALLOCATE_TEST_DEBUG
+		elog(NOTICE, "alloc %p (curr_memory_use " INT64_FORMAT " bytes, remaining_alloc_bytes " INT64_FORMAT ")", curr_alloc, curr_memory_use, remaining_alloc_bytes);
+#endif
+
+		/*
+		 * If the currently allocated memory has reached or exceeded the amount
+		 * of memory we want to keep allocated at once then reset the context.
+		 */
+		if (curr_memory_use >= keep_memory)
+		{
+			curr_memory_use = 0;
+			MemoryContextReset(context);
+		}
+	}
+
+	MemoryContextSwitchTo(oldContext);
+	MemoryContextDelete(context);
+
+	end = clock();
+
+	PG_RETURN_FLOAT8((double) (end - start) / CLOCKS_PER_SEC);
 }
