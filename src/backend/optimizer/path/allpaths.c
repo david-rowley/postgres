@@ -3983,6 +3983,44 @@ recurse_push_qual(Node *setOp, Query *topquery,
  *****************************************************************************/
 
 /*
+ * has_set_returning_window_clauses
+ *		Returns true if 'node' contains any WindowFuncs which reference a
+ *		WindowClause where the PARTITION BY or ORDER BY clause contains any
+ *		set returning functions.
+ */
+static bool
+has_set_returning_window_clauses(Query *subquery, Node *node)
+{
+	WindowFuncLists *wflists;
+
+	wflists = find_window_functions(node,
+									list_length(subquery->windowClause));
+
+	if (wflists->numWindowFuncs == 0)
+		return false;
+
+	for (int i = 1; i <= wflists->maxWinRef; i++)
+	{
+		WindowClause *wclause;
+
+		if (wflists->windowFuncs[i] == NIL)
+			continue;
+
+		wclause = (WindowClause *) list_nth(subquery->windowClause, i - 1);
+
+		if (expression_returns_set((Node *) get_sortgrouplist_exprs(wclause->partitionClause,
+																	subquery->targetList)))
+			return true;
+
+		if (expression_returns_set((Node *) get_sortgrouplist_exprs(wclause->orderClause,
+																   subquery->targetList)))
+			return true;
+	}
+
+	return false;
+}
+
+/*
  * remove_unused_subquery_outputs
  *		Remove subquery targetlist items we don't need
  *
@@ -4089,9 +4127,20 @@ remove_unused_subquery_outputs(Query *subquery, RelOptInfo *rel,
 		 * If it contains a set-returning function, we can't remove it since
 		 * that could change the number of rows returned by the subquery.
 		 */
-		if (subquery->hasTargetSRFs &&
-			expression_returns_set(texpr))
-			continue;
+		if (subquery->hasTargetSRFs)
+		{
+			if (expression_returns_set(texpr))
+				continue;
+
+			/*
+			 * Check if the target entry contains any WindowFunc references
+			 * which have a WindowClause where the PARTITION BY or ORDER BY
+			 * clause contain any SRFs
+			 */
+			if (subquery->hasWindowFuncs &&
+				has_set_returning_window_clauses(subquery, (Node *) texpr))
+				continue;
+		}
 
 		/*
 		 * If it contains volatile functions, we daren't remove it for fear
