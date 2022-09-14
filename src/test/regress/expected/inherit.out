@@ -3699,13 +3699,16 @@ explain (costs off)
   on p1.a = p2.a and left(p1.c, 3) ~ 'a1$';
                      QUERY PLAN                     
 ----------------------------------------------------
- Hash Join
-   Hash Cond: (p2.a = p1.a)
-   ->  Seq Scan on permtest_grandchild p2
-   ->  Hash
+ Merge Join
+   Merge Cond: (p1.a = p2.a)
+   ->  Sort
+         Sort Key: p1.a
          ->  Seq Scan on permtest_grandchild p1
                Filter: ("left"(c, 3) ~ 'a1$'::text)
-(6 rows)
+   ->  Sort
+         Sort Key: p2.a
+         ->  Seq Scan on permtest_grandchild p2
+(9 rows)
 
 reset session authorization;
 revoke all on permtest_parent from regress_no_child_access;
