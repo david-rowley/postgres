@@ -1106,7 +1106,11 @@ pathkeys_count_contained_in(List *keys1, List *keys2, int *n_common)
 		PathKey    *pathkey1 = (PathKey *) lfirst(key1);
 		PathKey    *pathkey2 = (PathKey *) lfirst(key2);
 
-		if (pathkey1 != pathkey2)
+		/*
+		 * XXX the pk_superkey stuff I just hacked to make this work.  Not
+		 * sure if it's correct yet.
+		 */
+		if (pathkey1 != pathkey2 && pathkey1->pk_superkey != pathkey2)
 		{
 			*n_common = n;
 			return false;
