@@ -225,7 +225,7 @@ smgropen(RelFileLocator rlocator, BackendId backend)
 	/* Look up or create an entry */
 	brlocator.locator = rlocator;
 	brlocator.backend = backend;
-	entry = smgrtable_insert(SMgrRelationHash, brnode, &found);
+	entry = smgrtable_insert(SMgrRelationHash, brlocator, &found);
 	reln = entry->data;
 
 	/* Initialize it if not present before */
@@ -370,7 +370,7 @@ smgrreleaseall(void)
 	smgrtable_start_iterate(SMgrRelationHash, &iterator);
 
 	while ((entry = smgrtable_iterate(SMgrRelationHash, &iterator)) != NULL)
-		smgrrelease(reln);
+		smgrrelease(entry->data);
 }
 
 /*
