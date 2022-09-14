@@ -201,7 +201,7 @@ get_function_order_arg(Oid funcid, List *args)
 	if (!OidIsValid(prosupport))
 		return NULL;
 
-	req.type = T_SuppoerRequestFuncOrderParameter;
+	req.type = T_SupportRequestFuncOrderParameter;
 	req.args = args;
 
 	result = (Node *) DatumGetPointer(OidFunctionCall1(prosupport,
