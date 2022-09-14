@@ -2149,15 +2149,12 @@ SELECT * FROM a WHERE id NOT IN (SELECT c.z FROM b LEFT JOIN c ON b.x = c.z);
  Seq Scan on a
    Filter: (NOT (hashed SubPlan 1))
    SubPlan 1
-     ->  Merge Left Join
-           Merge Cond: (b.x = c.z)
-           ->  Sort
-                 Sort Key: b.x
+     ->  Hash Right Join
+           Hash Cond: (c.z = b.x)
+           ->  Seq Scan on c
+           ->  Hash
                  ->  Seq Scan on b
-           ->  Sort
-                 Sort Key: c.z
-                 ->  Seq Scan on c
-(11 rows)
+(8 rows)
 
 -- ANTI JOIN, c.z is not from an outer join
 EXPLAIN (COSTS OFF)
@@ -2185,15 +2182,12 @@ SELECT * FROM a WHERE id NOT IN (SELECT b.x FROM b RIGHT JOIN c ON b.x = c.z);
  Seq Scan on a
    Filter: (NOT (hashed SubPlan 1))
    SubPlan 1
-     ->  Merge Right Join
-           Merge Cond: (b.x = c.z)
-           ->  Sort
-                 Sort Key: b.x
+     ->  Hash Left Join
+           Hash Cond: (c.z = b.x)
+           ->  Seq Scan on c
+           ->  Hash
                  ->  Seq Scan on b
-           ->  Sort
-                 Sort Key: c.z
-                 ->  Seq Scan on c
-(11 rows)
+(8 rows)
 
 -- No ANTI JOIN, c.z is from an outer join
 EXPLAIN (COSTS OFF)
@@ -2203,15 +2197,12 @@ SELECT * FROM a WHERE id NOT IN (SELECT c.z FROM b FULL JOIN c ON b.x = c.z);
  Seq Scan on a
    Filter: (NOT (hashed SubPlan 1))
    SubPlan 1
-     ->  Merge Full Join
-           Merge Cond: (b.x = c.z)
-           ->  Sort
-                 Sort Key: b.x
+     ->  Hash Full Join
+           Hash Cond: (c.z = b.x)
+           ->  Seq Scan on c
+           ->  Hash
                  ->  Seq Scan on b
-           ->  Sort
-                 Sort Key: c.z
-                 ->  Seq Scan on c
-(11 rows)
+(8 rows)
 
 -- No ANTI JOIN, b.x is from an outer join
 EXPLAIN (COSTS OFF)
@@ -2221,15 +2212,12 @@ SELECT * FROM a WHERE id NOT IN (SELECT b.x FROM b FULL JOIN c ON b.x = c.z);
  Seq Scan on a
    Filter: (NOT (hashed SubPlan 1))
    SubPlan 1
-     ->  Merge Full Join
-           Merge Cond: (b.x = c.z)
-           ->  Sort
-                 Sort Key: b.x
+     ->  Hash Full Join
+           Hash Cond: (c.z = b.x)
+           ->  Seq Scan on c
+           ->  Hash
                  ->  Seq Scan on b
-           ->  Sort
-                 Sort Key: c.z
-                 ->  Seq Scan on c
-(11 rows)
+(8 rows)
 
 -- ANTI JOIN, c.z is from an inner join and has a NOT NULL constraint.
 EXPLAIN (COSTS OFF)
