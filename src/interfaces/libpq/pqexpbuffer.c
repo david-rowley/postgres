@@ -254,7 +254,7 @@ printfPQExpBuffer(PQExpBuffer str, const char *fmt,...)
 }
 
 /*
- * appendPQExpBuffer
+ * appendPQExpBufferInternal
  *
  * Format text data under the control of fmt (an sprintf-like format string)
  * and append it to whatever is already in str.  More space is allocated
@@ -262,7 +262,7 @@ printfPQExpBuffer(PQExpBuffer str, const char *fmt,...)
  * strcat.
  */
 void
-appendPQExpBuffer(PQExpBuffer str, const char *fmt,...)
+appendPQExpBufferInternal(PQExpBuffer str, const char *fmt,...)
 {
 	int			save_errno = errno;
 	va_list		args;
@@ -364,7 +364,7 @@ appendPQExpBufferVA(PQExpBuffer str, const char *fmt, va_list args)
  * if necessary.
  */
 void
-appendPQExpBufferStr(PQExpBuffer str, const char *data)
+appendPQExpBufferStrInternal(PQExpBuffer str, const char *data)
 {
 	appendBinaryPQExpBuffer(str, data, strlen(data));
 }

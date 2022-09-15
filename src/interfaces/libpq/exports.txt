@@ -74,7 +74,7 @@ PQoidValue                71
 PQclientEncoding          72
 PQenv2encoding            73
 appendBinaryPQExpBuffer   74
-appendPQExpBufferStr      75
+appendPQExpBufferStrInternal      75
 destroyPQExpBuffer        76
 createPQExpBuffer         77
 PQconninfoFree            78
@@ -90,7 +90,7 @@ PQfreeNotify              87
 PQescapeString            88
 PQescapeBytea             89
 printfPQExpBuffer         90
-appendPQExpBuffer         91
+appendPQExpBufferInternal 91
 pg_encoding_to_char       92
 pg_utf_mblen              93
 PQunescapeBytea           94
