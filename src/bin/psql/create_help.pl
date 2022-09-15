@@ -188,10 +188,15 @@ foreach (sort keys %entries)
 	$synopsis =~ s/\\n/\\n"\n$prefix"/g;
 	my @args =
 	  ("buf", $synopsis, map("_(\"$_\")", @{ $entries{$_}{params} }));
+	my $funcname = "appendPQExpBufferStr";
+	if (scalar(@args) > 2)
+	{
+		$funcname = "appendPQExpBuffer";
+	}
 	print $cfile_handle "static void
 sql_help_$id(PQExpBuffer buf)
 {
-\tappendPQExpBuffer(" . join(",\n$prefix", @args) . ");
+\t$funcname(" . join(",\n$prefix", @args) . ");
 }
 
 ";

@@ -196,9 +196,20 @@ extern void resetStringInfo(StringInfo str);
  * to str if necessary.  This is sort of like a combination of sprintf and
  * strcat.
  */
-extern void appendStringInfo(StringInfo str, const char *fmt,...) pg_attribute_printf(2, 3);
+#if defined(HAVE__BUILTIN_CONSTANT_P) && defined(USE_ASSERT_CHECKING)
+#define appendStringInfo(str, fmt, ...) \
+	do { \
+		StaticAssertStmt(!__builtin_constant_p(fmt) || strcmp(fmt, "%s") != 0,   \
+						 "use appendStringInfoString instead of appendStringInfo with %s");   \
+		appendStringInfoInternal(str, fmt, __VA_ARGS__); \
+	} while (0)
+#else
+#define appendStringInfo(str, fmt, ...) appendStringInfoInternal(str, fmt, __VA_ARGS__)
+#endif
 
-/*------------------------
+extern void appendStringInfoInternal(StringInfo str, const char *fmt,...) pg_attribute_printf(2, 3);
+
+ /*------------------------
  * appendStringInfoVA
  * Attempt to format text data under the control of fmt (an sprintf-style
  * format string) and append it to whatever is already in str.  If successful
@@ -214,7 +225,18 @@ extern int	appendStringInfoVA(StringInfo str, const char *fmt, va_list args) pg_
  * Append a null-terminated string to str.
  * Like appendStringInfo(str, "%s", s) but faster.
  */
-extern void appendStringInfoString(StringInfo str, const char *s);
+#if defined(HAVE__BUILTIN_CONSTANT_P) && defined(USE_ASSERT_CHECKING)
+#define appendStringInfoString(str, s) \
+	do { \
+		StaticAssertStmt(!__builtin_constant_p(s) || strlen(s) != 1, \
+						 "use appendStringInfoChar to append single characters to a string"); \
+		appendStringInfoStringInternal(str, s); \
+	 } while (0)
+#else
+#define appendStringInfoString(str, s) appendStringInfoStringInternal(str, s)
+#endif
+
+extern void appendStringInfoStringInternal(StringInfo str, const char *s);
 
 /*------------------------
  * appendStringInfoChar

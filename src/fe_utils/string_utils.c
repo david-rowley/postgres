@@ -1056,7 +1056,7 @@ processSQLNamePattern(PGconn *conn, PQExpBuffer buf, const char *pattern,
 	int			dcnt;
 
 #define WHEREAND() \
-	(appendPQExpBufferStr(buf, have_where ? "  AND " : "WHERE "), \
+	(appendPQExpBufferStrInternal(buf, have_where ? "  AND " : "WHERE "), \
 	 have_where = true, added_clause = true)
 
 	if (dotcnt == NULL)
@@ -1068,7 +1068,7 @@ processSQLNamePattern(PGconn *conn, PQExpBuffer buf, const char *pattern,
 		if (visibilityrule)
 		{
 			WHEREAND();
-			appendPQExpBuffer(buf, "%s\n", visibilityrule);
+			appendPQExpBufferInternal(buf, "%s\n", visibilityrule);
 		}
 		return added_clause;
 	}
