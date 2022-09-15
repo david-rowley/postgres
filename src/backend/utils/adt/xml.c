@@ -2177,7 +2177,7 @@ xml_errorHandler(void *data, PgXmlErrorPtr error)
 		void	   *errCtxSaved = xmlGenericErrorContext;
 
 		xmlSetGenericErrorFunc((void *) errorBuf,
-							   (xmlGenericErrorFunc) appendStringInfo);
+							   (xmlGenericErrorFunc) appendStringInfoInternal);
 
 		/* Add context information to errorBuf */
 		appendStringInfoLineSeparator(errorBuf);
