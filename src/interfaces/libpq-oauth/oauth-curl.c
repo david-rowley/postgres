@@ -372,10 +372,10 @@ pg_fe_cleanup_oauth_flow(PGconn *conn)
  */
 
 #define actx_error(ACTX, FMT, ...) \
-	appendPQExpBuffer(&(ACTX)->errbuf, libpq_gettext(FMT), ##__VA_ARGS__)
+	appendPQExpBufferInternal(&(ACTX)->errbuf, libpq_gettext(FMT), ##__VA_ARGS__)
 
 #define actx_error_str(ACTX, S) \
-	appendPQExpBufferStr(&(ACTX)->errbuf, S)
+	appendPQExpBufferStrInternal(&(ACTX)->errbuf, S)
 
 /*
  * Macros for getting and setting state for the connection's two libcurl
@@ -459,7 +459,7 @@ struct oauth_parse
 };
 
 #define oauth_parse_set_error(ctx, fmt, ...) \
-	appendPQExpBuffer((ctx)->errbuf, libpq_gettext(fmt), ##__VA_ARGS__)
+	appendPQExpBufferInternal((ctx)->errbuf, libpq_gettext(fmt), ##__VA_ARGS__)
 
 static void
 report_type_mismatch(struct oauth_parse *ctx)

@@ -142,7 +142,7 @@ resetStringInfo(StringInfo str)
  * strcat.
  */
 void
-appendStringInfo(StringInfo str, const char *fmt,...)
+appendStringInfoInternal(StringInfo str, const char *fmt, ...)
 {
 	int			save_errno = errno;
 
@@ -221,13 +221,13 @@ appendStringInfoVA(StringInfo str, const char *fmt, va_list args)
 }
 
 /*
- * appendStringInfoString
+ * appendStringInfoStringInternal
  *
  * Append a null-terminated string to str.
  * Like appendStringInfo(str, "%s", s) but faster.
  */
 void
-appendStringInfoString(StringInfo str, const char *s)
+appendStringInfoStringInternal(StringInfo str, const char *s)
 {
 	appendBinaryStringInfo(str, s, strlen(s));
 }

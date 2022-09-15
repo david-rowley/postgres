@@ -45,11 +45,11 @@ static void outDouble(StringInfo str, double d);
 
 /* Write an integer field (anything written as ":fldname %d") */
 #define WRITE_INT_FIELD(fldname) \
-	appendStringInfo(str, " :" CppAsString(fldname) " %d", node->fldname)
+	appendStringInfoInternal(str, " :" CppAsString(fldname) " %d", node->fldname)
 
 /* Write an unsigned integer field (anything written as ":fldname %u") */
 #define WRITE_UINT_FIELD(fldname) \
-	appendStringInfo(str, " :" CppAsString(fldname) " %u", node->fldname)
+	appendStringInfoInternal(str, " :" CppAsString(fldname) " %u", node->fldname)
 
 /* Write a signed integer field (anything written with INT64_FORMAT) */
 #define WRITE_INT64_FIELD(fldname) \
@@ -59,84 +59,84 @@ static void outDouble(StringInfo str, double d);
 
 /* Write an unsigned integer field (anything written with UINT64_FORMAT) */
 #define WRITE_UINT64_FIELD(fldname) \
-	appendStringInfo(str, " :" CppAsString(fldname) " " UINT64_FORMAT, \
+	appendStringInfoInternal(str, " :" CppAsString(fldname) " " UINT64_FORMAT, \
 					 node->fldname)
 
 /* Write an OID field (don't hard-wire assumption that OID is same as uint) */
 #define WRITE_OID_FIELD(fldname) \
-	appendStringInfo(str, " :" CppAsString(fldname) " %u", node->fldname)
+	appendStringInfoInternal(str, " :" CppAsString(fldname) " %u", node->fldname)
 
 /* Write a long-integer field */
 #define WRITE_LONG_FIELD(fldname) \
-	appendStringInfo(str, " :" CppAsString(fldname) " %ld", node->fldname)
+	appendStringInfoInternal(str, " :" CppAsString(fldname) " %ld", node->fldname)
 
 /* Write a char field (ie, one ascii character) */
 #define WRITE_CHAR_FIELD(fldname) \
-	(appendStringInfo(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoStringInternal(str, " :" CppAsString(fldname) " "), \
 	 outChar(str, node->fldname))
 
 /* Write an enumerated-type field as an integer code */
 #define WRITE_ENUM_FIELD(fldname, enumtype) \
-	appendStringInfo(str, " :" CppAsString(fldname) " %d", \
+	appendStringInfoInternal(str, " :" CppAsString(fldname) " %d", \
 					 (int) node->fldname)
 
 /* Write a float field (actually, they're double) */
 #define WRITE_FLOAT_FIELD(fldname) \
-	(appendStringInfo(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoInternal(str, " :" CppAsString(fldname) " "), \
 	 outDouble(str, node->fldname))
 
 /* Write a boolean field */
 #define WRITE_BOOL_FIELD(fldname) \
-	appendStringInfo(str, " :" CppAsString(fldname) " %s", \
+	appendStringInfoInternal(str, " :" CppAsString(fldname) " %s", \
 					 booltostr(node->fldname))
 
 /* Write a character-string (possibly NULL) field */
 #define WRITE_STRING_FIELD(fldname) \
-	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoStringInternal(str, " :" CppAsString(fldname) " "), \
 	 outToken(str, node->fldname))
 
 /* Write a parse location field (actually same as INT case) */
 #define WRITE_LOCATION_FIELD(fldname) \
-	appendStringInfo(str, " :" CppAsString(fldname) " %d", write_location_fields ? node->fldname : -1)
+	appendStringInfoInternal(str, " :" CppAsString(fldname) " %d", write_location_fields ? node->fldname : -1)
 
 /* Write a Node field */
 #define WRITE_NODE_FIELD(fldname) \
-	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoStringInternal(str, " :" CppAsString(fldname) " "), \
 	 outNode(str, node->fldname))
 
 /* Write a bitmapset field */
 #define WRITE_BITMAPSET_FIELD(fldname) \
-	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoStringInternal(str, " :" CppAsString(fldname) " "), \
 	 outBitmapset(str, node->fldname))
 
 /* Write a variable-length array (not a List) of Node pointers */
 #define WRITE_NODE_ARRAY(fldname, len) \
-	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoStringInternal(str, " :" CppAsString(fldname) " "), \
 	 writeNodeArray(str, (const Node * const *) node->fldname, len))
 
 /* Write a variable-length array of AttrNumber */
 #define WRITE_ATTRNUMBER_ARRAY(fldname, len) \
-	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoStringInternal(str, " :" CppAsString(fldname) " "), \
 	 writeAttrNumberCols(str, node->fldname, len))
 
 /* Write a variable-length array of Oid */
 #define WRITE_OID_ARRAY(fldname, len) \
-	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoStringInternal(str, " :" CppAsString(fldname) " "), \
 	 writeOidCols(str, node->fldname, len))
 
 /* Write a variable-length array of Index */
 #define WRITE_INDEX_ARRAY(fldname, len) \
-	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoStringInternal(str, " :" CppAsString(fldname) " "), \
 	 writeIndexCols(str, node->fldname, len))
 
 /* Write a variable-length array of int */
 #define WRITE_INT_ARRAY(fldname, len) \
-	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoStringInternal(str, " :" CppAsString(fldname) " "), \
 	 writeIntCols(str, node->fldname, len))
 
 /* Write a variable-length array of bool */
 #define WRITE_BOOL_ARRAY(fldname, len) \
-	(appendStringInfoString(str, " :" CppAsString(fldname) " "), \
+	(appendStringInfoStringInternal(str, " :" CppAsString(fldname) " "), \
 	 writeBoolCols(str, node->fldname, len))
 
 #define booltostr(x)  ((x) ? "true" : "false")
@@ -242,7 +242,7 @@ fnname(StringInfo str, const datatype *arr, int len) \
 		appendStringInfoChar(str, ')'); \
 	} \
 	else \
-		appendStringInfoString(str, "<>"); \
+		appendStringInfoStringInternal(str, "<>"); \
 }
 
 WRITE_SCALAR_ARRAY(writeAttrNumberCols, AttrNumber, " %d",)

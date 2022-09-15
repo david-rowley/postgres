@@ -155,7 +155,18 @@ extern void printfPQExpBuffer(PQExpBuffer str, const char *fmt,...) pg_attribute
  * to str if necessary.  This is sort of like a combination of sprintf and
  * strcat.
  */
-extern void appendPQExpBuffer(PQExpBuffer str, const char *fmt,...) pg_attribute_printf(2, 3);
+#if defined(HAVE__BUILTIN_CONSTANT_P) && defined(USE_ASSERT_CHECKING)
+#define appendPQExpBuffer(str, fmt, ...) \
+	do { \
+		StaticAssertStmt(!__builtin_constant_p(fmt) || strcmp(fmt, "%s") != 0,   \
+						 "use appendPQExpBufferStr instead of appendPQExpBuffer with %s");   \
+		appendPQExpBufferInternal(str, fmt, __VA_ARGS__); \
+	} while (0)
+#else
+#define appendPQExpBuffer(str, fmt, ...) appendPQExpBufferInternal(str, fmt, __VA_ARGS__)
+#endif
+
+extern void appendPQExpBufferInternal(PQExpBuffer str, const char *fmt,...) pg_attribute_printf(2, 3);
 
 /*------------------------
  * appendPQExpBufferVA
@@ -167,12 +178,23 @@ extern void appendPQExpBuffer(PQExpBuffer str, const char *fmt,...) pg_attribute
  */
 extern bool appendPQExpBufferVA(PQExpBuffer str, const char *fmt, va_list args) pg_attribute_printf(2, 0);
 
+#if defined(HAVE__BUILTIN_CONSTANT_P) && defined(USE_ASSERT_CHECKING)
+#define appendPQExpBufferStr(str, s) \
+	do { \
+		StaticAssertStmt(!__builtin_constant_p(s) || strlen(s) != 1, \
+						 "use appendPQExpBufferChar to append single characters to a string"); \
+		appendPQExpBufferStrInternal(str, s); \
+	 } while (0)
+#else
+#define appendPQExpBufferStr(str, s) appendPQExpBufferStrInternal(str, s)
+#endif
+
 /*------------------------
  * appendPQExpBufferStr
  * Append the given string to a PQExpBuffer, allocating more space
  * if necessary.
  */
-extern void appendPQExpBufferStr(PQExpBuffer str, const char *data);
+extern void appendPQExpBufferStrInternal(PQExpBuffer str, const char *data);
 
 /*------------------------
  * appendPQExpBufferChar
