@@ -34,6 +34,7 @@ typedef struct
 	Relids		varnos;
 	PlannerInfo *root;
 	int			sublevels_up;
+	bool		include_nullingrels;
 } pull_varnos_context;
 
 typedef struct
@@ -112,6 +113,36 @@ pull_varnos(PlannerInfo *root, Node *node)
 	context.varnos = NULL;
 	context.root = root;
 	context.sublevels_up = 0;
+	context.include_nullingrels = true;
+
+	/*
+	 * Must be prepared to start with a Query or a bare expression tree; if
+	 * it's a Query, we don't want to increment sublevels_up.
+	 */
+	query_or_expression_tree_walker(node,
+									pull_varnos_walker,
+									(void *) &context,
+									0);
+
+	return context.varnos;
+}
+
+/*
+ * pull_varnos_without_nullingrels
+ *		Create a set of all the distinct varnos present in a parsetree.
+ *		Only varnos that reference level-zero rtable entries are considered.
+ *
+ * As pull_varnos() but does not include Var.varnullingrels
+ */
+Relids
+pull_varnos_without_nullingrels(PlannerInfo *root, Node *node)
+{
+	pull_varnos_context context;
+
+	context.varnos = NULL;
+	context.root = root;
+	context.sublevels_up = 0;
+	context.include_nullingrels = false;
 
 	/*
 	 * Must be prepared to start with a Query or a bare expression tree; if
@@ -163,8 +194,9 @@ pull_varnos_walker(Node *node, pull_varnos_context *context)
 		if (var->varlevelsup == context->sublevels_up)
 		{
 			context->varnos = bms_add_member(context->varnos, var->varno);
-			context->varnos = bms_add_members(context->varnos,
-											  var->varnullingrels);
+			if (context->include_nullingrels)
+				context->varnos = bms_add_members(context->varnos,
+												  var->varnullingrels);
 		}
 		return false;
 	}
@@ -252,8 +284,9 @@ pull_varnos_walker(Node *node, pull_varnos_context *context)
 			 * don't worry about possibly needing to translate it, because
 			 * appendrels only translate varnos of baserels, not outer joins.
 			 */
-			context->varnos = bms_add_members(context->varnos,
-											  phv->phnullingrels);
+			if (context->include_nullingrels)
+				context->varnos = bms_add_members(context->varnos,
+												  phv->phnullingrels);
 			return false;		/* don't recurse into expression */
 		}
 	}

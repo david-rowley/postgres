@@ -190,6 +190,7 @@ extern SortGroupClause *get_sortgroupref_clause_noerr(Index sortref,
 											 * arguments */
 
 extern Bitmapset *pull_varnos(PlannerInfo *root, Node *node);
+extern Bitmapset *pull_varnos_without_nullingrels(PlannerInfo *root, Node *node);
 extern Bitmapset *pull_varnos_of_level(PlannerInfo *root, Node *node, int levelsup);
 extern void pull_varattnos(Node *node, Index varno, Bitmapset **varattnos);
 extern List *pull_vars_of_level(Node *node, int levelsup);
