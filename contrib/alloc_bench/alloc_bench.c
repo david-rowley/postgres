@@ -1,8 +1,8 @@
 /*-------------------------------------------------------------------------
  *
- * slab_bench.c
+ * alloc_bench.c
  *
- * helper functions to benchmark slab context with different workloads
+ * helper functions to benchmark memory contexts with different workloads
  *-------------------------------------------------------------------------
  */
 #include "postgres.h"
@@ -11,12 +11,13 @@
 
 #include "funcapi.h"
 #include "miscadmin.h"
+#include "utils/builtins.h"
 
 PG_MODULE_MAGIC;
 
-PG_FUNCTION_INFO_V1(slab_bench_random);
-PG_FUNCTION_INFO_V1(slab_bench_fifo);
-PG_FUNCTION_INFO_V1(slab_bench_lifo);
+PG_FUNCTION_INFO_V1(alloc_bench_random);
+PG_FUNCTION_INFO_V1(alloc_bench_fifo);
+PG_FUNCTION_INFO_V1(alloc_bench_lifo);
 
 typedef struct Chunk {
 	int		random;
@@ -38,19 +39,21 @@ chunk_index_cmp(const void *a, const void *b)
 }
 
 Datum
-slab_bench_random(PG_FUNCTION_ARGS)
+alloc_bench_random(PG_FUNCTION_ARGS)
 {
 	MemoryContext	cxt,
 					oldcxt;
 	Chunk		   *chunks;
 	int64			i, j;
-	int64			nallocs = PG_GETARG_INT64(0);
-	int64			blockSize = PG_GETARG_INT64(1);
-	int64			chunkSize = PG_GETARG_INT64(2);
+	char		   *context_type;
+	text		   *context_type_text = PG_GETARG_TEXT_PP(0);
+	int64			nallocs = PG_GETARG_INT64(1);
+	int64			blockSize = PG_GETARG_INT64(2);
+	int64			chunkSize = PG_GETARG_INT64(3);
 
-	int				nloops = PG_GETARG_INT32(3);
-	int				free_cnt = PG_GETARG_INT32(4);
-	int				alloc_cnt = PG_GETARG_INT32(5);
+	int				nloops = PG_GETARG_INT32(4);
+	int				free_cnt = PG_GETARG_INT32(5);
+	int				alloc_cnt = PG_GETARG_INT32(6);
 
 	struct timeval	start_time,
 					end_time;
@@ -66,9 +69,26 @@ slab_bench_random(PG_FUNCTION_ARGS)
 
 	int				maxchunks;
 
+	context_type = text_to_cstring(context_type_text);
+
 	maxchunks = nallocs + nloops * Max(0, alloc_cnt - free_cnt);
 
-	cxt = SlabContextCreate(CurrentMemoryContext, "slab_bench", blockSize, chunkSize);
+	if (strcmp(context_type, "generation") == 0)
+		cxt = GenerationContextCreate(CurrentMemoryContext,
+									  "alloc_bench",
+									  ALLOCSET_DEFAULT_SIZES);
+	else if (strcmp(context_type, "aset") == 0)
+		cxt = AllocSetContextCreate(CurrentMemoryContext,
+									"alloc_bench",
+									ALLOCSET_DEFAULT_SIZES);
+	else if (strcmp(context_type, "slab") == 0)
+		cxt = SlabContextCreate(CurrentMemoryContext,
+								"alloc_bench",
+								blockSize,
+								chunkSize);
+	else
+		elog(ERROR, "context_type must be \"generation\", \"aset\" or \"slab\"");
+
 
 	chunks = (Chunk *) palloc(maxchunks * sizeof(Chunk));
 
@@ -170,19 +190,21 @@ slab_bench_random(PG_FUNCTION_ARGS)
 }
 
 Datum
-slab_bench_fifo(PG_FUNCTION_ARGS)
+alloc_bench_fifo(PG_FUNCTION_ARGS)
 {
 	MemoryContext	cxt,
 					oldcxt;
 	Chunk		   *chunks;
 	int64			i, j;
-	int64			nallocs = PG_GETARG_INT64(0);
-	int64			blockSize = PG_GETARG_INT64(1);
-	int64			chunkSize = PG_GETARG_INT64(2);
+	char		   *context_type;
+	text		   *context_type_text = PG_GETARG_TEXT_PP(0);
+	int64			nallocs = PG_GETARG_INT64(1);
+	int64			blockSize = PG_GETARG_INT64(2);
+	int64			chunkSize = PG_GETARG_INT64(3);
 
-	int				nloops = PG_GETARG_INT32(3);
-	int				free_cnt = PG_GETARG_INT32(4);
-	int				alloc_cnt = PG_GETARG_INT32(5);
+	int				nloops = PG_GETARG_INT32(4);
+	int				free_cnt = PG_GETARG_INT32(5);
+	int				alloc_cnt = PG_GETARG_INT32(6);
 
 	struct timeval	start_time,
 					end_time;
@@ -198,9 +220,25 @@ slab_bench_fifo(PG_FUNCTION_ARGS)
 
 	int				maxchunks;
 
+	context_type = text_to_cstring(context_type_text);
+
 	maxchunks = nallocs + nloops * Max(0, alloc_cnt - free_cnt);
 
-	cxt = SlabContextCreate(CurrentMemoryContext, "slab_bench", blockSize, chunkSize);
+	if (strcmp(context_type, "generation") == 0)
+		cxt = GenerationContextCreate(CurrentMemoryContext,
+									  "alloc_bench",
+									  ALLOCSET_DEFAULT_SIZES);
+	else if (strcmp(context_type, "aset") == 0)
+		cxt = AllocSetContextCreate(CurrentMemoryContext,
+									"alloc_bench",
+									ALLOCSET_DEFAULT_SIZES);
+	else if (strcmp(context_type, "slab") == 0)
+		cxt = SlabContextCreate(CurrentMemoryContext,
+								"alloc_bench",
+								blockSize,
+								chunkSize);
+	else
+		elog(ERROR, "context_type must be \"generation\", \"aset\" or \"slab\"");
 
 	chunks = (Chunk *) palloc(maxchunks * sizeof(Chunk));
 
@@ -290,19 +328,21 @@ slab_bench_fifo(PG_FUNCTION_ARGS)
 }
 
 Datum
-slab_bench_lifo(PG_FUNCTION_ARGS)
+alloc_bench_lifo(PG_FUNCTION_ARGS)
 {
 	MemoryContext	cxt,
 					oldcxt;
 	Chunk		  *chunks;
 	int64			i, j;
-	int64			nallocs = PG_GETARG_INT64(0);
-	int64			blockSize = PG_GETARG_INT64(1);
-	int64			chunkSize = PG_GETARG_INT64(2);
+	char		   *context_type;
+	text		   *context_type_text = PG_GETARG_TEXT_PP(0);
+	int64			nallocs = PG_GETARG_INT64(1);
+	int64			blockSize = PG_GETARG_INT64(2);
+	int64			chunkSize = PG_GETARG_INT64(3);
 
-	int				nloops = PG_GETARG_INT32(3);
-	int				free_cnt = PG_GETARG_INT32(4);
-	int				alloc_cnt = PG_GETARG_INT32(5);
+	int				nloops = PG_GETARG_INT32(4);
+	int				free_cnt = PG_GETARG_INT32(5);
+	int				alloc_cnt = PG_GETARG_INT32(6);
 
 	struct timeval	start_time,
 					end_time;
@@ -318,9 +358,25 @@ slab_bench_lifo(PG_FUNCTION_ARGS)
 
 	int				maxchunks;
 
+	context_type = text_to_cstring(context_type_text);
+
 	maxchunks = nallocs + nloops * Max(0, alloc_cnt - free_cnt);
 
-	cxt = SlabContextCreate(CurrentMemoryContext, "slab_bench", blockSize, chunkSize);
+	if (strcmp(context_type, "generation") == 0)
+		cxt = GenerationContextCreate(CurrentMemoryContext,
+									  "alloc_bench",
+									  ALLOCSET_DEFAULT_SIZES);
+	else if (strcmp(context_type, "aset") == 0)
+		cxt = AllocSetContextCreate(CurrentMemoryContext,
+									"alloc_bench",
+									ALLOCSET_DEFAULT_SIZES);
+	else if (strcmp(context_type, "slab") == 0)
+		cxt = SlabContextCreate(CurrentMemoryContext,
+								"alloc_bench",
+								blockSize,
+								chunkSize);
+	else
+		elog(ERROR, "context_type must be \"generation\", \"aset\" or \"slab\"");
 
 	chunks = (Chunk *) palloc(maxchunks * sizeof(Chunk));
 

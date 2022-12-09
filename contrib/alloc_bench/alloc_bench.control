@@ -1,0 +1,4 @@
+# alloc_bench extension
+comment = 'functions for benchmarking memory context'
+default_version = '1.0'
+module_pathname = '$libdir/alloc_bench'
