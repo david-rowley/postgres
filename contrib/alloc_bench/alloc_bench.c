@@ -153,6 +153,7 @@ alloc_bench(PG_FUNCTION_ARGS)
 	}
 
 	MemoryContextSwitchTo(oldcxt);
+	MemoryContextDelete(cxt);
 
 	/* Build a tuple descriptor for our result type */
 	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
