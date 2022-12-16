@@ -115,7 +115,7 @@ alloc_bench(PG_FUNCTION_ARGS)
 		gettimeofday(&start_time, NULL);
 
 		for (int64 i = 0; i < nchunks; i++)
-			chunk[i].ptr = palloc(chunkSize);
+			chunks[i].ptr = palloc(chunkSize);
 
 		gettimeofday(&end_time, NULL);
 
@@ -133,6 +133,11 @@ alloc_bench(PG_FUNCTION_ARGS)
 				for (int64 i = 0; i < nchunks; i++)
 					chunks[i].index = nchunks - i;
 				break;
+			case RANDOM:
+				for (int64 i = 0; i < nchunks; i++)
+					chunks[i].index = random();
+				break;
+		}
 
 		qsort(chunks, nchunks, sizeof(Chunk), chunk_index_cmp);
 
