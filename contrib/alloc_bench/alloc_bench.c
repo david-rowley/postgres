@@ -29,14 +29,14 @@ typedef struct Chunk {
 } Chunk;
 
 static int
-chunk_index_cmp(const void *a, const void *b)
+chunk_index_cmp(const int64 *a, const int64 *b)
 {
-	Chunk *ca = (Chunk *) a;
-	Chunk *cb = (Chunk *) b;
+	int64 ia = *a;
+	int64 ib = *b;
 
-	if (ca->index < cb->index)
+	if (ca < cb)
 		return -1;
-	else if (ca->index > cb->index)
+	else if (ca > cb)
 		return 1;
 
 	return 0;
@@ -47,7 +47,8 @@ alloc_bench(PG_FUNCTION_ARGS)
 {
 	MemoryContext	cxt,
 					oldcxt;
-	Chunk		   *chunks;
+	void		  **chunks;
+	int64		   *indexes;
 	int64			j;
 	char		   *context_type;
 	text		   *context_type_text = PG_GETARG_TEXT_PP(0);
@@ -103,7 +104,26 @@ alloc_bench(PG_FUNCTION_ARGS)
 		elog(ERROR, "%s is not a valid allocation pattern. Must be \"fifo\", \"lifo\", \"random\"",
 			 pattern_str);
 
-	chunks = (Chunk *) palloc(nchunks * sizeof(Chunk));
+	chunks = (void **) palloc(nchunks * sizeof(void *));
+	indexes = (int64 *) palloc(nchunks * sizeof(int64));
+
+	/* set the indexes so according to the allocation pattern */
+	switch (pattern)
+	{
+		case FIFO:
+			for (int64 i = 0; i < nchunks; i++)
+				indexes[i] = i;
+			break;
+		case LIFO:
+			for (int64 i = 0; i < nchunks; i++)
+				indexes[i] = nchunks - i;
+			break;
+		case RANDOM:
+			for (int64 i = 0; i < nchunks; i++)
+				indexes[i] = random();
+			qsort(indexes, nchunks, sizeof(int64), int64_cmp);
+			break;
+	}
 
 	mem_allocated = 0;
 
@@ -117,36 +137,17 @@ alloc_bench(PG_FUNCTION_ARGS)
 		gettimeofday(&start_time, NULL);
 
 		for (int64 i = 0; i < nchunks; i++)
-			chunks[i].ptr = palloc(chunkSize);
+			chunks[i] = palloc(chunkSize);
 
 		gettimeofday(&end_time, NULL);
 
 		alloc_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
 					  (end_time.tv_usec - start_time.tv_usec);
 
-		/* set the indexes so according to the allocation pattern */
-		switch (pattern)
-		{
-			case FIFO:
-				for (int64 i = 0; i < nchunks; i++)
-					chunks[i].index = i;
-				break;
-			case LIFO:
-				for (int64 i = 0; i < nchunks; i++)
-					chunks[i].index = nchunks - i;
-				break;
-			case RANDOM:
-				for (int64 i = 0; i < nchunks; i++)
-					chunks[i].index = random();
-				break;
-		}
-
-		qsort(chunks, nchunks, sizeof(Chunk), chunk_index_cmp);
-
 		gettimeofday(&start_time, NULL);
 
 		for (int64 i = 0; i < nchunks; i++)
-			pfree(chunks[i].ptr);
+			pfree(chunks[indexes[i]]);
 
 		gettimeofday(&end_time, NULL);
 
