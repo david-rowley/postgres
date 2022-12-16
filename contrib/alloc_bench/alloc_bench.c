@@ -15,12 +15,16 @@
 
 PG_MODULE_MAGIC;
 
-PG_FUNCTION_INFO_V1(alloc_bench_random);
-PG_FUNCTION_INFO_V1(alloc_bench_fifo);
-PG_FUNCTION_INFO_V1(alloc_bench_lifo);
+PG_FUNCTION_INFO_V1(alloc_bench);
+
+typedef enum AllocationPattern {
+	FIFO,
+	LIFO,
+	RANDOM
+} AllocationPattern;
 
 typedef struct Chunk {
-	int		random;
+	int64		index;
 	void   *ptr;
 } Chunk;
 
@@ -30,30 +34,30 @@ chunk_index_cmp(const void *a, const void *b)
 	Chunk *ca = (Chunk *) a;
 	Chunk *cb = (Chunk *) b;
 
-	if (ca->random < cb->random)
+	if (ca->index < cb->index)
 		return -1;
-	else if (ca->random > cb->random)
+	else if (ca->index > cb->index)
 		return 1;
 
 	return 0;
 }
 
 Datum
-alloc_bench_random(PG_FUNCTION_ARGS)
+alloc_bench(PG_FUNCTION_ARGS)
 {
 	MemoryContext	cxt,
 					oldcxt;
 	Chunk		   *chunks;
-	int64			i, j;
+	int64			j;
 	char		   *context_type;
 	text		   *context_type_text = PG_GETARG_TEXT_PP(0);
-	int64			nallocs = PG_GETARG_INT64(1);
-	int64			blockSize = PG_GETARG_INT64(2);
-	int64			chunkSize = PG_GETARG_INT64(3);
+	char		   *pattern_str;
+	text		   *pattern_text = PG_GETARG_TEXT_PP(1);
+	int64			nchunks = PG_GETARG_INT64(2);
+	int64			blockSize = PG_GETARG_INT64(3);
+	int64			chunkSize = PG_GETARG_INT64(4);
 
-	int				nloops = PG_GETARG_INT32(4);
-	int				free_cnt = PG_GETARG_INT32(5);
-	int				alloc_cnt = PG_GETARG_INT32(6);
+	int				nloops = PG_GETARG_INT32(5);
 
 	struct timeval	start_time,
 					end_time;
@@ -66,12 +70,9 @@ alloc_bench_random(PG_FUNCTION_ARGS)
 	HeapTuple		tuple;
 	Datum			values[9];
 	bool			nulls[9];
-
-	int				maxchunks;
+	AllocationPattern pattern;
 
 	context_type = text_to_cstring(context_type_text);
-
-	maxchunks = nallocs + nloops * Max(0, alloc_cnt - free_cnt);
 
 	if (strcmp(context_type, "generation") == 0)
 		cxt = GenerationContextCreate(CurrentMemoryContext,
@@ -87,91 +88,66 @@ alloc_bench_random(PG_FUNCTION_ARGS)
 								blockSize,
 								chunkSize);
 	else
-		elog(ERROR, "context_type must be \"generation\", \"aset\" or \"slab\"");
+		elog(ERROR, "%s is not a valid context type. context_type must be \"generation\", \"aset\" or \"slab\"",
+			 context_type);
 
+	pattern_str = text_to_cstring(pattern_text);
 
-	chunks = (Chunk *) palloc(maxchunks * sizeof(Chunk));
+	if (strcmp(pattern_str, "fifo") == 0)
+		pattern = FIFO;
+	else if (strcmp(pattern_str, "lifo") == 0)
+		pattern = LIFO;
+	else if (strcmp(pattern_str, "random") == 0)
+		pattern = RANDOM;
+	else
+		elog(ERROR, "%s is not a valid allocation pattern. Must be \"fifo\", \"lifo\", \"random\"",
+			 pattern_str);
 
-	/* allocate the chunks in random order */
-	oldcxt = MemoryContextSwitchTo(cxt);
+	chunks = (Chunk *) palloc(nchunks * sizeof(Chunk));
 
-	gettimeofday(&start_time, NULL);
+	mem_allocated = 0;
 
-	for (i = 0; i < nallocs; i++)
-		chunks[i].ptr = palloc(chunkSize);
-
-	gettimeofday(&end_time, NULL);
-
-	alloc_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-				  (end_time.tv_usec - start_time.tv_usec);
-
-	MemoryContextSwitchTo(oldcxt);
-
-	mem_allocated = MemoryContextMemAllocated(cxt, true);
-
-	/* do the requested number of free/alloc loops */
+	/* do the requested number of pfree/palloc loops */
 	for (j = 0; j < nloops; j++)
 	{
 		CHECK_FOR_INTERRUPTS();
 
-		/* randomize the indexes */
-		for (i = 0; i < nallocs; i++)
-			chunks[i].random = random();
+		gettimeofday(&start_time, NULL);
 
-		qsort(chunks, nallocs, sizeof(Chunk), chunk_index_cmp);
+		for (int64 i = 0; i < nchunks; i++)
+			chunk[i].ptr = palloc(chunkSize);
 
-		oldcxt = MemoryContextSwitchTo(cxt);
+		gettimeofday(&end_time, NULL);
+
+		alloc_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
+					  (end_time.tv_usec - start_time.tv_usec);
+
+		/* set the indexes so according to the allocation pattern */
+		switch (pattern)
+		{
+			case FIFO:
+				for (int64 i = 0; i < nchunks; i++)
+					chunks[i].index = i;
+				break;
+			case LIFO:
+				for (int64 i = 0; i < nchunks; i++)
+					chunks[i].index = nchunks - i;
+				break;
+
+		qsort(chunks, nchunks, sizeof(Chunk), chunk_index_cmp);
 
 		gettimeofday(&start_time, NULL);
 
-		/* free the first free_cnt chunks */
-		for (i = 0; i < Min(nallocs, free_cnt); i++)
+		for (int64 i = 0; i < nchunks; i++)
 			pfree(chunks[i].ptr);
 
 		gettimeofday(&end_time, NULL);
 
-		nallocs -= Min(nallocs, free_cnt);
-
 		free_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
 					 (end_time.tv_usec - start_time.tv_usec);
 
-		memmove(chunks, &chunks[free_cnt], nallocs * sizeof(Chunk));
-
-
-		/* allocate alloc_cnt chunks at the end */
-		gettimeofday(&start_time, NULL);
-
-		/* free the first free_cnt chunks */
-		for (i = 0; i < alloc_cnt; i++)
-			chunks[nallocs + i].ptr = palloc(chunkSize);
-
-		gettimeofday(&end_time, NULL);
-
-		nallocs += alloc_cnt;
-
-		alloc_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-					  (end_time.tv_usec - start_time.tv_usec);
-
-		MemoryContextSwitchTo(oldcxt);
-
 		mem_allocated = Max(mem_allocated, MemoryContextMemAllocated(cxt, true));
 	}
-
-	/* release the chunks in random order */
-	for (i = 0; i < nallocs; i++)
-		chunks[i].random = random();
-
-	qsort(chunks, nallocs, sizeof(Chunk), chunk_index_cmp);
-
-	gettimeofday(&start_time, NULL);
-
-	for (i = 0; i < nallocs; i++)
-		pfree(chunks[i].ptr);
-
-	gettimeofday(&end_time, NULL);
-
-	free_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-				 (end_time.tv_usec - start_time.tv_usec);
 
 	/* Build a tuple descriptor for our result type */
 	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
@@ -189,279 +165,3 @@ alloc_bench_random(PG_FUNCTION_ARGS)
 	PG_RETURN_DATUM(result);
 }
 
-Datum
-alloc_bench_fifo(PG_FUNCTION_ARGS)
-{
-	MemoryContext	cxt,
-					oldcxt;
-	Chunk		   *chunks;
-	int64			i, j;
-	char		   *context_type;
-	text		   *context_type_text = PG_GETARG_TEXT_PP(0);
-	int64			nallocs = PG_GETARG_INT64(1);
-	int64			blockSize = PG_GETARG_INT64(2);
-	int64			chunkSize = PG_GETARG_INT64(3);
-
-	int				nloops = PG_GETARG_INT32(4);
-	int				free_cnt = PG_GETARG_INT32(5);
-	int				alloc_cnt = PG_GETARG_INT32(6);
-
-	struct timeval	start_time,
-					end_time;
-	int64			alloc_time = 0,
-					free_time = 0;
-	int64			mem_allocated;
-
-	TupleDesc		tupdesc;
-	Datum			result;
-	HeapTuple		tuple;
-	Datum			values[9];
-	bool			nulls[9];
-
-	int				maxchunks;
-
-	context_type = text_to_cstring(context_type_text);
-
-	maxchunks = nallocs + nloops * Max(0, alloc_cnt - free_cnt);
-
-	if (strcmp(context_type, "generation") == 0)
-		cxt = GenerationContextCreate(CurrentMemoryContext,
-									  "alloc_bench",
-									  ALLOCSET_DEFAULT_SIZES);
-	else if (strcmp(context_type, "aset") == 0)
-		cxt = AllocSetContextCreate(CurrentMemoryContext,
-									"alloc_bench",
-									ALLOCSET_DEFAULT_SIZES);
-	else if (strcmp(context_type, "slab") == 0)
-		cxt = SlabContextCreate(CurrentMemoryContext,
-								"alloc_bench",
-								blockSize,
-								chunkSize);
-	else
-		elog(ERROR, "context_type must be \"generation\", \"aset\" or \"slab\"");
-
-	chunks = (Chunk *) palloc(maxchunks * sizeof(Chunk));
-
-	oldcxt = MemoryContextSwitchTo(cxt);
-
-	gettimeofday(&start_time, NULL);
-
-	for (i = 0; i < nallocs; i++)
-		chunks[i].ptr = palloc(chunkSize);
-
-	gettimeofday(&end_time, NULL);
-
-	alloc_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-				  (end_time.tv_usec - start_time.tv_usec);
-
-	MemoryContextSwitchTo(oldcxt);
-
-	mem_allocated = MemoryContextMemAllocated(cxt, true);
-
-
-	/* do the requested number of free/alloc loops */
-	for (j = 0; j < nloops; j++)
-	{
-		CHECK_FOR_INTERRUPTS();
-
-		oldcxt = MemoryContextSwitchTo(cxt);
-
-		gettimeofday(&start_time, NULL);
-
-		/* free the first free_cnt chunks */
-		for (i = 0; i < Min(nallocs, free_cnt); i++)
-			pfree(chunks[i].ptr);
-
-		gettimeofday(&end_time, NULL);
-
-		nallocs -= Min(nallocs, free_cnt);
-
-		free_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-					 (end_time.tv_usec - start_time.tv_usec);
-
-		memmove(chunks, &chunks[free_cnt], nallocs * sizeof(Chunk));
-
-		/* allocate alloc_cnt chunks at the end */
-		gettimeofday(&start_time, NULL);
-
-		/* free the first free_cnt chunks */
-		for (i = 0; i < alloc_cnt; i++)
-			chunks[nallocs + i].ptr = palloc(chunkSize);
-
-		gettimeofday(&end_time, NULL);
-
-		nallocs += alloc_cnt;
-
-		alloc_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-					  (end_time.tv_usec - start_time.tv_usec);
-
-		MemoryContextSwitchTo(oldcxt);
-
-		mem_allocated = Max(mem_allocated, MemoryContextMemAllocated(cxt, true));
-	}
-
-
-	gettimeofday(&start_time, NULL);
-
-	for (i = 0; i < nallocs; i++)
-		pfree(chunks[i].ptr);
-
-	gettimeofday(&end_time, NULL);
-
-	free_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-				 (end_time.tv_usec - start_time.tv_usec);
-
-	/* Build a tuple descriptor for our result type */
-	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-		elog(ERROR, "return type must be a row type");
-
-	values[0] = Int64GetDatum(mem_allocated);
-	values[1] = Int64GetDatum(alloc_time);
-	values[2] = Int64GetDatum(free_time);
-
-	memset(nulls, 0, sizeof(nulls));
-
-	tuple = heap_form_tuple(tupdesc, values, nulls);
-	result = HeapTupleGetDatum(tuple);
-
-	PG_RETURN_DATUM(result);
-}
-
-Datum
-alloc_bench_lifo(PG_FUNCTION_ARGS)
-{
-	MemoryContext	cxt,
-					oldcxt;
-	Chunk		  *chunks;
-	int64			i, j;
-	char		   *context_type;
-	text		   *context_type_text = PG_GETARG_TEXT_PP(0);
-	int64			nallocs = PG_GETARG_INT64(1);
-	int64			blockSize = PG_GETARG_INT64(2);
-	int64			chunkSize = PG_GETARG_INT64(3);
-
-	int				nloops = PG_GETARG_INT32(4);
-	int				free_cnt = PG_GETARG_INT32(5);
-	int				alloc_cnt = PG_GETARG_INT32(6);
-
-	struct timeval	start_time,
-					end_time;
-	int64			alloc_time = 0,
-					free_time = 0;
-	int64			mem_allocated;
-
-	TupleDesc		tupdesc;
-	Datum			result;
-	HeapTuple		tuple;
-	Datum			values[9];
-	bool			nulls[9];
-
-	int				maxchunks;
-
-	context_type = text_to_cstring(context_type_text);
-
-	maxchunks = nallocs + nloops * Max(0, alloc_cnt - free_cnt);
-
-	if (strcmp(context_type, "generation") == 0)
-		cxt = GenerationContextCreate(CurrentMemoryContext,
-									  "alloc_bench",
-									  ALLOCSET_DEFAULT_SIZES);
-	else if (strcmp(context_type, "aset") == 0)
-		cxt = AllocSetContextCreate(CurrentMemoryContext,
-									"alloc_bench",
-									ALLOCSET_DEFAULT_SIZES);
-	else if (strcmp(context_type, "slab") == 0)
-		cxt = SlabContextCreate(CurrentMemoryContext,
-								"alloc_bench",
-								blockSize,
-								chunkSize);
-	else
-		elog(ERROR, "context_type must be \"generation\", \"aset\" or \"slab\"");
-
-	chunks = (Chunk *) palloc(maxchunks * sizeof(Chunk));
-
-	oldcxt = MemoryContextSwitchTo(cxt);
-
-	/* palloc benchmark */
-	gettimeofday(&start_time, NULL);
-
-	for (i = 0; i < nallocs; i++)
-		chunks[i].ptr = palloc(chunkSize);
-
-	gettimeofday(&end_time, NULL);
-
-	alloc_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-				  (end_time.tv_usec - start_time.tv_usec);
-
-	MemoryContextSwitchTo(oldcxt);
-
-	mem_allocated = MemoryContextMemAllocated(cxt, true);
-
-
-	/* do the requested number of free/alloc loops */
-	for (j = 0; j < nloops; j++)
-	{
-		CHECK_FOR_INTERRUPTS();
-
-		oldcxt = MemoryContextSwitchTo(cxt);
-
-		gettimeofday(&start_time, NULL);
-
-		/* free the first free_cnt chunks */
-		for (i = 1; i <= Min(nallocs, free_cnt); i++)
-			pfree(chunks[nallocs - i].ptr);
-
-		gettimeofday(&end_time, NULL);
-
-		nallocs -= Min(nallocs, free_cnt);
-
-		free_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-					 (end_time.tv_usec - start_time.tv_usec);
-
-		/* allocate alloc_cnt chunks at the end */
-		gettimeofday(&start_time, NULL);
-
-		/* free the first free_cnt chunks */
-		for (i = 0; i < alloc_cnt; i++)
-			chunks[nallocs + i].ptr = palloc(chunkSize);
-
-		gettimeofday(&end_time, NULL);
-
-		nallocs += alloc_cnt;
-
-		alloc_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-					  (end_time.tv_usec - start_time.tv_usec);
-
-		MemoryContextSwitchTo(oldcxt);
-
-		mem_allocated = Max(mem_allocated, MemoryContextMemAllocated(cxt, true));
-	}
-
-
-	gettimeofday(&start_time, NULL);
-
-	for (i = (nallocs - 1); i >= 0; i--)
-		pfree(chunks[i].ptr);
-
-	gettimeofday(&end_time, NULL);
-
-	free_time += (end_time.tv_sec - start_time.tv_sec) * 1000000L +
-				 (end_time.tv_usec - start_time.tv_usec);
-
-	/* Build a tuple descriptor for our result type */
-	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
-		elog(ERROR, "return type must be a row type");
-
-	values[0] = Int64GetDatum(mem_allocated);
-	values[1] = Int64GetDatum(alloc_time);
-	values[2] = Int64GetDatum(free_time);
-
-	memset(nulls, 0, sizeof(nulls));
-
-	tuple = heap_form_tuple(tupdesc, values, nulls);
-	result = HeapTupleGetDatum(tuple);
-
-	MemoryContextDelete(cxt);
-
-	PG_RETURN_DATUM(result);
-}
