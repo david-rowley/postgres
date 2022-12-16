@@ -29,10 +29,10 @@ typedef struct Chunk {
 } Chunk;
 
 static int
-chunk_index_cmp(const int64 *a, const int64 *b)
+int64_cmp(const void *a, const void *b)
 {
-	int64 ia = *a;
-	int64 ib = *b;
+	int64 ia = *(int64 *) a;
+	int64 ib = *(int64 *) b;
 
 	if (ia < ib)
 		return -1;
