@@ -111,7 +111,7 @@ alloc_bench(PG_FUNCTION_ARGS)
 			break;
 		case LIFO:
 			for (int64 i = 0; i < nchunks; i++)
-				indexes[i] = nchunks - i;
+				indexes[i] = nchunks - i - 1;
 			break;
 		case RANDOM:
 			for (int64 i = 0; i < nchunks; i++)
