@@ -34,9 +34,9 @@ chunk_index_cmp(const int64 *a, const int64 *b)
 	int64 ia = *a;
 	int64 ib = *b;
 
-	if (ca < cb)
+	if (ia < ib)
 		return -1;
-	else if (ca > cb)
+	else if (ia > ib)
 		return 1;
 
 	return 0;
