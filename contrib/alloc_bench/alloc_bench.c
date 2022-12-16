@@ -31,9 +31,6 @@ typedef struct Chunk {
 static int
 int64_random_cmp(const void *a, const void *b)
 {
-	int64 ia = *(int64 *) a;
-	int64 ib = *(int64 *) b;
-
 	if (random() & 1)
 		return 1;
 	else
