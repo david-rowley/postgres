@@ -107,6 +107,8 @@ alloc_bench(PG_FUNCTION_ARGS)
 
 	mem_allocated = 0;
 
+	oldcxt = MemoryContextSwitchTo(cxt);
+	
 	/* do the requested number of pfree/palloc loops */
 	for (j = 0; j < nloops; j++)
 	{
@@ -153,6 +155,8 @@ alloc_bench(PG_FUNCTION_ARGS)
 
 		mem_allocated = Max(mem_allocated, MemoryContextMemAllocated(cxt, true));
 	}
+
+	MemoryContextSwitchTo(oldcxt);
 
 	/* Build a tuple descriptor for our result type */
 	if (get_call_result_type(fcinfo, NULL, &tupdesc) != TYPEFUNC_COMPOSITE)
