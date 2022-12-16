@@ -118,8 +118,8 @@ alloc_bench(PG_FUNCTION_ARGS)
 			break;
 		case RANDOM:
 			for (int64 i = 0; i < nchunks; i++)
-				indexes[i] = i
-			qsort(indexes, nchunks, sizeof(int64), int64_cmp);
+				indexes[i] = i;
+			qsort(indexes, nchunks, sizeof(int64), int64_random_cmp);
 			break;
 	}
 
