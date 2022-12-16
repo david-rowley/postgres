@@ -29,17 +29,15 @@ typedef struct Chunk {
 } Chunk;
 
 static int
-int64_cmp(const void *a, const void *b)
+int64_random_cmp(const void *a, const void *b)
 {
 	int64 ia = *(int64 *) a;
 	int64 ib = *(int64 *) b;
 
-	if (ia < ib)
-		return -1;
-	else if (ia > ib)
+	if (random() & 1)
 		return 1;
-
-	return 0;
+	else
+		return -1;
 }
 
 Datum
@@ -120,7 +118,7 @@ alloc_bench(PG_FUNCTION_ARGS)
 			break;
 		case RANDOM:
 			for (int64 i = 0; i < nchunks; i++)
-				indexes[i] = random();
+				indexes[i] = i
 			qsort(indexes, nchunks, sizeof(int64), int64_cmp);
 			break;
 	}
