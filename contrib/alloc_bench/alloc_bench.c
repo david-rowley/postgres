@@ -19,22 +19,23 @@ PG_FUNCTION_INFO_V1(alloc_bench);
 
 typedef enum AllocationPattern {
 	FIFO,
-	LIFO,
-	RANDOM
+	LIFO
 } AllocationPattern;
 
-typedef struct Chunk {
-	int64		index;
-	void   *ptr;
-} Chunk;
+static int random_segment_size;
+static int random_fifo = 0;
 
 static int
-int64_random_cmp(const void *a, const void *b)
+int64_random_compare(const void *a, const void *b)
 {
-	if (random() & 1)
-		return 1;
+	const int64 ia = *(const int64 *) a;
+	const int64 ib = *(const int64 *) b;
+	int rss = random_segment_size;
+
+	if ((ia / rss * rss) + (random() % rss) < ib)
+		return random_fifo == 0 ? -1 : 1;
 	else
-		return -1;
+		return random_fifo == 0 ? 1 : -1;
 }
 
 Datum
@@ -54,6 +55,7 @@ alloc_bench(PG_FUNCTION_ARGS)
 	int64			chunkSize = PG_GETARG_INT64(4);
 
 	int				nloops = PG_GETARG_INT32(5);
+	int				random_segments = PG_GETARG_INT32(6);
 
 	struct timeval	start_time,
 					end_time;
@@ -93,10 +95,8 @@ alloc_bench(PG_FUNCTION_ARGS)
 		pattern = FIFO;
 	else if (strcmp(pattern_str, "lifo") == 0)
 		pattern = LIFO;
-	else if (strcmp(pattern_str, "random") == 0)
-		pattern = RANDOM;
 	else
-		elog(ERROR, "%s is not a valid allocation pattern. Must be \"fifo\", \"lifo\", \"random\"",
+		elog(ERROR, "%s is not a valid allocation pattern. Must be \"fifo\" or \"lifo\"",
 			 pattern_str);
 
 	chunks = (void **) palloc(nchunks * sizeof(void *));
@@ -113,17 +113,27 @@ alloc_bench(PG_FUNCTION_ARGS)
 			for (int64 i = 0; i < nchunks; i++)
 				indexes[i] = nchunks - i - 1;
 			break;
-		case RANDOM:
-			for (int64 i = 0; i < nchunks; i++)
-				indexes[i] = i;
-			qsort(indexes, nchunks, sizeof(int64), int64_random_cmp);
-			break;
+	}
+
+	/*
+	 * When a non-zero random_segments is specified, we randomize the
+	 * order of the pfree's so they're random within their own segment.
+	 * This means we don't entirely randomize the order, but if there are
+	 * say, 10 segments and 60 chunks, we only randomize the first 6
+	 * chunks then the next 6.  Specifiying a lower number of
+	 * random_segments means the FIFO or LIFO pattern becomes more random.
+	 */
+	if (random_segments > 0)
+	{
+		random_segment_size = nchunks / random_segments;
+		random_fifo = (pattern == FIFO);
+		qsort(indexes, nchunks, sizeof(int64), int64_random_compare);
 	}
 
 	mem_allocated = 0;
 
 	oldcxt = MemoryContextSwitchTo(cxt);
-	
+
 	/* do the requested number of pfree/palloc loops */
 	for (j = 0; j < nloops; j++)
 	{
@@ -131,8 +141,14 @@ alloc_bench(PG_FUNCTION_ARGS)
 
 		gettimeofday(&start_time, NULL);
 
+		/*
+		 * We do palloc0 instead of palloc to simulate touching the
+		 * memory.  This will load cachelines, which is likely more
+		 * realistic than just allocating memory and not doing
+		 * anything with it.
+		 */
 		for (int64 i = 0; i < nchunks; i++)
-			chunks[i] = palloc(chunkSize);
+			chunks[i] = palloc0(chunkSize);
 
 		gettimeofday(&end_time, NULL);
 
@@ -142,7 +158,19 @@ alloc_bench(PG_FUNCTION_ARGS)
 		gettimeofday(&start_time, NULL);
 
 		for (int64 i = 0; i < nchunks; i++)
-			pfree(chunks[indexes[i]]);
+		{
+			char *ptr = (char *) chunks[indexes[i]];
+
+			elog(DEBUG1, "freeing index %ld", indexes[i]);
+
+			/*
+			 * Free the chunk, but first touch the first cacheline
+			 * of the chunk to simulate that we've just done
+			 * something real with this memory.
+			 */
+			if (ptr[0] == '\0')
+				pfree(ptr);
+		}
 
 		gettimeofday(&end_time, NULL);
 
