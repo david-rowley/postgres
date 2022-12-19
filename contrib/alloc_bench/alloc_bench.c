@@ -161,8 +161,6 @@ alloc_bench(PG_FUNCTION_ARGS)
 		{
 			char *ptr = (char *) chunks[indexes[i]];
 
-			elog(DEBUG1, "freeing index %ld", indexes[i]);
-
 			/*
 			 * Free the chunk, but first touch the first cacheline
 			 * of the chunk to simulate that we've just done
