@@ -32,7 +32,7 @@ int64_random_compare(const void *a, const void *b)
 	const int64 ib = *(const int64 *) b;
 	int rss = random_segment_size;
 
-	if ((ia / rss * rss) + (random() % rss) < ib)
+	if ((ia / rss * rss) + (random() % rss) > ib)
 		return random_fifo == 0 ? -1 : 1;
 	else
 		return random_fifo == 0 ? 1 : -1;
