@@ -4601,8 +4601,11 @@ create_one_window_path(PlannerInfo *root,
 					   List *activeWindows)
 {
 	PathTarget *window_target;
+	Query	   *parse = root->parse;
 	ListCell   *l;
 	List	   *topqual = NIL;
+	List	   *orderby_pathkeys = NIL;
+	int			sort_pushdown_idx = -1;
 
 	/*
 	 * Since each window clause could require a different sort order, we stack
@@ -4621,6 +4624,91 @@ create_one_window_path(PlannerInfo *root,
 	 */
 	window_target = input_target;
 
+	/*
+	 * Here we attempt to minimize the number of sorts which must be performed
+	 * for queries with an ORDER BY clause.
+	 *
+	 * It's possible due to select_active_windows() putting the WindowClauses
+	 * with the lowest tleSortGroupRef last in the activeWindows list that the
+	 * final WindowClause has a subset of the sort requirements that the
+	 * query's ORDER BY clause has.  Below we try to detect this case and if
+	 * we find this is true, we consider adjusting the sort that's done for
+	 * WindowAggs and include the additional clauses so that no additional
+	 * sorting is required for the query's ORDER BY clause.
+	 *
+	 * We don't try this optimization for the following cases:
+	 *
+	 * 1. If the query has a DISTINCT clause.  We needn't waste any additional
+	 * effort for the more strict sort order as if DISTINCT is done via Hash
+	 * Aggregate then that's going to undo this work.
+	 *
+	 * 2. If the query has a LIMIT clause.  The top-level sort will be able to
+	 * use a top-n sort which might be more efficient than sorting	by the
+	 * additional columns.  If the LIMIT does not reduce the number of rows
+	 * significantly then this might not be true, but we don't try to consider
+	 * that here.
+	 *
+	 * 3. If the top-level WindowClause has a runCondition then this can
+	 * filter out tuples and make the final sort cheaper.  If we pushed the
+	 * sort down below the WindowAgg then we'd need to sort all rows including
+	 * ones that the runCondition might filter out.  This may waste effort so
+	 * we just don't try to push down the sort for this case.
+	 *
+	 * 4. If the ORDER BY contains any expressions containing WindowFuncs then
+	 * we can't push down the sort as these obviously must be evaluated before
+	 * they can be sorted.
+	 */
+	if (parse->sortClause != NIL && parse->distinctClause == NIL &&
+		parse->limitCount == NULL &&
+		!contain_window_function((Node *) get_sortgrouplist_exprs(parse->sortClause,
+																  root->processed_tlist)))
+	{
+		WindowClause *lastwc = llast_node(WindowClause, activeWindows);
+		bool		hasRunCondition = false;
+
+		foreach(l, wflists->windowFuncs[lastwc->winref])
+		{
+			WindowFunc *wfunc = lfirst_node(WindowFunc, l);
+
+			if (wfunc->runCondition != NIL)
+			{
+				hasRunCondition = true;
+				break;
+			}
+		}
+
+		if (!hasRunCondition)
+		{
+			orderby_pathkeys = make_pathkeys_for_sortclauses(root,
+															 parse->sortClause,
+															 root->processed_tlist);
+
+			/*
+			 * Loop backwards over the WindowClauses looking for the first
+			 * WindowClause which has pathkeys not contained in the
+			 * orderby_pathkeys.  What we're looking for here is the lowest
+			 * level that we push the additional sort requirements down into.
+			 * If we can't find any WindowClause with suitable pathkeys here
+			 * then sort_pushdown_idx will remain at -1 which will effectively
+			 * disable the pushdown attempt later in this function.
+			 */
+			for (int i = list_length(activeWindows) - 1; i >= 0; i--)
+			{
+				WindowClause *wc = list_nth_node(WindowClause, activeWindows, i);
+				List	   *window_pathkeys;
+
+				window_pathkeys = make_pathkeys_for_window(root,
+														   wc,
+														   root->processed_tlist);
+
+				if (pathkeys_contained_in(window_pathkeys, orderby_pathkeys))
+					sort_pushdown_idx = i;
+				else
+					break;
+			}
+		}
+	}
+
 	foreach(l, activeWindows)
 	{
 		WindowClause *wc = lfirst_node(WindowClause, l);
@@ -4634,6 +4722,25 @@ create_one_window_path(PlannerInfo *root,
 		window_pathkeys = make_pathkeys_for_window(root,
 												   wc,
 												   root->processed_tlist);
+
+		/*
+		 * When we get to the sort_pushdown_idx WindowClause, if the path is
+		 * not already correctly sorted, then just use the pathkeys for the
+		 * query's ORDER BY clause instead of the WindowClause's pathkeys.
+		 * When the path is already correctly sorted there's no point in
+		 * adjusting the pathkeys as this just moves the sort down without
+		 * actually reducing the number of sorts which are required in the
+		 * plan overall.  sort_pushdown_idx will be -1 and never match when
+		 * this optimization was disabled above.
+		 */
+		if (foreach_current_index(l) == sort_pushdown_idx &&
+			!pathkeys_contained_in(window_pathkeys, path->pathkeys))
+		{
+			/* check to make sure sort_pushdown_idx was set correctly */
+			Assert(pathkeys_contained_in(window_pathkeys, orderby_pathkeys));
+
+			window_pathkeys = orderby_pathkeys;
+		}
 
 		is_sorted = pathkeys_count_contained_in(window_pathkeys,
 												path->pathkeys,

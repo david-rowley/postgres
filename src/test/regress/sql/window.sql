@@ -1491,6 +1491,120 @@ SELECT DISTINCT
 FROM empsalary
 ORDER BY depname, empno;
 
+CREATE INDEX empsalary_depname_idx ON empsalary(depname);
+SET enable_seqscan TO off;
+
+-- Ensure we don't push the ORDER BY sort below the WindowAgg when the input
+-- node to the WindowAgg is already sorted correctly.  This would just move
+-- the sort down and not reduce the number of sorts.
+EXPLAIN (COSTS OFF)
+SELECT empno,
+       min(salary) OVER (PARTITION BY depname) depminsalary
+FROM empsalary
+ORDER BY depname, empno;
+
+DROP INDEX empsalary_depname_idx;
+RESET enable_seqscan;
+
+-- Ensure we push the ORDER BY sort below the WindowAgg
+EXPLAIN (COSTS OFF)
+SELECT empno,
+       min(salary) OVER (PARTITION BY depname, empno) depminsalary
+FROM empsalary
+ORDER BY depname, empno, enroll_date;
+
+-- A more complex permutation of the above.  Ensure the ORDER BY sort is
+-- pushed down below the WindowAgg when there is a PARTITION BY and ORDER BY
+-- clause in the WindowFunc
+EXPLAIN (COSTS OFF)
+SELECT empno,
+       depname,
+       min(salary) OVER (PARTITION BY depname ORDER BY empno) depminsalary
+FROM empsalary
+ORDER BY depname, empno, enroll_date;
+
+-- Try more complex permutations of pushing the ORDER BY's sort below the
+-- WindowAgg.  With multiple WindowAggs sharing the same sort, ensure we push
+-- the sort to the correct level.
+EXPLAIN (COSTS OFF)
+SELECT empno,
+       depname,
+       min(salary) OVER (PARTITION BY depname ORDER BY empno) depminsalary,
+       sum(salary) OVER (PARTITION BY depname) depsalary,
+       count(*) OVER (ORDER BY enroll_date DESC) c
+FROM empsalary
+ORDER BY depname, empno, enroll_date;
+
+-- As above, but swap the order of the WindowFuncs to ensure their order is
+-- not a factor in the plan choice.
+EXPLAIN (COSTS OFF)
+SELECT empno,
+       depname,
+       count(*) OVER (ORDER BY enroll_date DESC) c,
+       sum(salary) OVER (PARTITION BY depname) depsalary,
+       min(salary) OVER (PARTITION BY depname ORDER BY empno) depminsalary
+FROM empsalary
+ORDER BY depname, empno, enroll_date;
+
+-- Ensure that we don't push the ORDER BY's sort down for the following cases.
+-- See the comment in create_one_window_path() for details of each case that
+-- we don't perform the optimization.
+
+-- Case #1: Don't push the ORDER BY's sort down when there's a DISTINCT clause
+EXPLAIN (COSTS OFF)
+SELECT DISTINCT empno,
+       depname,
+       min(salary) OVER (PARTITION BY depname) depminsalary,
+       sum(salary) OVER (PARTITION BY depname) depsalary,
+       count(*) OVER (ORDER BY enroll_date DESC) c
+FROM empsalary
+ORDER BY depname, empno;
+
+-- Case #2: Don't push the ORDER BY's sort down when there's a LIMIT clause
+EXPLAIN (COSTS OFF)
+SELECT empno,
+       depname,
+       min(salary) OVER (PARTITION BY empno) depminsalary,
+       sum(salary) OVER (PARTITION BY empno) depsalary
+FROM empsalary
+ORDER BY empno, depname
+LIMIT 1;
+
+-- Case #3: Don't push the ORDER BY's sort down when the top-level WindowAgg
+-- has a runCondition.
+EXPLAIN (COSTS OFF)
+SELECT * FROM (
+  SELECT depname,
+         empno,
+         row_number() OVER (PARTITION BY depname ORDER BY enroll_date) emprn,
+         sum(salary) OVER (PARTITION BY depname ORDER BY empno) depsalary
+  FROM empsalary
+  ORDER BY depname, enroll_date, empno
+) e
+WHERE emprn < 3;
+
+-- Try a positive version of case #3 where the runCondition exists but it's
+-- not on the final WindowAgg.  Ensure the sort is pushed below the WindowAgg
+-- in this case.
+EXPLAIN (COSTS OFF)
+SELECT * FROM (
+  SELECT depname,
+         empno,
+         row_number() OVER (PARTITION BY depname ORDER BY enroll_date) emprn,
+         row_number() OVER (PARTITION BY depname ORDER BY empno) emprn2
+  FROM empsalary
+  ORDER BY depname, enroll_date, empno
+) e
+WHERE emprn2 < 3;
+
+-- Case #4: Don't push the ORDER BY's sort down when the ORDER BY contains
+-- WindowFunc results
+EXPLAIN (COSTS OFF)
+SELECT empno,
+       row_number() over (PARTITION BY empno) esalary
+FROM empsalary
+ORDER BY empno, esalary;
+
 RESET enable_hashagg;
 
 -- Test Sort node reordering
