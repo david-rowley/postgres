@@ -4943,10 +4943,20 @@ create_final_distinct_paths(PlannerInfo *root, RelOptInfo *input_rel,
 			Path	   *sorted_path;
 			bool		is_sorted;
 			int			presorted_keys;
+			List	   *reordered_neededkeys;
 
-			is_sorted = pathkeys_count_contained_in(needed_pathkeys,
-													input_path->pathkeys,
-													&presorted_keys);
+			if (!parse->hasDistinctOn)
+				is_sorted = pathkeys_count_contained_in_unordered(needed_pathkeys,
+																  input_path->pathkeys,
+																  &reordered_neededkeys,
+																  &presorted_keys);
+			else
+			{
+				is_sorted = pathkeys_count_contained_in(needed_pathkeys,
+														input_path->pathkeys,
+														&presorted_keys);
+				reordered_neededkeys = needed_pathkeys;
+			}
 
 			if (is_sorted)
 				sorted_path = input_path;
@@ -4972,13 +4982,13 @@ create_final_distinct_paths(PlannerInfo *root, RelOptInfo *input_rel,
 					sorted_path = (Path *) create_sort_path(root,
 															distinct_rel,
 															input_path,
-															needed_pathkeys,
+															reordered_neededkeys,
 															limittuples);
 				else
 					sorted_path = (Path *) create_incremental_sort_path(root,
 																		distinct_rel,
 																		input_path,
-																		needed_pathkeys,
+																		reordered_neededkeys,
 																		presorted_keys,
 																		limittuples);
 			}

@@ -405,6 +405,97 @@ pathkeys_count_contained_in(List *keys1, List *keys2, int *n_common)
 }
 
 /*
+ * pathkeys_count_contained_in_unordered
+ *		Compare keys1 and keys2 and return true if keys2 contains all of the
+ *		pathkeys in keys1.  The order that the keys appear in keys2 is not
+ *		considered.  A partial match is indicated by returning false but
+ *		*n_common will be set > 0.  When there is no match, we return false
+ *		and *n_common will be set to 0.
+ *
+ * In all cases, *reorderedkeys will be populated with the keys1 keys with the
+ * order changed to be the same as the matching keys2 keys.  If we find any
+ * keys2 keys not present in keys1 then we stop looking at any more keys2
+ * keys and populate *reorderedkeys with the remaining keys which don't
+ * exist in keys2.
+ */
+bool
+pathkeys_count_contained_in_unordered(List *keys1, List *keys2,
+									  List **reorderedkeys, int *n_common)
+{
+	ListCell	   *key2;
+	bool			is_sorted;
+	Bitmapset	   *keys1_unmatched;
+
+	if (keys1 == keys2)
+	{
+		*n_common = list_length(keys1);
+		*reorderedkeys = keys1;
+		return true;
+	}
+	else if (keys1 == NIL)
+	{
+		*n_common = 0;
+		*reorderedkeys = NIL;
+		return true;
+	}
+	else if (keys2 == NIL)
+	{
+		*n_common = 0;
+		*reorderedkeys = keys1;
+		return false;
+	}
+
+	*reorderedkeys = NIL;
+
+	/*
+	 * Record all keys1 keys as unmatched.  We'll mark these as matched when
+	 * we find a match.  We can easily find the remaining unmatched keys at
+	 * the end by looking for the bits which are still set.
+	 */
+	keys1_unmatched = bms_add_range(NULL, 0, list_length(keys1) - 1);
+
+	foreach(key2, keys2)
+	{
+		PathKey	   *pathkey2 = lfirst_node(PathKey, key2);
+		ListCell   *key1;
+
+		foreach(key1, keys1)
+		{
+			PathKey	   *pathkey1 = lfirst_node(PathKey, key1);
+
+			if (pathkey1 == pathkey2)
+			{
+				/* mark this key as matched */
+				keys1_unmatched = bms_del_member(keys1_unmatched,
+												 foreach_current_index(key1));
+				*reorderedkeys = lappend(*reorderedkeys, pathkey1);
+				break;
+			}
+		}
+
+		if (key1 == NULL)
+			break;
+	}
+
+	*n_common = list_length(*reorderedkeys);
+	is_sorted = (*n_common == list_length(keys1));
+
+	/* sanity check that the Bitmapset was maintained correctly */
+	Assert(is_sorted == bms_is_empty(keys1_unmatched));
+
+	if (!is_sorted)
+	{
+		int i = -1;
+		while ((i = bms_next_member(keys1_unmatched, i)) >= 0)
+			*reorderedkeys = lappend(*reorderedkeys, list_nth(keys1, i));
+	}
+
+	bms_free(keys1_unmatched);
+
+	return is_sorted;
+}
+
+/*
  * get_cheapest_path_for_pathkeys
  *	  Find the cheapest path (according to the specified criterion) that
  *	  satisfies the given pathkeys and parameterization.

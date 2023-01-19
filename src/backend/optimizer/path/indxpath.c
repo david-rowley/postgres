@@ -971,6 +971,9 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 													index_pathkeys);
 		orderbyclauses = NIL;
 		orderbyclausecols = NIL;
+
+		if (useful_pathkeys == NIL)
+			useful_pathkeys = index_pathkeys;
 	}
 	else if (index->amcanorderbyop && pathkeys_possibly_useful)
 	{
