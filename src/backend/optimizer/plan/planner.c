@@ -5085,11 +5085,30 @@ create_ordered_paths(PlannerInfo *root,
 			 * incremental sort when there are presorted keys.
 			 */
 			if (presorted_keys == 0 || !enable_incremental_sort)
-				sorted_path = (Path *) create_sort_path(root,
-														ordered_rel,
-														input_path,
-														root->sort_pathkeys,
-														limit_tuples);
+			{
+				if (list_length(root->sort_pathkeys) > 2)
+				{
+					sorted_path = (Path *) create_sort_path(root,
+															ordered_rel,
+															input_path,
+															list_copy_head(root->sort_pathkeys,2),
+															limit_tuples);
+					sorted_path = (Path *) create_incremental_sort_path(root,
+																		ordered_rel,
+																		sorted_path,
+																		root->sort_pathkeys,
+																		2,
+																		limit_tuples);
+				}
+				else
+				{
+					sorted_path = (Path *) create_sort_path(root,
+															ordered_rel,
+															input_path,
+															root->sort_pathkeys,
+															limit_tuples);
+				}
+			}
 			else
 				sorted_path = (Path *) create_incremental_sort_path(root,
 																	ordered_rel,
