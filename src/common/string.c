@@ -57,6 +57,45 @@ strtoint(const char *pg_restrict str, char **pg_restrict endptr, int base)
 	return (int) val;
 }
 
+/*
+ * pg_strtlcpy
+ *		Copy at most 'len' bytes from 'src' to 'dst' and return the number of
+ *		bytes copied.  Copying stops when 'len' bytes have been copied or when
+ *		the next character in *src is a NUL.  If 'len' is <= 0 then no bytes
+ *		are copied and the function returns 0.
+ *
+ * This can be used for efficient building of strings using the following
+ * form:
+ *
+ *		char buffer[STRING_SIZE];
+ *		char *bufp = buffer;
+ *		bufp += pg_strtlcpy(bufp, "01", STRING_SIZE - (bufp - buffer));
+ *		bufp += pg_strtlcpy(bufp, "23", STRING_SIZE - (bufp - buffer));
+ *		bufp += pg_strtlcpy(bufp, "45", STRING_SIZE - (bufp - buffer));
+ *
+ * Always NUL terminates (unless len <= 0)
+ */
+size_t
+pg_strtlcpy(char * const dst, const char *src, ptrdiff_t len)
+{
+	char *dstp = dst;
+
+	while (--len > 0)
+	{
+		if ((*dstp = *src++) == '\0')
+		{
+			*dstp = '\0';
+			return (dstp - dst);
+		}
+		dstp++;
+	}
+
+	/* len may be negative if the length was already 0 or less */
+	if (len == 0)
+		*dstp = '\0';
+
+	return (dstp - dst);
+}
 
 /*
  * pg_clean_ascii -- Replace any non-ASCII chars with a "\xXX" string
