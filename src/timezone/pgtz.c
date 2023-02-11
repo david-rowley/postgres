@@ -17,6 +17,7 @@
 #include <time.h>
 
 #include "common/file_utils.h"
+#include "common/string.h"
 #include "datatype/timestamp.h"
 #include "miscadmin.h"
 #include "pgtz.h"
@@ -81,8 +82,8 @@ pg_open_tzfile(const char *name, char *canonname)
 	int			orignamelen;
 
 	/* Initialize fullname with base name of tzdata directory */
-	strlcpy(fullname, pg_TZDIR(), sizeof(fullname));
-	orignamelen = fullnamelen = strlen(fullname);
+	orignamelen = fullnamelen = pg_strtlcpy(fullname, pg_TZDIR(),
+											sizeof(fullname));
 
 	if (fullnamelen + 1 + strlen(name) >= MAXPGPATH)
 		return -1;				/* not gonna fit */
