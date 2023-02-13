@@ -896,6 +896,11 @@ continue_page:
 			ItemId		lpp;
 			OffsetNumber lineoff;
 
+			/* prefetch the memory for the next tuple */
+			if (linesleft > 1)
+				pg_prefetch_mem(PageGetItem(page,
+											PageGetItemId(page,
+														  scan->rs_vistuples[lineindex + dir])));
 			lineoff = scan->rs_vistuples[lineindex];
 			lpp = PageGetItemId(page, lineoff);
 			Assert(ItemIdIsNormal(lpp));
