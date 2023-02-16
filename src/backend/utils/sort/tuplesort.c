@@ -216,6 +216,7 @@ struct Tuplesortstate
 	SortTuple  *memtuples;		/* array of SortTuple structs */
 	int			memtupcount;	/* number of tuples currently present */
 	int			memtupsize;		/* allocated length of memtuples array */
+	int			memtupsortedto; /* index of where we've already sorted up to */
 	bool		growmemtuples;	/* memtuples' growth still underway? */
 
 	/*
@@ -465,7 +466,7 @@ static bool mergereadnext(Tuplesortstate *state, LogicalTape *srcTape, SortTuple
 static void dumptuples(Tuplesortstate *state, bool alltuples);
 static void make_bounded_heap(Tuplesortstate *state);
 static void sort_bounded_heap(Tuplesortstate *state);
-static void tuplesort_sort_memtuples(Tuplesortstate *state);
+static void tuplesort_sort_memtuples(Tuplesortstate *state, int start_index);
 static void tuplesort_heap_insert(Tuplesortstate *state, SortTuple *tuple);
 static void tuplesort_heap_replace_top(Tuplesortstate *state, SortTuple *tuple);
 static void tuplesort_heap_delete_top(Tuplesortstate *state);
@@ -708,6 +709,7 @@ tuplesort_begin_common(int workMem, SortCoordinate coordinate, int sortopt)
 	 */
 	state->memtupsize = INITIAL_MEMTUPSIZE;
 	state->memtuples = NULL;
+	state->memtupsortedto = 0;
 
 	/*
 	 * After all of the other non-parallel-related state, we setup all of the
@@ -793,6 +795,7 @@ tuplesort_begin_batch(Tuplesortstate *state)
 	state->tapeset = NULL;
 
 	state->memtupcount = 0;
+	state->memtupsortedto = 0;
 
 	/*
 	 * Initial size of array must be more than ALLOCSET_SEPARATE_THRESHOLD;
@@ -1193,9 +1196,28 @@ tuplesort_puttuple_common(Tuplesortstate *state, SortTuple *tuple, bool useAbbre
 
 	Assert(!LEADER(state));
 
+/* just roughly. Must be power-of-2 for efficient division */
+#define EFFECTIVE_CPU_L3_SIZE 16777216
+
 	/* Count the size of the out-of-line data */
 	if (tuple->tuple != NULL)
+	{
+		size_t before_mem = state->availMem / EFFECTIVE_CPU_L3_SIZE;
+
 		USEMEM(state, GetMemoryChunkSpace(tuple->tuple));
+
+		/*
+		 * Being a bit more cache awareness to the sort and do a presort
+		 * of the tuple seen thus far while they're likely still sitting in
+		 * L3.
+		 */
+		if (before_mem != state->availMem / EFFECTIVE_CPU_L3_SIZE)
+		{
+			tuplesort_sort_memtuples(state, state->memtupsortedto);
+			state->memtupsortedto = state->memtupcount;
+		}
+	}
+
 
 	if (!useAbbrev)
 	{
@@ -1403,7 +1425,7 @@ tuplesort_performsort(Tuplesortstate *state)
 			if (SERIAL(state))
 			{
 				/* Just qsort 'em and we're done */
-				tuplesort_sort_memtuples(state);
+				tuplesort_sort_memtuples(state, 0);
 				state->status = TSS_SORTEDINMEM;
 			}
 			else if (WORKER(state))
@@ -2388,7 +2410,7 @@ dumptuples(Tuplesortstate *state, bool alltuples)
 	 * Sort all tuples accumulated within the allowed amount of memory for
 	 * this run using quicksort
 	 */
-	tuplesort_sort_memtuples(state);
+	tuplesort_sort_memtuples(state, 0);
 
 #ifdef TRACE_SORT
 	if (trace_sort)
@@ -2413,6 +2435,7 @@ dumptuples(Tuplesortstate *state, bool alltuples)
 	}
 
 	state->memtupcount = 0;
+	state->memtupsortedto = 0;
 
 	/*
 	 * Reset tuple memory.  We've freed all of the tuples that we previously
@@ -2636,6 +2659,8 @@ make_bounded_heap(Tuplesortstate *state)
 	reversedirection(state);
 
 	state->memtupcount = 0;		/* make the heap empty */
+	state->memtupsortedto = 0;
+
 	for (i = 0; i < tupcount; i++)
 	{
 		if (state->memtupcount < state->bound)
@@ -2711,11 +2736,11 @@ sort_bounded_heap(Tuplesortstate *state)
  * Quicksort is used for small in-memory sorts, and external sort runs.
  */
 static void
-tuplesort_sort_memtuples(Tuplesortstate *state)
+tuplesort_sort_memtuples(Tuplesortstate *state, int start_index)
 {
 	Assert(!LEADER(state));
 
-	if (state->memtupcount > 1)
+	if (state->memtupcount - start_index > 1)
 	{
 		/*
 		 * Do we have the leading column's value or abbreviation in datum1,
@@ -2725,24 +2750,24 @@ tuplesort_sort_memtuples(Tuplesortstate *state)
 		{
 			if (state->base.sortKeys[0].comparator == ssup_datum_unsigned_cmp)
 			{
-				qsort_tuple_unsigned(state->memtuples,
-									 state->memtupcount,
+				qsort_tuple_unsigned(&state->memtuples[start_index],
+									 state->memtupcount - start_index,
 									 state);
 				return;
 			}
 #if SIZEOF_DATUM >= 8
 			else if (state->base.sortKeys[0].comparator == ssup_datum_signed_cmp)
 			{
-				qsort_tuple_signed(state->memtuples,
-								   state->memtupcount,
+				qsort_tuple_signed(&state->memtuples[start_index],
+								   state->memtupcount - start_index,
 								   state);
 				return;
 			}
 #endif
 			else if (state->base.sortKeys[0].comparator == ssup_datum_int32_cmp)
 			{
-				qsort_tuple_int32(state->memtuples,
-								  state->memtupcount,
+				qsort_tuple_int32(&state->memtuples[start_index],
+								  state->memtupcount - start_index,
 								  state);
 				return;
 			}
@@ -2751,13 +2776,14 @@ tuplesort_sort_memtuples(Tuplesortstate *state)
 		/* Can we use the single-key sort function? */
 		if (state->base.onlyKey != NULL)
 		{
-			qsort_ssup(state->memtuples, state->memtupcount,
+			qsort_ssup(&state->memtuples[start_index],
+					   state->memtupcount - start_index,
 					   state->base.onlyKey);
 		}
 		else
 		{
-			qsort_tuple(state->memtuples,
-						state->memtupcount,
+			qsort_tuple(&state->memtuples[start_index],
+						state->memtupcount - start_index,
 						state->base.comparetup,
 						state);
 		}
