@@ -160,6 +160,7 @@ typedef enum
 	TSS_INITIAL,				/* Loading tuples; still within memory limit */
 	TSS_BOUNDED,				/* Loading tuples into bounded-size heap */
 	TSS_BUILDRUNS,				/* Loading tuples; writing to tape */
+	TSS_PARTSORTEDINMEM,		/* Some sorting has been done based on L3 size */
 	TSS_SORTEDINMEM,			/* Sort completed entirely in memory */
 	TSS_SORTEDONTAPE,			/* Sort completed, final run is on tape */
 	TSS_FINALMERGE				/* Performing final merge on-the-fly */
@@ -182,6 +183,12 @@ typedef enum
 #define TAPE_BUFFER_OVERHEAD		BLCKSZ
 #define MERGE_BUFFER_SIZE			(BLCKSZ * 32)
 
+typedef struct TuplesortMemoryBatch
+{
+	int		start_index;		/* first tuple in Tuplesortstate.memtuples array */
+	int		current_index;		/* Where we're up to on current read */
+	int		end_index;			/* final index of memtuples array */
+} TuplesortMemoryBatch;
 
 /*
  * Private state of a Tuplesort operation.
@@ -218,6 +225,11 @@ struct Tuplesortstate
 	int			memtupsize;		/* allocated length of memtuples array */
 	int			memtupsortedto; /* index of where we've already sorted up to */
 	bool		growmemtuples;	/* memtuples' growth still underway? */
+
+	TuplesortMemoryBatch   *sort_batches;	/* pointer to array of memory sort batches */
+	int			num_sort_batches;
+	int			max_sort_batches;
+	struct binaryheap *binary_heap; /* binary heap of memtuple indexes */
 
 	/*
 	 * Memory for tuples is sometimes allocated using a simple slab allocator,
@@ -802,6 +814,8 @@ tuplesort_begin_batch(Tuplesortstate *state)
 	 * see comments in grow_memtuples().
 	 */
 	state->growmemtuples = true;
+	state->sort_batches = NULL;
+	state->binary_heap = NULL;
 	state->slabAllocatorUsed = false;
 	if (state->memtuples != NULL && state->memtupsize != INITIAL_MEMTUPSIZE)
 	{
@@ -1215,6 +1229,7 @@ tuplesort_puttuple_common(Tuplesortstate *state, SortTuple *tuple, bool useAbbre
 		{
 			tuplesort_sort_memtuples(state, state->memtupsortedto);
 			state->memtupsortedto = state->memtupcount;
+			state->status = TSS_PARTSORTEDINMEM;
 		}
 	}
 
@@ -1525,6 +1540,40 @@ tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
 
 	switch (state->status)
 	{
+		case TSS_PARTSORTEDINMEM:
+			Assert(forward || state->base.sortopt & TUPLESORT_RANDOMACCESS);
+			Assert(!state->slabAllocatorUsed);
+
+			if (state->memtupsortedto < state->memtupcount)
+			{
+				tuplesort_sort_memtuples(state, state->memtupsortedto);
+				state->memtupsortedto = state->memtupcount;
+			}
+			if (state->num_sort_batches > 1)
+			{
+				ListCell	   *lc;
+
+				state->binary_heap = binaryheap_allocate(state->num_sort_batches,
+														 state->base.comparetup,
+														 state);
+
+				for (int i = 0; i < state->num_sort_batches; i++)
+				{
+					int		end_index;
+
+					if (i == state->num_sort_batches - 1)
+						end_index = state->memtupcount;
+					else
+						end_index = state->sort_batches[i + 1].end_index;
+
+					state->sort_batches[i].end_index = end_index;
+
+					binaryheap_add_unordered(state->binary_heap, Int32GetDatum(i));
+				}
+
+				binaryheap_build(state->binary_heap);
+			}
+
 		case TSS_SORTEDINMEM:
 			Assert(forward || state->base.sortopt & TUPLESORT_RANDOMACCESS);
 			Assert(!state->slabAllocatorUsed);
@@ -2730,6 +2779,29 @@ sort_bounded_heap(Tuplesortstate *state)
 	state->boundUsed = true;
 }
 
+static void
+tuplesort_add_memory_merge_batch(Tuplesortstate *state, int start_index)
+{
+	TuplesortMemoryBatch *batch;
+
+	if (state->sort_batches == NULL)
+	{
+		state->max_sort_batches = 16;
+		state->sort_batches = MemoryContextAlloc(state->base.sortcontext, state->max_sort_batches * sizeof(TuplesortMemoryBatch));
+	}
+	else if (state->num_sort_batches == state->max_sort_batches)
+	{
+		state->max_sort_batches *= 2;
+		state->sort_batches = repalloc_array(state->sort_batches, TuplesortMemoryBatch, state->max_sort_batches);
+	}
+
+	batch = &state->sort_batches[state->num_sort_batches++];
+
+	batch->start_index = start_index;
+	batch->current_index = 0;
+	batch->end_index = 0;		/* set later */
+}
+
 /*
  * Sort all memtuples using specialized qsort() routines.
  *
@@ -2739,6 +2811,9 @@ static void
 tuplesort_sort_memtuples(Tuplesortstate *state, int start_index)
 {
 	Assert(!LEADER(state));
+
+	/* record the base index of where we're sorted up to */
+	tuplesort_add_memory_merge_batch(state, start_index);
 
 	if (state->memtupcount - start_index > 1)
 	{
