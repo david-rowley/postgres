@@ -133,8 +133,8 @@ extern MemoryContext AllocSetContextCreateInternal(MemoryContext parent,
 /* slab.c */
 extern MemoryContext SlabContextCreate(MemoryContext parent,
 									   const char *name,
-									   Size blockSize,
-									   Size chunkSize);
+									   uint32 blockSize,
+									   uint32 chunkSize);
 
 /* generation.c */
 extern MemoryContext GenerationContextCreate(MemoryContext parent,

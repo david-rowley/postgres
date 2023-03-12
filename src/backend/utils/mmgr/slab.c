@@ -104,9 +104,9 @@ typedef struct SlabContext
 {
 	MemoryContextData header;	/* Standard memory-context fields */
 	/* Allocation parameters for this context: */
-	Size		chunkSize;		/* the requested (non-aligned) chunk size */
-	Size		fullChunkSize;	/* chunk size with chunk header and alignment */
-	Size		blockSize;		/* the size to make each block of chunks */
+	uint32		chunkSize;		/* the requested (non-aligned) chunk size */
+	uint32		fullChunkSize;	/* chunk size with chunk header and alignment */
+	uint32		blockSize;		/* the size to make each block of chunks */
 	int32		chunksPerBlock; /* number of chunks that fit in 1 block */
 	int32		curBlocklistIndex;	/* index into the blocklist[] element
 									 * containing the fullest, blocks */
@@ -319,11 +319,11 @@ SlabGetNextFreeChunk(SlabContext *slab, SlabBlock *block)
 MemoryContext
 SlabContextCreate(MemoryContext parent,
 				  const char *name,
-				  Size blockSize,
-				  Size chunkSize)
+				  uint32 blockSize,
+				  uint32 chunkSize)
 {
 	int			chunksPerBlock;
-	Size		fullChunkSize;
+	uint32		fullChunkSize;
 	SlabContext *slab;
 	int			i;
 
@@ -331,6 +331,7 @@ SlabContextCreate(MemoryContext parent,
 	StaticAssertDecl(Slab_CHUNKHDRSZ == MAXALIGN(Slab_CHUNKHDRSZ),
 					 "sizeof(MemoryChunk) is not maxaligned");
 	Assert(MAXALIGN(chunkSize) <= MEMORYCHUNK_MAX_VALUE);
+	Assert(blockSize <= MEMORYCHUNK_MAX_BLOCKOFFSET);
 
 	/*
 	 * Ensure there's enough space to store the pointer to the next free chunk
@@ -352,7 +353,7 @@ SlabContextCreate(MemoryContext parent,
 
 	/* Make sure the block can store at least one chunk. */
 	if (chunksPerBlock == 0)
-		elog(ERROR, "block size %zu for slab is too small for %zu-byte chunks",
+		elog(ERROR, "block size %u for slab is too small for %u-byte chunks",
 			 blockSize, chunkSize);
 
 
@@ -506,7 +507,7 @@ SlabAlloc(MemoryContext context, Size size)
 
 	/* make sure we only allow correct request size */
 	if (unlikely(size != slab->chunkSize))
-		elog(ERROR, "unexpected alloc chunk size %zu (expected %zu)",
+		elog(ERROR, "unexpected alloc chunk size %zu (expected %u)",
 			 size, slab->chunkSize);
 
 	/*
