@@ -49,19 +49,18 @@
  *
  *	When we allocate a new block, technically all chunks are free, however, to
  *	avoid having to write out the entire block to set the linked list for the
- *	free chunks for every chunk in the block, we instead store a pointer to
- *	the next "unused" chunk on the block and keep track of how many of these
- *	unused chunks there are.  When a new block is malloc'd, all chunks are
- *	unused.  The unused pointer starts with the first chunk on the block and
- *	as chunks are allocated, the unused pointer is incremented.  As chunks are
- *	pfree'd, the unused pointer never goes backwards.  The unused pointer can
- *	be thought of as a high watermark for the maximum number of chunks in the
- *	block which have been in use concurrently.  When a chunk is pfree'd the
- *	chunk is put onto the head of the free list and the unused pointer is not
- *	changed.  We only consume more unused chunks if we run out of free chunks
- *	on the free list.  This method effectively gives priority to using
- *	previously used chunks over previously unused chunks, which should perform
- *	better due to CPU caching effects.
+ *	free chunks for every chunk in the block, we instead store the offset to
+ *	the next "unused" chunk on the block.  When a new block is malloc'd, all
+ *	chunks are unused.  The unusedoffset starts out as the offset into the
+ *	first chunk on the block and as chunks are allocated, the unusedoffset is
+ *	incremented.  As chunks are	pfree'd, the unusedoffset never goes
+ *	backwards.  The unusedoffset can be thought of as a high watermark for the
+ *	maximum number of chunks in the block which have been in use concurrently.
+ *	When a chunk is pfree'd the chunk's byte offset within the block is stored
+ *	in freeoffset and the unusedoffset is not changed.  We only consume more
+ *	unused chunks if we run out of free chunks on the free list.  This method
+ *	effectively gives priority to using previously used chunks over previously
+ *	unused chunks, which should perform better due to CPU caching effects.
  *
  *-------------------------------------------------------------------------
  */
@@ -135,21 +134,20 @@ typedef struct SlabContext
  *
  * slab: pointer back to the owning MemoryContext
  * nfree: number of chunks on the block which are unallocated
- * nunused: number of chunks on the block unallocated and not on the block's
- * freelist.
- * freehead: linked-list header storing a pointer to the first free chunk on
- * the block.  Subsequent pointers are stored in the chunk's memory.  NULL
- * indicates the end of the list.
- * unused: pointer to the next chunk which has yet to be used.
+ * freeoffset: linked-list header storing the byte offset within the block to
+ * the first free chunk on the block.  Subsequent offsets are stored in the
+ * chunk's memory.  An offset of 0 indicates the end of the list.
+ * unusedoffset: the byte offset within the block to the next chunk which has
+ * yet to be used.  If the offset is beyond the final chunk in the block then
+ * there are no unused chunks on the block.
  * node: doubly-linked list node for the context's blocklist
  */
 typedef struct SlabBlock
 {
 	SlabContext *slab;			/* owning context */
 	int32		nfree;			/* number of chunks on free + unused chunks */
-	int32		nunused;		/* number of unused chunks */
-	MemoryChunk *freehead;		/* pointer to the first free chunk */
-	MemoryChunk *unused;		/* pointer to the next unused chunk */
+	uint32		freeoffset;		/* bytes into the block of the first free chunk */
+	uint32		unusedoffset;	/* bytes into the block of the next unused chunk */
 	dlist_node	node;			/* doubly-linked list for blocklist[] */
 } SlabBlock;
 
@@ -165,6 +163,13 @@ typedef struct SlabBlock
 #define SlabBlockGetChunk(slab, block, n) \
 	((MemoryChunk *) ((char *) (block) + Slab_BLOCKHDRSZ	\
 					+ ((n) * (slab)->fullChunkSize)))
+
+/*
+ * ChunkAtBlockOffset
+ *		Fetch the MemoryChunk 'offset' bytes into 'block'.
+ */
+#define ChunkAtBlockOffset(block, offset) \
+	(MemoryChunk *) (((char *) (block)) + (offset))
 
 #if defined(MEMORY_CONTEXT_CHECKING) || defined(USE_ASSERT_CHECKING)
 
@@ -274,30 +279,28 @@ SlabGetNextFreeChunk(SlabContext *slab, SlabBlock *block)
 
 	Assert(block->nfree > 0);
 
-	if (block->freehead != NULL)
+	if (block->freeoffset != 0)
 	{
-		chunk = block->freehead;
+		chunk = (MemoryChunk *) (((char *) block) + block->freeoffset);
 
 		/*
-		 * Pop the chunk from the linked list of free chunks.  The pointer to
+		 * Pop the chunk from the linked list of free chunks.  The offset to
 		 * the next free chunk is stored in the chunk itself.
 		 */
-		VALGRIND_MAKE_MEM_DEFINED(SlabChunkGetPointer(chunk), sizeof(MemoryChunk *));
-		block->freehead = *(MemoryChunk **) SlabChunkGetPointer(chunk);
+		VALGRIND_MAKE_MEM_DEFINED(SlabChunkGetPointer(chunk), sizeof(uint32));
+		block->freeoffset = *(uint32 *) SlabChunkGetPointer(chunk);
 
 		/* check nothing stomped on the free chunk's memory */
-		Assert(block->freehead == NULL ||
-			   (block->freehead >= SlabBlockGetChunk(slab, block, 0) &&
-				block->freehead <= SlabBlockGetChunk(slab, block, slab->chunksPerBlock - 1) &&
-				SlabChunkMod(slab, block, block->freehead) == 0));
+		Assert(block->freeoffset == 0 ||
+			   (ChunkAtBlockOffset(block, block->freeoffset) >= SlabBlockGetChunk(slab, block, 0) &&
+				ChunkAtBlockOffset(block, block->freeoffset) <= SlabBlockGetChunk(slab, block, slab->chunksPerBlock - 1) &&
+				SlabChunkMod(slab, block, (MemoryChunk *) (((char *) block) + block->freeoffset)) == 0));
 	}
 	else
 	{
-		Assert(block->nunused > 0);
-
-		chunk = block->unused;
-		block->unused = (MemoryChunk *) (((char *) block->unused) + slab->fullChunkSize);
-		block->nunused--;
+		chunk = ChunkAtBlockOffset(block, block->unusedoffset);
+		/* increment the offset to point to the next MemoryChunk */
+		block->unusedoffset += slab->fullChunkSize;
 	}
 
 	block->nfree--;
@@ -335,11 +338,11 @@ SlabContextCreate(MemoryContext parent,
 	Assert(blockSize <= MEMORYCHUNK_MAX_BLOCKOFFSET);
 
 	/*
-	 * Ensure there's enough space to store the pointer to the next free chunk
+	 * Ensure there's enough space to store the offset to the next free chunk
 	 * in the memory of the (otherwise) unused allocation.
 	 */
-	if (chunkSize < sizeof(MemoryChunk *))
-		chunkSize = sizeof(MemoryChunk *);
+	if (chunkSize < sizeof(uint32))
+		chunkSize = sizeof(uint32);
 
 	/* length of the maxaligned chunk including the chunk header  */
 #ifdef MEMORY_CONTEXT_CHECKING
@@ -602,9 +605,9 @@ SlabAllocFromNewBlock(MemoryContext context, Size size, int flags)
 		chunk = SlabBlockGetChunk(slab, block, 0);
 
 		block->nfree = slab->chunksPerBlock - 1;
-		block->unused = SlabBlockGetChunk(slab, block, 1);
-		block->freehead = NULL;
-		block->nunused = slab->chunksPerBlock - 1;
+		/* make the unusedoffset the offset for the first MemoryChunk on the block */
+		block->unusedoffset = (uint32) (((char *) SlabBlockGetChunk(slab, block, 1)) - (char *) block);
+		block->freeoffset = 0;
 	}
 
 	/* find the blocklist element for storing blocks with 1 used chunk */
@@ -755,9 +758,9 @@ SlabFree(void *pointer)
 			 slab->header.name, chunk);
 #endif
 
-	/* push this chunk onto the head of the block's free list */
-	*(MemoryChunk **) pointer = block->freehead;
-	block->freehead = chunk;
+	/* push this chunk's offset onto the head of the block's free list */
+	*(uint32 *) pointer = block->freeoffset;
+	block->freeoffset = (uint32) ((char *) chunk - (char *) block);
 
 	block->nfree++;
 
@@ -766,8 +769,8 @@ SlabFree(void *pointer)
 
 #ifdef CLOBBER_FREED_MEMORY
 	/* don't wipe the free list MemoryChunk pointer stored in the chunk */
-	wipe_mem((char *) pointer + sizeof(MemoryChunk *),
-			 slab->chunkSize - sizeof(MemoryChunk *));
+	wipe_mem((char *) pointer + sizeof(uint32),
+			 slab->chunkSize - sizeof(uint32));
 #endif
 
 	curBlocklistIdx = SlabBlocklistIndex(slab, block->nfree - 1);
@@ -1085,8 +1088,13 @@ SlabCheck(MemoryContext context)
 			nfree = 0;
 
 			/* walk through the block's free list chunks */
-			cur_chunk = block->freehead;
-			while (cur_chunk != NULL)
+			cur_chunk = ChunkAtBlockOffset(block, block->freeoffset);
+
+			/*
+			 * When we reach the final free chunk (offset 0), the chunk will
+			 * end up pointing to the block.
+			 */
+			while (cur_chunk != (MemoryChunk *) block)
 			{
 				int			chunkidx = SlabChunkIndex(slab, block, cur_chunk);
 
@@ -1104,23 +1112,17 @@ SlabCheck(MemoryContext context)
 				nfree++;
 				slab->isChunkFree[chunkidx] = true;
 
-				/* read pointer of the next free chunk */
-				VALGRIND_MAKE_MEM_DEFINED(MemoryChunkGetPointer(cur_chunk), sizeof(MemoryChunk *));
-				cur_chunk = *(MemoryChunk **) SlabChunkGetPointer(cur_chunk);
+				/* read the offset of the next free chunk */
+				VALGRIND_MAKE_MEM_DEFINED(MemoryChunkGetPointer(cur_chunk), sizeof(uint32));
+				cur_chunk = (MemoryChunk *) (((char *) block) + *(uint32 *) SlabChunkGetPointer(cur_chunk));
 			}
-
-			/* check that the unused pointer matches what nunused claims */
-			if (SlabBlockGetChunk(slab, block, slab->chunksPerBlock - block->nunused) !=
-				block->unused)
-				elog(WARNING, "problem in slab %s: mismatch detected between nunused chunks and unused pointer in block %p",
-					 name, block);
 
 			/*
 			 * count the remaining free chunks that have yet to make it onto
 			 * the block's free list.
 			 */
-			cur_chunk = block->unused;
-			for (j = 0; j < block->nunused; j++)
+			cur_chunk = ChunkAtBlockOffset(block, block->unusedoffset);
+			while (cur_chunk <= SlabBlockGetChunk(slab, block, slab->chunksPerBlock - 1))
 			{
 				int			chunkidx = SlabChunkIndex(slab, block, cur_chunk);
 
