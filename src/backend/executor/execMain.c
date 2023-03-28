@@ -246,7 +246,16 @@ standard_ExecutorStart(QueryDesc *queryDesc, int eflags)
 	estate->es_crosscheck_snapshot = RegisterSnapshot(queryDesc->crosscheck_snapshot);
 	estate->es_top_eflags = eflags;
 	estate->es_instrument = queryDesc->instrument_options;
-	estate->es_jit_flags = queryDesc->plannedstmt->jitFlags;
+
+	/*
+	 * Don't apply any jit flags when using EXPLAIN without ANALYZE.  This
+	 * would just result in needless jit compilation, which could be slow for
+	 * complex plans.
+	 */
+	if ((eflags & EXEC_FLAG_EXPLAIN_ONLY))
+		estate->es_jit_flags = 0;
+	else
+		estate->es_jit_flags = queryDesc->plannedstmt->jitFlags;
 
 	/*
 	 * Set up an AFTER-trigger statement context, unless told not to, or
