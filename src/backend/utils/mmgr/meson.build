@@ -6,6 +6,7 @@ backend_sources += files(
   'dsa.c',
   'freepage.c',
   'generation.c',
+  'malloccache.c',
   'mcxt.c',
   'memdebug.c',
   'portalmem.c',

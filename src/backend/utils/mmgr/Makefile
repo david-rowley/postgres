@@ -18,6 +18,7 @@ OBJS = \
 	dsa.o \
 	freepage.o \
 	generation.o \
+	malloccache.o \
 	mcxt.o \
 	memdebug.o \
 	portalmem.o \

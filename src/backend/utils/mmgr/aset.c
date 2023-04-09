@@ -160,8 +160,6 @@ typedef struct AllocSetContext
 	uint32		maxBlockSize;	/* maximum block size */
 	uint32		nextBlockSize;	/* next block size to allocate */
 	uint32		allocChunkLimit;	/* effective chunk size limit */
-	/* freelist this context could be put in, or -1 if not a candidate: */
-	int			freeListIndex;	/* index in context_freelists[], or -1 */
 } AllocSetContext;
 
 typedef AllocSetContext *AllocSet;
@@ -215,30 +213,6 @@ typedef struct AllocBlockData
 #define ExternalChunkGetBlock(chunk) \
 	(AllocBlock) ((char *) chunk - ALLOC_BLOCKHDRSZ)
 
-/*
- * Rather than repeatedly creating and deleting memory contexts, we keep some
- * freed contexts in freelists so that we can hand them out again with little
- * work.  Before putting a context in a freelist, we reset it so that it has
- * only its initial malloc chunk and no others.  To be a candidate for a
- * freelist, a context must have the same minContextSize/initBlockSize as
- * other contexts in the list; but its maxBlockSize is irrelevant since that
- * doesn't affect the size of the initial chunk.
- *
- * We currently provide one freelist for ALLOCSET_DEFAULT_SIZES contexts
- * and one for ALLOCSET_SMALL_SIZES contexts; the latter works for
- * ALLOCSET_START_SMALL_SIZES too, since only the maxBlockSize differs.
- *
- * Ordinarily, we re-use freelist contexts in last-in-first-out order, in
- * hopes of improving locality of reference.  But if there get to be too
- * many contexts in the list, we'd prefer to drop the most-recently-created
- * contexts in hopes of keeping the process memory map compact.
- * We approximate that by simply deleting all existing entries when the list
- * overflows, on the assumption that queries that allocate a lot of contexts
- * will probably free them in more or less reverse order of allocation.
- *
- * Contexts in a freelist are chained via their nextchild pointers.
- */
-#define MAX_FREE_CONTEXTS 100	/* arbitrary limit on freelist length */
 
 /* Obtain the keeper block for an allocation set */
 #define KeeperBlock(set) \
@@ -246,24 +220,6 @@ typedef struct AllocBlockData
 
 /* Check if the block is the keeper block of the given allocation set */
 #define IsKeeperBlock(set, block) ((block) == (KeeperBlock(set)))
-
-typedef struct AllocSetFreeList
-{
-	int			num_free;		/* current list length */
-	AllocSetContext *first_free;	/* list header */
-} AllocSetFreeList;
-
-/* context_freelists[0] is for default params, [1] for small params */
-static AllocSetFreeList context_freelists[2] =
-{
-	{
-		0, NULL
-	},
-	{
-		0, NULL
-	}
-};
-
 
 /* ----------
  * AllocSetFreeIndex -
@@ -350,7 +306,6 @@ AllocSetContextCreateInternal(MemoryContext parent,
 							  Size initBlockSize,
 							  Size maxBlockSize)
 {
-	int			freeListIndex;
 	Size		firstBlockSize;
 	AllocSet	set;
 	AllocBlock	block;
@@ -385,50 +340,6 @@ AllocSetContextCreateInternal(MemoryContext parent,
 			minContextSize <= maxBlockSize));
 	Assert(maxBlockSize <= MEMORYCHUNK_MAX_BLOCKOFFSET);
 
-	/*
-	 * Check whether the parameters match either available freelist.  We do
-	 * not need to demand a match of maxBlockSize.
-	 */
-	if (minContextSize == ALLOCSET_DEFAULT_MINSIZE &&
-		initBlockSize == ALLOCSET_DEFAULT_INITSIZE)
-		freeListIndex = 0;
-	else if (minContextSize == ALLOCSET_SMALL_MINSIZE &&
-			 initBlockSize == ALLOCSET_SMALL_INITSIZE)
-		freeListIndex = 1;
-	else
-		freeListIndex = -1;
-
-	/*
-	 * If a suitable freelist entry exists, just recycle that context.
-	 */
-	if (freeListIndex >= 0)
-	{
-		AllocSetFreeList *freelist = &context_freelists[freeListIndex];
-
-		if (freelist->first_free != NULL)
-		{
-			/* Remove entry from freelist */
-			set = freelist->first_free;
-			freelist->first_free = (AllocSet) set->header.nextchild;
-			freelist->num_free--;
-
-			/* Update its maxBlockSize; everything else should be OK */
-			set->maxBlockSize = maxBlockSize;
-
-			/* Reinitialize its header, installing correct name and parent */
-			MemoryContextCreate((MemoryContext) set,
-								T_AllocSetContext,
-								MCTX_ASET_ID,
-								parent,
-								name);
-
-			((MemoryContext) set)->mem_allocated =
-				KeeperBlock(set)->endptr - ((char *) set);
-
-			return (MemoryContext) set;
-		}
-	}
-
 	/* Determine size of initial block */
 	firstBlockSize = MAXALIGN(sizeof(AllocSetContext)) +
 		ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ;
@@ -441,7 +352,7 @@ AllocSetContextCreateInternal(MemoryContext parent,
 	 * Allocate the initial block.  Unlike other aset.c blocks, it starts with
 	 * the context header and its block header follows that.
 	 */
-	set = (AllocSet) malloc(firstBlockSize);
+	set = (AllocSet) malloccache_fetch(firstBlockSize);
 	if (set == NULL)
 	{
 		if (TopMemoryContext)
@@ -478,7 +389,6 @@ AllocSetContextCreateInternal(MemoryContext parent,
 	set->initBlockSize = (uint32) initBlockSize;
 	set->maxBlockSize = (uint32) maxBlockSize;
 	set->nextBlockSize = (uint32) initBlockSize;
-	set->freeListIndex = freeListIndex;
 
 	/*
 	 * Compute the allocation chunk size limit for this context.  It can't be
@@ -579,13 +489,15 @@ AllocSetReset(MemoryContext context)
 		}
 		else
 		{
+			size_t size = block->endptr - ((char *) block);
+
 			/* Normal case, release the block */
-			context->mem_allocated -= block->endptr - ((char *) block);
+			context->mem_allocated -= size;
 
 #ifdef CLOBBER_FREED_MEMORY
 			wipe_mem(block, block->freeptr - ((char *) block));
 #endif
-			free(block);
+			malloccache_release(block, size);
 		}
 		block = next;
 	}
@@ -608,7 +520,7 @@ AllocSetDelete(MemoryContext context)
 {
 	AllocSet	set = (AllocSet) context;
 	AllocBlock	block = set->blocks;
-	Size		keepersize PG_USED_FOR_ASSERTS_ONLY;
+	Size		keepersize;
 
 	Assert(AllocSetIsValid(set));
 
@@ -617,65 +529,24 @@ AllocSetDelete(MemoryContext context)
 	AllocSetCheck(context);
 #endif
 
-	/* Remember keeper block size for Assert below */
 	keepersize = KeeperBlock(set)->endptr - ((char *) set);
 
-	/*
-	 * If the context is a candidate for a freelist, put it into that freelist
-	 * instead of destroying it.
-	 */
-	if (set->freeListIndex >= 0)
-	{
-		AllocSetFreeList *freelist = &context_freelists[set->freeListIndex];
-
-		/*
-		 * Reset the context, if it needs it, so that we aren't hanging on to
-		 * more than the initial malloc chunk.
-		 */
-		if (!context->isReset)
-			MemoryContextResetOnly(context);
-
-		/*
-		 * If the freelist is full, just discard what's already in it.  See
-		 * comments with context_freelists[].
-		 */
-		if (freelist->num_free >= MAX_FREE_CONTEXTS)
-		{
-			while (freelist->first_free != NULL)
-			{
-				AllocSetContext *oldset = freelist->first_free;
-
-				freelist->first_free = (AllocSetContext *) oldset->header.nextchild;
-				freelist->num_free--;
-
-				/* All that remains is to free the header/initial block */
-				free(oldset);
-			}
-			Assert(freelist->num_free == 0);
-		}
-
-		/* Now add the just-deleted context to the freelist. */
-		set->header.nextchild = (MemoryContext) freelist->first_free;
-		freelist->first_free = set;
-		freelist->num_free++;
-
-		return;
-	}
 
 	/* Free all blocks, except the keeper which is part of context header */
 	while (block != NULL)
 	{
 		AllocBlock	next = block->next;
+		size_t		size = block->endptr - ((char *) block);
 
 		if (!IsKeeperBlock(set, block))
-			context->mem_allocated -= block->endptr - ((char *) block);
+			context->mem_allocated -= size;
 
 #ifdef CLOBBER_FREED_MEMORY
 		wipe_mem(block, block->freeptr - ((char *) block));
 #endif
 
 		if (!IsKeeperBlock(set, block))
-			free(block);
+			malloccache_release(block, size);
 
 		block = next;
 	}
@@ -683,7 +554,7 @@ AllocSetDelete(MemoryContext context)
 	Assert(context->mem_allocated == keepersize);
 
 	/* Finally, free the context header, including the keeper block */
-	free(set);
+	malloccache_release(context, keepersize);
 }
 
 /*
@@ -712,7 +583,7 @@ AllocSetAllocLarge(MemoryContext context, Size size, int flags)
 #endif
 
 	blksize = chunk_size + ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ;
-	block = (AllocBlock) malloc(blksize);
+	block = (AllocBlock) malloccache_fetch(blksize);
 	if (block == NULL)
 		return MemoryContextAllocationFailure(context, size, flags);
 
@@ -905,7 +776,7 @@ AllocSetAllocFromNewBlock(MemoryContext context, Size size, int flags,
 		blksize <<= 1;
 
 	/* Try to allocate it */
-	block = (AllocBlock) malloc(blksize);
+	block = (AllocBlock) malloccache_fetch(blksize);
 
 	/*
 	 * We could be asking for pretty big blocks here, so cope if malloc fails.
@@ -916,7 +787,7 @@ AllocSetAllocFromNewBlock(MemoryContext context, Size size, int flags,
 		blksize >>= 1;
 		if (blksize < required_size)
 			break;
-		block = (AllocBlock) malloc(blksize);
+		block = (AllocBlock) malloccache_fetch(blksize);
 	}
 
 	if (block == NULL)
@@ -1071,6 +942,7 @@ AllocSetFree(void *pointer)
 	{
 		/* Release single-chunk block. */
 		AllocBlock	block = ExternalChunkGetBlock(chunk);
+		size_t		size;
 
 		/*
 		 * Try to verify that we have a sane block pointer: the block header
@@ -1099,12 +971,13 @@ AllocSetFree(void *pointer)
 		if (block->next)
 			block->next->prev = block->prev;
 
-		set->header.mem_allocated -= block->endptr - ((char *) block);
+		size = block->endptr - ((char *)block);
+		set->header.mem_allocated -= size;
 
 #ifdef CLOBBER_FREED_MEMORY
 		wipe_mem(block, block->freeptr - ((char *) block));
 #endif
-		free(block);
+		malloccache_release(block, size);
 	}
 	else
 	{

@@ -143,6 +143,10 @@ extern MemoryContext GenerationContextCreate(MemoryContext parent,
 											 Size initBlockSize,
 											 Size maxBlockSize);
 
+/* malloccache.c */
+extern void *malloccache_fetch(size_t size);
+extern void malloccache_release(void *ptr, size_t size);
+
 /*
  * Recommended default alloc parameters, suitable for "ordinary" contexts
  * that might hold quite a lot of data.
