@@ -619,7 +619,7 @@ pgstat_report_activity(BackendState state, const char *cmd_str)
 		 * characters. For speed reasons that'll get corrected on read, rather
 		 * than computed every write.
 		 */
-		len = Min(strlen(cmd_str), pgstat_track_activity_query_size - 1);
+		len = strnlen(cmd_str, pgstat_track_activity_query_size - 1);
 	}
 	current_timestamp = GetCurrentTimestamp();
 
