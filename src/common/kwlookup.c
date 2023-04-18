@@ -46,7 +46,7 @@ ScanKeywordLookup(const char *str,
 	 * Reject immediately if too long to be any keyword.  This saves useless
 	 * hashing and downcasing work on long strings.
 	 */
-	len = strlen(str);
+	len = strnlen(str, keywords->max_kw_len + 1);
 	if (len > keywords->max_kw_len)
 		return -1;
 
