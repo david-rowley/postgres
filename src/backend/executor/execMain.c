@@ -949,11 +949,10 @@ InitPlan(QueryDesc *queryDesc, int eflags)
 	if (operation == CMD_SELECT)
 	{
 		bool		junk_filter_needed = false;
-		ListCell   *tlist;
 
-		foreach(tlist, plan->targetlist)
+		for (int i = 0; i < plan->targetlist->n_targets; i++)
 		{
-			TargetEntry *tle = (TargetEntry *) lfirst(tlist);
+			TargetEntry *tle = &plan->targetlist->targets[i];
 
 			if (tle->resjunk)
 			{
@@ -2391,7 +2390,7 @@ ExecFindRowMark(EState *estate, Index rti, bool missing_ok)
  * the column numbers of the resjunk columns.
  */
 ExecAuxRowMark *
-ExecBuildAuxRowMark(ExecRowMark *erm, List *targetlist)
+ExecBuildAuxRowMark(ExecRowMark *erm, PlanTargetList *targetlist)
 {
 	ExecAuxRowMark *aerm = (ExecAuxRowMark *) palloc0(sizeof(ExecAuxRowMark));
 	char		resname[32];

@@ -70,8 +70,8 @@ static Node *build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
 						   SubLinkType subLinkType, int subLinkId,
 						   Node *testexpr, List *testexpr_paramids,
 						   bool unknownEqFalse);
-static List *generate_subquery_params(PlannerInfo *root, List *tlist,
-									  List **paramIds);
+static List *generate_subquery_params(PlannerInfo *root,
+									  PlanTargetList *tlist, List **paramIds);
 static List *generate_subquery_vars(PlannerInfo *root, List *tlist,
 									Index varno);
 static Node *convert_testexpr(PlannerInfo *root,
@@ -590,16 +590,17 @@ build_subplan(PlannerInfo *root, Plan *plan, PlannerInfo *subroot,
  * We also return an integer list of the paramids of the Params.
  */
 static List *
-generate_subquery_params(PlannerInfo *root, List *tlist, List **paramIds)
+generate_subquery_params(PlannerInfo *root, PlanTargetList *tlist,
+						 List **paramIds)
 {
 	List	   *result;
 	List	   *ids;
 	ListCell   *lc;
 
 	result = ids = NIL;
-	foreach(lc, tlist)
+	for (int i = 0; i < tlist->n_targets; i++)
 	{
-		TargetEntry *tent = (TargetEntry *) lfirst(lc);
+		TargetEntry *tent = &tlist->targets[i];
 		Param	   *param;
 
 		if (tent->resjunk)

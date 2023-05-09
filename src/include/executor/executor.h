@@ -166,14 +166,14 @@ extern void ResetTupleHashTable(TupleHashTable hashtable);
 /*
  * prototypes from functions in execJunk.c
  */
-extern JunkFilter *ExecInitJunkFilter(List *targetList,
+extern JunkFilter *ExecInitJunkFilter(PlanTargetList *targetList,
 									  TupleTableSlot *slot);
-extern JunkFilter *ExecInitJunkFilterConversion(List *targetList,
+extern JunkFilter *ExecInitJunkFilterConversion(PlanTargetList *targetList,
 												TupleDesc cleanTupType,
 												TupleTableSlot *slot);
 extern AttrNumber ExecFindJunkAttribute(JunkFilter *junkfilter,
 										const char *attrName);
-extern AttrNumber ExecFindJunkAttributeInTlist(List *targetlist,
+extern AttrNumber ExecFindJunkAttributeInTlist(PlanTargetList *targetlist,
 											   const char *attrName);
 extern TupleTableSlot *ExecFilterJunk(JunkFilter *junkfilter,
 									  TupleTableSlot *slot);
@@ -229,7 +229,7 @@ extern void ExecWithCheckOptions(WCOKind kind, ResultRelInfo *resultRelInfo,
 								 TupleTableSlot *slot, EState *estate);
 extern LockTupleMode ExecUpdateLockMode(EState *estate, ResultRelInfo *relinfo);
 extern ExecRowMark *ExecFindRowMark(EState *estate, Index rti, bool missing_ok);
-extern ExecAuxRowMark *ExecBuildAuxRowMark(ExecRowMark *erm, List *targetlist);
+extern ExecAuxRowMark *ExecBuildAuxRowMark(ExecRowMark *erm, PlanTargetList *targetlist);
 extern TupleTableSlot *EvalPlanQual(EPQState *epqstate, Relation relation,
 									Index rti, TupleTableSlot *inputslot);
 extern void EvalPlanQualInit(EPQState *epqstate, EState *parentestate,
@@ -297,7 +297,7 @@ extern ExprState *ExecBuildParamSetEqual(TupleDesc desc,
 										 const Oid *collations,
 										 const List *param_exprs,
 										 PlanState *parent);
-extern ProjectionInfo *ExecBuildProjectionInfo(List *targetList,
+extern ProjectionInfo *ExecBuildProjectionInfo(PlanTargetList *targetList,
 											   ExprContext *econtext,
 											   TupleTableSlot *slot,
 											   PlanState *parent,
@@ -493,8 +493,8 @@ extern TupleTableSlot *ExecInitExtraTupleSlot(EState *estate,
 											  const TupleTableSlotOps *tts_ops);
 extern TupleTableSlot *ExecInitNullTupleSlot(EState *estate, TupleDesc tupType,
 											 const TupleTableSlotOps *tts_ops);
-extern TupleDesc ExecTypeFromTL(List *targetList);
-extern TupleDesc ExecCleanTypeFromTL(List *targetList);
+extern TupleDesc ExecTypeFromTL(PlanTargetList *targetList);
+extern TupleDesc ExecCleanTypeFromTL(PlanTargetList *targetList);
 extern TupleDesc ExecTypeFromExprList(List *exprList);
 extern void ExecTypeSetColNames(TupleDesc typeInfo, List *namesList);
 extern void UpdateChangedParamSet(PlanState *node, Bitmapset *newchg);
@@ -606,8 +606,8 @@ extern Datum GetAttributeByName(HeapTupleHeader tuple, const char *attname,
 extern Datum GetAttributeByNum(HeapTupleHeader tuple, AttrNumber attrno,
 							   bool *isNull);
 
-extern int	ExecTargetListLength(List *targetlist);
-extern int	ExecCleanTargetListLength(List *targetlist);
+extern int	ExecTargetListLength(PlanTargetList *targetlist);
+extern int	ExecCleanTargetListLength(PlanTargetList *targetlist);
 
 extern TupleTableSlot *ExecGetTriggerOldSlot(EState *estate, ResultRelInfo *relInfo);
 extern TupleTableSlot *ExecGetTriggerNewSlot(EState *estate, ResultRelInfo *relInfo);

@@ -3446,6 +3446,27 @@ get_tle_by_resno(List *tlist, AttrNumber resno)
 	return NULL;
 }
 
+/* XXX where should this function go?
+ * get_tlist_entry_by_resno
+ *		Find the given TargetEntry for the given 'resno'.
+ *
+ * Unlike get_tle_by_resno(), we can just perform a direct lookup using the
+ * 'resno' as an index into the PlanTargetList.targets array.  PlanTargetLists
+ * are always in resno order.
+ */
+TargetEntry *
+get_tlist_entry_by_resno(AttrNumber resno, PlanTargetList *tlist)
+{
+	TargetEntry *tle;
+
+	Assert(resno <= tlist->n_targets);
+
+	tle = &tlist->targets[resno - 1];
+
+	Assert(tle->resno == resno);
+	return tle;
+}
+
 /*
  * Given a Query and rangetable index, return relation's RowMarkClause if any
  *

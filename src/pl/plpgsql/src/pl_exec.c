@@ -8115,8 +8115,8 @@ exec_save_simple_expr(PLpgSQL_expr *expr, CachedPlan *cplan)
 	for (;;)
 	{
 		/* Extract the single tlist expression */
-		Assert(list_length(plan->targetlist) == 1);
-		tle_expr = linitial_node(TargetEntry, plan->targetlist)->expr;
+		Assert(plan->targetlist->n_targets == 1);
+		tle_expr = plan->targetlist->targets[0].expr;
 
 		if (IsA(plan, Result))
 		{

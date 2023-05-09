@@ -2251,10 +2251,9 @@ show_plan_tlist(PlanState *planstate, List *ancestors, ExplainState *es)
 	List	   *context;
 	List	   *result = NIL;
 	bool		useprefix;
-	ListCell   *lc;
 
 	/* No work if empty tlist (this occurs eg in bitmap indexscans) */
-	if (plan->targetlist == NIL)
+	if (plan->targetlist->n_targets == 0)
 		return;
 	/* The tlist of an Append isn't real helpful, so suppress it */
 	if (IsA(plan, Append))
@@ -2286,9 +2285,9 @@ show_plan_tlist(PlanState *planstate, List *ancestors, ExplainState *es)
 	useprefix = list_length(es->rtable) > 1;
 
 	/* Deparse each result column (we now include resjunk ones) */
-	foreach(lc, plan->targetlist)
+	for (int i = 0; i < plan->targetlist->n_targets; i++)
 	{
-		TargetEntry *tle = (TargetEntry *) lfirst(lc);
+		TargetEntry *tle = &plan->targetlist->targets[i];
 
 		result = lappend(result,
 						 deparse_expression((Node *) tle->expr, context,
@@ -2525,8 +2524,7 @@ show_grouping_set_keys(PlanState *planstate,
 		{
 			Index		i = lfirst_int(lc2);
 			AttrNumber	keyresno = keycols[i];
-			TargetEntry *target = get_tle_by_resno(plan->targetlist,
-												   keyresno);
+			TargetEntry *target = get_tlist_entry_by_resno(keyresno, plan->targetlist);
 
 			if (!target)
 				elog(ERROR, "no tlist entry for key %d", keyresno);
@@ -2603,8 +2601,8 @@ show_sort_group_keys(PlanState *planstate, const char *qlabel,
 	{
 		/* find key expression in tlist */
 		AttrNumber	keyresno = keycols[keyno];
-		TargetEntry *target = get_tle_by_resno(plan->targetlist,
-											   keyresno);
+		TargetEntry *target = get_tlist_entry_by_resno(keyresno,
+													   plan->targetlist);
 		char	   *exprstr;
 
 		if (!target)

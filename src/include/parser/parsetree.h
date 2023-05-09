@@ -51,6 +51,10 @@ extern bool get_rte_attribute_is_dropped(RangeTblEntry *rte,
 
 extern TargetEntry *get_tle_by_resno(List *tlist, AttrNumber resno);
 
+struct PlanTargetList;
+extern TargetEntry *get_tlist_entry_by_resno(AttrNumber resno,
+											 struct PlanTargetList *tlist);
+
 /* ----------------
  *		FOR UPDATE/SHARE info
  * ----------------

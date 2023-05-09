@@ -69,7 +69,7 @@
 #include "utils/lsyscache.h"
 #include "utils/typcache.h"
 
-static TupleDesc ExecTypeFromTLInternal(List *targetList,
+static TupleDesc ExecTypeFromTLInternal(PlanTargetList *targetList,
 										bool skipjunk);
 static pg_attribute_always_inline void slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 															  int natts);
@@ -1936,7 +1936,7 @@ slot_getsomeattrs_int(TupleTableSlot *slot, int attnum)
  * ----------------------------------------------------------------
  */
 TupleDesc
-ExecTypeFromTL(List *targetList)
+ExecTypeFromTL(PlanTargetList *targetList)
 {
 	return ExecTypeFromTLInternal(targetList, false);
 }
@@ -1948,13 +1948,13 @@ ExecTypeFromTL(List *targetList)
  * ----------------------------------------------------------------
  */
 TupleDesc
-ExecCleanTypeFromTL(List *targetList)
+ExecCleanTypeFromTL(PlanTargetList *targetList)
 {
 	return ExecTypeFromTLInternal(targetList, true);
 }
 
 static TupleDesc
-ExecTypeFromTLInternal(List *targetList, bool skipjunk)
+ExecTypeFromTLInternal(PlanTargetList *targetList, bool skipjunk)
 {
 	TupleDesc	typeInfo;
 	ListCell   *l;
@@ -1967,9 +1967,9 @@ ExecTypeFromTLInternal(List *targetList, bool skipjunk)
 		len = ExecTargetListLength(targetList);
 	typeInfo = CreateTemplateTupleDesc(len);
 
-	foreach(l, targetList)
+	for (int i = 0; i < targetList->n_targets; i++)
 	{
-		TargetEntry *tle = lfirst(l);
+		TargetEntry *tle = &targetList->targets[i];
 
 		if (skipjunk && tle->resjunk)
 			continue;

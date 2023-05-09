@@ -130,9 +130,9 @@ test_predtest(PG_FUNCTION_ARGS)
 	if (stmt->commandType != CMD_SELECT)
 		elog(ERROR, "failed to decipher query plan");
 	plan = stmt->planTree;
-	Assert(list_length(plan->targetlist) >= 2);
-	clause1 = linitial_node(TargetEntry, plan->targetlist)->expr;
-	clause2 = lsecond_node(TargetEntry, plan->targetlist)->expr;
+	Assert(plan->targetlist->n_targets >= 2);
+	clause1 = plan->targetlist->targets[0].expr;
+	clause2 = plan->targetlist->targets[1].expr;
 
 	/*
 	 * Because the clauses are in the SELECT list, preprocess_expression did

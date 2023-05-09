@@ -57,7 +57,7 @@
  * An optional resultSlot can be passed as well; otherwise, we create one.
  */
 JunkFilter *
-ExecInitJunkFilter(List *targetList, TupleTableSlot *slot)
+ExecInitJunkFilter(PlanTargetList *targetList, TupleTableSlot *slot)
 {
 	JunkFilter *junkfilter;
 	TupleDesc	cleanTupType;
@@ -91,13 +91,12 @@ ExecInitJunkFilter(List *targetList, TupleTableSlot *slot)
 	if (cleanLength > 0)
 	{
 		AttrNumber	cleanResno;
-		ListCell   *t;
 
 		cleanMap = (AttrNumber *) palloc(cleanLength * sizeof(AttrNumber));
 		cleanResno = 0;
-		foreach(t, targetList)
+		for (int i = 0; i < targetList->n_targets; i++)
 		{
-			TargetEntry *tle = lfirst(t);
+			TargetEntry *tle = &targetList->targets[i];
 
 			if (!tle->resjunk)
 			{
@@ -134,14 +133,14 @@ ExecInitJunkFilter(List *targetList, TupleTableSlot *slot)
  * non-deleted columns match up with the non-junk columns of the targetlist.
  */
 JunkFilter *
-ExecInitJunkFilterConversion(List *targetList,
+ExecInitJunkFilterConversion(PlanTargetList *targetList,
 							 TupleDesc cleanTupType,
 							 TupleTableSlot *slot)
 {
 	JunkFilter *junkfilter;
 	int			cleanLength;
 	AttrNumber *cleanMap;
-	ListCell   *t;
+	TargetEntry *tle;
 	int			i;
 
 	/*
@@ -166,16 +165,14 @@ ExecInitJunkFilterConversion(List *targetList,
 	if (cleanLength > 0)
 	{
 		cleanMap = (AttrNumber *) palloc0(cleanLength * sizeof(AttrNumber));
-		t = list_head(targetList);
+		tle = &targetList->targets[0];
 		for (i = 0; i < cleanLength; i++)
 		{
 			if (TupleDescAttr(cleanTupType, i)->attisdropped)
 				continue;		/* map entry is already zero */
 			for (;;)
 			{
-				TargetEntry *tle = lfirst(t);
-
-				t = lnext(targetList, t);
+				tle++;
 				if (!tle->resjunk)
 				{
 					cleanMap[i] = tle->resno;
@@ -219,13 +216,11 @@ ExecFindJunkAttribute(JunkFilter *junkfilter, const char *attrName)
  * part of a JunkFilter).
  */
 AttrNumber
-ExecFindJunkAttributeInTlist(List *targetlist, const char *attrName)
+ExecFindJunkAttributeInTlist(PlanTargetList *targetlist, const char *attrName)
 {
-	ListCell   *t;
-
-	foreach(t, targetlist)
+	for (int i = 0; i < targetlist->n_targets; i++)
 	{
-		TargetEntry *tle = lfirst(t);
+		TargetEntry *tle = &targetlist->targets[i];
 
 		if (tle->resjunk && tle->resname &&
 			(strcmp(tle->resname, attrName) == 0))

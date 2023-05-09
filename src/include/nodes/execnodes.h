@@ -385,7 +385,7 @@ typedef struct ProjectionInfo
 typedef struct JunkFilter
 {
 	NodeTag		type;
-	List	   *jf_targetList;
+	PlanTargetList *jf_targetList;
 	TupleDesc	jf_cleanTupType;
 	AttrNumber *jf_cleanMap;
 	TupleTableSlot *jf_resultSlot;
@@ -526,8 +526,8 @@ typedef struct ResultRelInfo
 	int			ri_NumGeneratedNeededI;
 	int			ri_NumGeneratedNeededU;
 
-	/* list of RETURNING expressions */
-	List	   *ri_returningList;
+	/* RETURNING TargetEntrys */
+	PlanTargetList	   *ri_returningList;
 
 	/* for computing a RETURNING list */
 	ProjectionInfo *ri_projectReturning;

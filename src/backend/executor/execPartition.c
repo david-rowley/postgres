@@ -619,7 +619,7 @@ ExecInitPartitionInfo(ModifyTableState *mtstate, EState *estate,
 	{
 		TupleTableSlot *slot;
 		ExprContext *econtext;
-		List	   *returningList;
+		PlanTargetList	   *returningList;
 
 		/* See the comment above for WCO lists. */
 		/* (except no RETURNING support for MERGE yet) */

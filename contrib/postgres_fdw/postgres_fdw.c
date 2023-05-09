@@ -482,7 +482,7 @@ static void rebuild_fdw_scan_tlist(ForeignScan *fscan, List *tlist);
 static void execute_dml_stmt(ForeignScanState *node);
 static TupleTableSlot *get_returning_data(ForeignScanState *node);
 static void init_returning_filter(PgFdwDirectModifyState *dmstate,
-								  List *fdw_scan_tlist,
+								  PlanTargetList *fdw_scan_tlist,
 								  Index rtindex);
 static TupleTableSlot *apply_returning_filter(PgFdwDirectModifyState *dmstate,
 											  ResultRelInfo *resultRelInfo,
@@ -1464,8 +1464,7 @@ get_tupdesc_for_join_scan_tuples(ForeignScanState *node)
 		 * If we can't identify the referenced table, do nothing.  This'll
 		 * likely lead to failure later, but perhaps we can muddle through.
 		 */
-		var = (Var *) list_nth_node(TargetEntry, fsplan->fdw_scan_tlist,
-									i)->expr;
+		var = (Var *) fsplan->fdw_scan_tlist->targets[i].expr;
 		if (!IsA(var, Var) || var->varattno != 0)
 			continue;
 		rte = list_nth(estate->es_range_table, var->varno - 1);
@@ -4509,23 +4508,52 @@ static void
 rebuild_fdw_scan_tlist(ForeignScan *fscan, List *tlist)
 {
 	List	   *new_tlist = tlist;
-	List	   *old_tlist = fscan->fdw_scan_tlist;
-	ListCell   *lc;
+	PlanTargetList	   *old_tlist = fscan->fdw_scan_tlist;
+	Bitmapset   *missing = NULL;
 
-	foreach(lc, old_tlist)
+	for (int i = 0; i < old_tlist->n_targets; i++)
 	{
-		TargetEntry *tle = (TargetEntry *) lfirst(lc);
+		TargetEntry *tle = &old_tlist->targets[i];
 
 		if (tlist_member(tle->expr, new_tlist))
 			continue;			/* already got it */
 
-		new_tlist = lappend(new_tlist,
-							makeTargetEntry(tle->expr,
-											list_length(new_tlist) + 1,
-											NULL,
-											false));
+		missing = bms_add_member(missing, i);
 	}
-	fscan->fdw_scan_tlist = new_tlist;
+
+	if (!bms_is_empty(missing))
+	{
+		TargetEntry *new_targets;
+		ListCell *lc;
+		int i;
+
+		new_targets = palloc_array(TargetEntry,
+								   old_tlist->n_targets + bms_num_members(missing));
+
+		foreach(lc, new_tlist)
+			memcpy(&new_targets[foreach_current_index(lc)], lfirst(lc), sizeof(TargetEntry));
+
+
+		i = -1;
+		while ((i = bms_next_member(missing, i)) >= 0)
+		{
+			TargetEntry *tle = &new_targets[old_tlist->n_targets++];
+
+
+			tle->expr = old_tlist->targets[i].expr;
+			tle->resno = old_tlist->n_targets++;
+			tle->resname = NULL;
+
+			tle->ressortgroupref = 0;
+			tle->resorigtbl = InvalidOid;
+			tle->resorigcol = 0;
+
+			tle->resjunk = false;
+		}
+
+		pfree(old_tlist->targets);
+		old_tlist->targets = new_targets;
+	}
 }
 
 /*
@@ -4660,7 +4688,7 @@ get_returning_data(ForeignScanState *node)
  */
 static void
 init_returning_filter(PgFdwDirectModifyState *dmstate,
-					  List *fdw_scan_tlist,
+					  PlanTargetList *fdw_scan_tlist,
 					  Index rtindex)
 {
 	TupleDesc	resultTupType = RelationGetDescr(dmstate->resultRel);
@@ -4686,9 +4714,9 @@ init_returning_filter(PgFdwDirectModifyState *dmstate,
 
 	i = 1;
 	dmstate->hasSystemCols = false;
-	foreach(lc, fdw_scan_tlist)
+	for (int j = 0; j < fdw_scan_tlist->n_targets; j++)
 	{
-		TargetEntry *tle = (TargetEntry *) lfirst(lc);
+		TargetEntry *tle = &fdw_scan_tlist->targets[j];
 		Var		   *var = (Var *) tle->expr;
 
 		Assert(IsA(var, Var));
@@ -7602,8 +7630,7 @@ conversion_error_callback(void *arg)
 			/* error occurred in a scan against a foreign join */
 			TargetEntry *tle;
 
-			tle = list_nth_node(TargetEntry, fsplan->fdw_scan_tlist,
-								errpos->cur_attno - 1);
+			tle = &fsplan->fdw_scan_tlist->targets[errpos->cur_attno - 1];
 
 			/*
 			 * Target list can have Vars and expressions.  For Vars, we can

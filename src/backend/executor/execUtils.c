@@ -67,7 +67,7 @@
 #include "utils/typcache.h"
 
 
-static bool tlist_matches_tupdesc(PlanState *ps, List *tlist, int varno, TupleDesc tupdesc);
+static bool tlist_matches_tupdesc(PlanState *ps, PlanTargetList *tlist, int varno, TupleDesc tupdesc);
 static void ShutdownExprContext(ExprContext *econtext, bool isCommit);
 static RTEPermissionInfo *GetResultRTEPermissionInfo(ResultRelInfo *relinfo, EState *estate);
 
@@ -588,11 +588,11 @@ ExecConditionalAssignProjectionInfo(PlanState *planstate, TupleDesc inputDesc,
 }
 
 static bool
-tlist_matches_tupdesc(PlanState *ps, List *tlist, int varno, TupleDesc tupdesc)
+tlist_matches_tupdesc(PlanState *ps, PlanTargetList *tlist, int varno, TupleDesc tupdesc)
 {
 	int			numattrs = tupdesc->natts;
 	int			attrno;
-	ListCell   *tlist_item = list_head(tlist);
+	int			tlist_idx = 0;
 
 	/* Check the tlist attributes */
 	for (attrno = 1; attrno <= numattrs; attrno++)
@@ -600,9 +600,9 @@ tlist_matches_tupdesc(PlanState *ps, List *tlist, int varno, TupleDesc tupdesc)
 		Form_pg_attribute att_tup = TupleDescAttr(tupdesc, attrno - 1);
 		Var		   *var;
 
-		if (tlist_item == NULL)
+		if (tlist_idx >= tlist->n_targets)
 			return false;		/* tlist too short */
-		var = (Var *) ((TargetEntry *) lfirst(tlist_item))->expr;
+		var = (Var *) tlist->targets[tlist_idx].expr;
 		if (!var || !IsA(var, Var))
 			return false;		/* tlist item not a Var */
 		/* if these Asserts fail, planner messed up */
@@ -630,10 +630,10 @@ tlist_matches_tupdesc(PlanState *ps, List *tlist, int varno, TupleDesc tupdesc)
 			 var->vartypmod != -1))
 			return false;		/* type mismatch */
 
-		tlist_item = lnext(tlist, tlist_item);
+		tlist_idx++;
 	}
 
-	if (tlist_item)
+	if (tlist_idx != tlist->n_targets)
 		return false;			/* tlist too long */
 
 	return true;
@@ -1138,24 +1138,23 @@ GetAttributeByNum(HeapTupleHeader tuple,
  * Number of items in a tlist (including any resjunk items!)
  */
 int
-ExecTargetListLength(List *targetlist)
+ExecTargetListLength(PlanTargetList *targetlist)
 {
 	/* This used to be more complex, but fjoins are dead */
-	return list_length(targetlist);
+	return targetlist->n_targets;
 }
 
 /*
- * Number of items in a tlist, not including any resjunk items
+ * Number of items in a PlanTargetList, not including any resjunk items
  */
 int
-ExecCleanTargetListLength(List *targetlist)
+ExecCleanTargetListLength(PlanTargetList *targetlist)
 {
 	int			len = 0;
-	ListCell   *tl;
 
-	foreach(tl, targetlist)
+	for (int i = 0; targetlist->n_targets; i++)
 	{
-		TargetEntry *curTle = lfirst_node(TargetEntry, tl);
+		TargetEntry *curTle = &targetlist->targets[i];
 
 		if (!curTle->resjunk)
 			len++;

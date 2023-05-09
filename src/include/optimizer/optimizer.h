@@ -162,6 +162,7 @@ extern bool predicate_refuted_by(List *predicate_list, List *clause_list,
 								 bool weak);
 
 /* in util/tlist.c: */
+struct PlanTargetList;
 
 extern int	count_nonjunk_tlist_entries(List *tlist);
 extern TargetEntry *get_sortgroupref_tle(Index sortref,
@@ -172,6 +173,8 @@ extern Node *get_sortgroupclause_expr(SortGroupClause *sgClause,
 									  List *targetList);
 extern List *get_sortgrouplist_exprs(List *sgClauses,
 									 List *targetList);
+extern TargetEntry *get_tlist_sortgroup(SortGroupClause *sgc,
+										struct PlanTargetList *tlist);
 extern SortGroupClause *get_sortgroupref_clause(Index sortref,
 												List *clauses);
 extern SortGroupClause *get_sortgroupref_clause_noerr(Index sortref,

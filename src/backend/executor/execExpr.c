@@ -354,7 +354,7 @@ ExecInitExprList(List *nodes, PlanState *parent)
  * should be the planner-created targetlist, since we do the compilation here.
  */
 ProjectionInfo *
-ExecBuildProjectionInfo(List *targetList,
+ExecBuildProjectionInfo(PlanTargetList *targetList,
 						ExprContext *econtext,
 						TupleTableSlot *slot,
 						PlanState *parent,
@@ -379,9 +379,9 @@ ExecBuildProjectionInfo(List *targetList,
 	ExecCreateExprSetupSteps(state, (Node *) targetList);
 
 	/* Now compile each tlist column */
-	foreach(lc, targetList)
+	for (int i = 0; i < targetList->n_targets; i++)
 	{
-		TargetEntry *tle = lfirst_node(TargetEntry, lc);
+		TargetEntry *tle = &targetList->targets[i];
 		Var		   *variable = NULL;
 		AttrNumber	attnum = 0;
 		bool		isSafeVar = false;
@@ -2957,12 +2957,11 @@ ExecInitWholeRowVar(ExprEvalStep *scratch, Var *variable, ExprState *state)
 		if (subplan)
 		{
 			bool		junk_filter_needed = false;
-			ListCell   *tlist;
 
 			/* Detect whether subplan tlist actually has any junk columns */
-			foreach(tlist, subplan->plan->targetlist)
+			for (int i = 0; i < subplan->plan->targetlist->n_targets; i++)
 			{
-				TargetEntry *tle = (TargetEntry *) lfirst(tlist);
+				TargetEntry *tle = &subplan->plan->targetlist->targets[i];
 
 				if (tle->resjunk)
 				{

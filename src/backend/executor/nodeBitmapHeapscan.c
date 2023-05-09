@@ -750,7 +750,7 @@ ExecInitBitmapHeapScan(BitmapHeapScan *node, EState *estate, int eflags)
 	 * most cases it's probably not worth working harder than that.
 	 */
 	scanstate->can_skip_fetch = (node->scan.plan.qual == NIL &&
-								 node->scan.plan.targetlist == NIL);
+								 node->scan.plan.targetlist->n_targets == 0);
 
 	/*
 	 * Miscellaneous initialization

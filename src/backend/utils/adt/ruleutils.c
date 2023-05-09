@@ -175,9 +175,9 @@ typedef struct
 	List	   *ancestors;		/* ancestors of plan */
 	Plan	   *outer_plan;		/* outer subnode, or NULL if none */
 	Plan	   *inner_plan;		/* inner subnode, or NULL if none */
-	List	   *outer_tlist;	/* referent for OUTER_VAR Vars */
-	List	   *inner_tlist;	/* referent for INNER_VAR Vars */
-	List	   *index_tlist;	/* referent for INDEX_VAR Vars */
+	PlanTargetList   *outer_tlist;	/* referent for OUTER_VAR Vars */
+	PlanTargetList   *inner_tlist;	/* referent for INNER_VAR Vars */
+	PlanTargetList   *index_tlist;	/* referent for INDEX_VAR Vars */
 	/* Special namespace representing a function signature: */
 	char	   *funcname;
 	int			numargs;
@@ -4987,7 +4987,7 @@ set_deparse_plan(deparse_namespace *dpns, Plan *plan)
 	else if (dpns->inner_plan)
 		dpns->inner_tlist = dpns->inner_plan->targetlist;
 	else
-		dpns->inner_tlist = NIL;
+		dpns->inner_tlist = NULL;
 
 	/* Set up referent for INDEX_VAR Vars, if needed */
 	if (IsA(plan, IndexOnlyScan))
@@ -4997,7 +4997,7 @@ set_deparse_plan(deparse_namespace *dpns, Plan *plan)
 	else if (IsA(plan, CustomScan))
 		dpns->index_tlist = ((CustomScan *) plan)->custom_scan_tlist;
 	else
-		dpns->index_tlist = NIL;
+		dpns->index_tlist = NULL;
 }
 
 /*
@@ -7216,7 +7216,7 @@ get_variable(Var *var, int levelsup, bool istoplevel, deparse_context *context)
 		TargetEntry *tle;
 		deparse_namespace save_dpns;
 
-		tle = get_tle_by_resno(dpns->inner_tlist, attnum);
+		tle = get_tlist_entry_by_resno(attnum, dpns->inner_tlist);
 		if (!tle)
 			elog(ERROR, "invalid attnum %d for relation \"%s\"",
 				 attnum, rte->eref->aliasname);
@@ -7380,7 +7380,7 @@ resolve_special_varno(Node *node, deparse_context *context,
 		deparse_namespace save_dpns;
 		Bitmapset  *save_appendparents;
 
-		tle = get_tle_by_resno(dpns->outer_tlist, var->varattno);
+		tle = get_tlist_entry_by_resno(var->varattno, dpns->outer_tlist);
 		if (!tle)
 			elog(ERROR, "bogus varattno for OUTER_VAR var: %d", var->varattno);
 
@@ -7410,7 +7410,7 @@ resolve_special_varno(Node *node, deparse_context *context,
 		TargetEntry *tle;
 		deparse_namespace save_dpns;
 
-		tle = get_tle_by_resno(dpns->inner_tlist, var->varattno);
+		tle = get_tlist_entry_by_resno(var->varattno, dpns->inner_tlist);
 		if (!tle)
 			elog(ERROR, "bogus varattno for INNER_VAR var: %d", var->varattno);
 
@@ -7424,7 +7424,7 @@ resolve_special_varno(Node *node, deparse_context *context,
 	{
 		TargetEntry *tle;
 
-		tle = get_tle_by_resno(dpns->index_tlist, var->varattno);
+		tle = get_tlist_entry_by_resno(var->varattno, dpns->index_tlist);
 		if (!tle)
 			elog(ERROR, "bogus varattno for INDEX_VAR var: %d", var->varattno);
 
@@ -7562,7 +7562,7 @@ get_name_for_var_field(Var *var, int fieldno,
 		deparse_namespace save_dpns;
 		const char *result;
 
-		tle = get_tle_by_resno(dpns->outer_tlist, varattno);
+		tle = get_tlist_entry_by_resno(varattno, dpns->outer_tlist);
 		if (!tle)
 			elog(ERROR, "bogus varattno for OUTER_VAR var: %d", varattno);
 
@@ -7581,7 +7581,7 @@ get_name_for_var_field(Var *var, int fieldno,
 		deparse_namespace save_dpns;
 		const char *result;
 
-		tle = get_tle_by_resno(dpns->inner_tlist, varattno);
+		tle = get_tlist_entry_by_resno(varattno, dpns->inner_tlist);
 		if (!tle)
 			elog(ERROR, "bogus varattno for INNER_VAR var: %d", varattno);
 
@@ -7599,7 +7599,7 @@ get_name_for_var_field(Var *var, int fieldno,
 		TargetEntry *tle;
 		const char *result;
 
-		tle = get_tle_by_resno(dpns->index_tlist, varattno);
+		tle = get_tlist_entry_by_resno(varattno, dpns->index_tlist);
 		if (!tle)
 			elog(ERROR, "bogus varattno for INDEX_VAR var: %d", varattno);
 
@@ -7699,7 +7699,7 @@ get_name_for_var_field(Var *var, int fieldno,
 					if (!dpns->inner_plan)
 						elog(ERROR, "failed to find plan for subquery %s",
 							 rte->eref->aliasname);
-					tle = get_tle_by_resno(dpns->inner_tlist, attnum);
+					tle = get_tlist_entry_by_resno(attnum, dpns->inner_tlist);
 					if (!tle)
 						elog(ERROR, "bogus varattno for subquery var: %d",
 							 attnum);
@@ -7820,7 +7820,7 @@ get_name_for_var_field(Var *var, int fieldno,
 					if (!dpns->inner_plan)
 						elog(ERROR, "failed to find plan for CTE %s",
 							 rte->eref->aliasname);
-					tle = get_tle_by_resno(dpns->inner_tlist, attnum);
+					tle = get_tlist_entry_by_resno(attnum, dpns->inner_tlist);
 					if (!tle)
 						elog(ERROR, "bogus varattno for subquery var: %d",
 							 attnum);

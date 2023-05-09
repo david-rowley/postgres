@@ -161,11 +161,10 @@ ExecSerializePlan(Plan *plan, EState *estate)
 	 * accordingly.  This is sort of a hack; there might be better ways to do
 	 * this...
 	 */
-	foreach(lc, plan->targetlist)
+	for (int i = 0; i < plan->targetlist->n_targets; i++)
 	{
-		TargetEntry *tle = lfirst_node(TargetEntry, lc);
-
-		tle->resjunk = false;
+		plan->targetlist->targets[i].resjunk = false;
+		/* XXX adjust any other columns that says there are junk targets */
 	}
 
 	/*

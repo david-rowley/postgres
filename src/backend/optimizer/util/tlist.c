@@ -384,6 +384,26 @@ get_sortgroupclause_expr(SortGroupClause *sgClause, List *targetList)
 }
 
 /*
+ * get_tlist_sortgroup
+ *		Find the TargetEntry matching the given SortGroupClause's
+ *		tleSortGroupRef and return it.
+ */
+TargetEntry *
+get_tlist_sortgroup(SortGroupClause *sgc, PlanTargetList *tlist)
+{
+	for (int i = 0; i < tlist->n_targets; i++)
+	{
+		TargetEntry *tle = &tlist->targets[i];
+
+		if (tle->ressortgroupref == sgc->tleSortGroupRef)
+			return tle;
+	}
+
+	elog(ERROR, "ORDER/GROUP BY expression not found in targetlist");
+	return NULL;				/* keep compiler quiet */
+}
+
+/*
  * get_sortgrouplist_exprs
  *		Given a list of SortGroupClauses, build a list
  *		of the referenced targetlist expressions.
