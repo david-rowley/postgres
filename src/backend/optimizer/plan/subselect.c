@@ -90,8 +90,8 @@ static bool contain_outer_selfref(Node *node);
 static bool contain_outer_selfref_walker(Node *node, Index *depth);
 static void inline_cte(PlannerInfo *root, CommonTableExpr *cte);
 static bool inline_cte_walker(Node *node, inline_cte_walker_context *context);
-static bool is_NOTANY_compatible_with_antijoin(Query *outerquery,
-											   SubLink * sublink,
+static bool is_NOTANY_compatible_with_antijoin(PlannerInfo *root,
+											   SubLink *sublink,
 											   Node *notnull_proofs);
 static bool simplify_EXISTS_query(PlannerInfo *root, Query *query);
 static Query *convert_EXISTS_to_ANY(PlannerInfo *root, Query *subselect,
@@ -1247,7 +1247,7 @@ inline_cte_walker(Node *node, inline_cte_walker_context *context)
  * guarantee of NOT NULL on NOT NULL input.  Fortunately we can just insist
  * that the operator is a member of a btree or hash opfamily.
  *
- * 'outerquery' is the parse of the query that the NOT IN is present in.
+ * 'root' is the PlannerInfo of the query that the NOT IN is present in.
  * 'notnull_proofs' are quals from the same syntactical level as the NOT IN.
  * These will be used to assist in proving the outer query's would be join
  * expressions cannot be NULL.
@@ -1264,9 +1264,10 @@ inline_cte_walker(Node *node, inline_cte_walker_context *context)
  *		of the NOT IN clause.
  */
 static bool
-is_NOTANY_compatible_with_antijoin(Query *outerquery, SubLink *sublink,
+is_NOTANY_compatible_with_antijoin(PlannerInfo *root, SubLink *sublink,
 								   Node *notnull_proofs)
 {
+	Query	   *parse = root->parse;
 	Node	   *testexpr = sublink->testexpr;
 	List	   *outerexpr;
 	ListCell   *lc;
@@ -1315,7 +1316,7 @@ is_NOTANY_compatible_with_antijoin(Query *outerquery, SubLink *sublink,
 	Assert(outerexpr != NIL);
 
 	/* Check if any outer expressions can be NULL. */
-	if (!expressions_are_not_nullable(outerquery, outerexpr, notnull_proofs))
+	if (!expressions_are_not_nullable(root, outerexpr, notnull_proofs))
 		return false;
 
 	/* Now validate the subquery targetlist to ensure no NULL are possible. */
@@ -1403,7 +1404,7 @@ convert_ANY_sublink_to_join(PlannerInfo *root, SubLink *sublink,
 	 */
 	if (under_not &&
 		(under_joinexpr ||
-		 !is_NOTANY_compatible_with_antijoin(parse, sublink, notnull_proofs)))
+		 !is_NOTANY_compatible_with_antijoin(root, sublink, notnull_proofs)))
 		return NULL;
 
 	/*

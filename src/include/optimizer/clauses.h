@@ -42,7 +42,7 @@ extern Relids find_nonnullable_rels(Node *clause);
 extern List *find_nonnullable_vars(Node *clause);
 extern List *find_forced_null_vars(Node *node);
 extern Var *find_forced_null_var(Node *node);
-extern bool expressions_are_not_nullable(Query *query, List *exprs,
+extern bool expressions_are_not_nullable(PlannerInfo *root, List *exprs,
 										 Node *notnull_proofs);
 extern bool query_outputs_are_not_nullable(Query *query);
 

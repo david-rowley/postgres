@@ -1951,8 +1951,10 @@ find_forced_null_var(Node *node)
  * okay to return FALSE.
  */
 bool
-expressions_are_not_nullable(Query *query, List *exprs, Node *notnull_proofs)
+expressions_are_not_nullable(PlannerInfo *root, List *exprs,
+							 Node *notnull_proofs)
 {
+	Query	   *query = root->parse;
 	Relids		innerjoined_rels = NULL;
 	List	   *innerjoined_useful_quals = NIL;
 	bool		computed_innerjoined_rels = false;
@@ -1998,7 +2000,7 @@ expressions_are_not_nullable(Query *query, List *exprs, Node *notnull_proofs)
 			 * avoid being fooled by join aliases.  If we get something other
 			 * than a plain Var out of the substitution, punt.
 			 */
-			var = (Var *) flatten_join_alias_vars(query, (Node *) var);
+			var = (Var *) flatten_join_alias_vars(root, query, (Node *) var);
 
 			if (!IsA(var, Var))
 				return false;
@@ -2039,7 +2041,7 @@ expressions_are_not_nullable(Query *query, List *exprs, Node *notnull_proofs)
 					nonnullable_inner_vars =
 						find_nonnullable_vars((Node *) innerjoined_useful_quals);
 					nonnullable_inner_vars = (List *)
-						flatten_join_alias_vars(query,
+						flatten_join_alias_vars(root, query,
 											(Node *) nonnullable_inner_vars);
 					/* We don't bother removing any non-Vars from the result */
 					computed_nonnullable_inner_vars = true;
@@ -2060,7 +2062,7 @@ expressions_are_not_nullable(Query *query, List *exprs, Node *notnull_proofs)
 			{
 				nonnullable_vars = find_nonnullable_vars(notnull_proofs);
 				nonnullable_vars = (List *)
-					flatten_join_alias_vars(query,
+					flatten_join_alias_vars(root, query,
 											(Node *) nonnullable_vars);
 				/* We don't bother removing any non-Vars from the result */
 				computed_nonnullable_vars = true;
@@ -2084,9 +2086,9 @@ expressions_are_not_nullable(Query *query, List *exprs, Node *notnull_proofs)
  *		Returns TRUE if the output values of the Query are certainly not NULL.
  *		All output columns must return non-NULL to answer TRUE.
  *
- * The reason this takes a Query, and not just an individual tlist expression,
- * is so that we can make use of the query's WHERE/ON clauses to prove it does
- * not return nulls.
+ * The reason this takes a PlannerInfo, and not just an individual tlist
+ * expression, is so that we can make use of the PlannerInfo.parse's WHERE/ON
+ * clauses to prove it does not return nulls.
  *
  * In current usage, the passed sub-Query hasn't yet been through any planner
  * processing.  This means that applying find_nonnullable_vars() to its WHERE
@@ -2164,7 +2166,7 @@ query_outputs_are_not_nullable(Query *query)
 			 * avoid being fooled by join aliases.  If we get something other
 			 * than a plain Var out of the substitution, punt.
 			 */
-			var = (Var *) flatten_join_alias_vars(query, (Node *) var);
+			var = (Var *) flatten_join_alias_vars(NULL, query, (Node *) var);
 
 			if (!IsA(var, Var))
 				return false;
@@ -2205,7 +2207,7 @@ query_outputs_are_not_nullable(Query *query)
 			{
 				nonnullable_vars = find_nonnullable_vars((Node *) usable_quals);
 				nonnullable_vars = (List *)
-					flatten_join_alias_vars(query,
+					flatten_join_alias_vars(NULL, query,
 											(Node *) nonnullable_vars);
 				/* We don't bother removing any non-Vars from the result */
 				computed_nonnullable_vars = true;
