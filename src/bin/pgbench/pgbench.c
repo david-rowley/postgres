@@ -4869,6 +4869,54 @@ initTruncateTables(PGconn *con)
 					 "pgbench_tellers");
 }
 
+static inline char *
+uint64_to_hex(char *buffer, uint64 num)
+{
+	char   *p = buffer;
+	char   *hexnum = "0123456789ABCDEF";
+
+	*p++ = '0';
+	*p++ = 'x';
+
+	if (num != 0)
+	{
+		unsigned long result;
+		char   *end;
+
+#if defined(_MSC_VER) && (defined(_M_AMD64) || defined(_M_ARM64))
+		_BitScanReverse64(&result, num);
+#elif defined(HAVE__BUILTIN_CLZ)
+
+#if defined(HAVE_LONG_INT_64)
+		result = 63 - __builtin_clzl(num);
+#elif defined(HAVE_LONG_LONG_INT_64)
+		result = 63 - __builtin_clzll(num);
+#else
+#error must have a working 64-bit integer datatype
+#endif
+
+#else
+		/* XXX what to do? */
+#error unable to find method to find left-most 1 bit
+#endif
+		end = &p[(result / 4) + 1];
+		p = &end[-1];
+
+		do {
+			*p-- = hexnum[num % 16];
+			num /= 16;
+		} while (num != 0);
+
+		return end;
+	}
+	else
+	{
+		*p++ = '0';
+		return p;
+	}
+
+}
+
 /*
  * Fill the standard tables with some data generated and sent from the client
  */
@@ -4880,6 +4928,7 @@ initGenerateDataClientSide(PGconn *con)
 	int			i;
 	int64		k;
 	char	   *copy_statement;
+	int			server_version = PQserverVersion(con);
 
 	/* used to track elapsed time and estimate of the remaining time */
 	pg_time_usec_t start;
@@ -4928,7 +4977,7 @@ initGenerateDataClientSide(PGconn *con)
 	 */
 
 	/* use COPY with FREEZE on v14 and later without partitioning */
-	if (partitions == 0 && PQserverVersion(con) >= 140000)
+	if (partitions == 0 && server_version >= 140000)
 		copy_statement = "copy pgbench_accounts from stdin with (freeze on)";
 	else
 		copy_statement = "copy pgbench_accounts from stdin";
@@ -4945,13 +4994,39 @@ initGenerateDataClientSide(PGconn *con)
 	{
 		int64		j = k + 1;
 
-		/* "filler" column defaults to blank padded empty string */
-		printfPQExpBuffer(&sql,
-						  INT64_FORMAT "\t" INT64_FORMAT "\t%d\t\n",
-						  j, k / naccounts + 1, 0);
-		if (PQputline(con, sql.data))
-			pg_fatal("PQputline failed");
+		if (server_version < 160000)
+		{
+			/* "filler" column defaults to blank padded empty string */
+			printfPQExpBuffer(&sql,
+							  INT64_FORMAT "\t" INT64_FORMAT "\t%d\t\n",
+							  j, k / naccounts + 1, 0);
+			if (PQputline(con, sql.data))
+				pg_fatal("PQputline failed");
+		}
+		else
+		{
+			/*
+			 * For PostgreSQL 16 and onward, we can form the COPY line with
+			 * the numerical values formatted in hex.  These are more
+			 * efficient to build than forming them as decimal strings.
+			 */
+			char buffer[18 + 1 + 18 + 1 + 10 + 2];
+			char *p = buffer;
 
+			p = uint64_to_hex(p, j);
+			*p++ = '\t';
+			p = uint64_to_hex(p, k / naccounts + 1);
+			*p++ = '\t';
+			*p++ = '0';
+			*p++ = '\t';
+			*p++ = '\n';
+			*p = '\0';
+
+			Assert(strlen(buffer) == p - buffer);
+
+			if (PQputnbytes(con, buffer, p - buffer))
+				pg_fatal("PQputline failed");
+		}
 		if (CancelRequested)
 			break;
 
