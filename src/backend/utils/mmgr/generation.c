@@ -206,7 +206,7 @@ GenerationContextCreate(MemoryContext parent,
 	 * Allocate the initial block.  Unlike other generation.c blocks, it
 	 * starts with the context header and its block header follows that.
 	 */
-	set = (GenerationContext *) malloc(allocSize);
+	set = (GenerationContext *) malloccache_fetch(allocSize);
 	if (set == NULL)
 	{
 		MemoryContextStats(TopMemoryContext);
@@ -327,10 +327,16 @@ GenerationReset(MemoryContext context)
 void
 GenerationDelete(MemoryContext context)
 {
+	GenerationContext *set = (GenerationContext *) context;
+	Size			keepersize;
+
 	/* Reset to release all releasable GenerationBlocks */
 	GenerationReset(context);
 	/* And free the context header and keeper block */
-	free(context);
+
+	keepersize = set->keeper->endptr - ((char *) set);
+
+	malloccache_release(context, keepersize);
 }
 
 /*
@@ -361,7 +367,7 @@ GenerationAllocLarge(MemoryContext context, Size size, int flags)
 	required_size = chunk_size + Generation_CHUNKHDRSZ;
 	blksize = required_size + Generation_BLOCKHDRSZ;
 
-	block = (GenerationBlock *) malloc(blksize);
+	block = (GenerationBlock *) malloccache_fetch(blksize);
 	if (block == NULL)
 		return MemoryContextAllocationFailure(context, size, flags);
 
@@ -482,7 +488,7 @@ GenerationAllocFromNewBlock(MemoryContext context, Size size, int flags,
 	if (blksize < required_size)
 		blksize = pg_nextpower2_size_t(required_size);
 
-	block = (GenerationBlock *) malloc(blksize);
+	block = (GenerationBlock *) malloccache_fetch(blksize);
 
 	if (block == NULL)
 		return MemoryContextAllocationFailure(context, size, flags);
@@ -677,7 +683,7 @@ GenerationBlockFree(GenerationContext *set, GenerationBlock *block)
 	wipe_mem(block, block->blksize);
 #endif
 
-	free(block);
+	malloccache_release(block, block->blksize);
 }
 
 /*

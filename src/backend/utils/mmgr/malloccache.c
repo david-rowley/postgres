@@ -1,7 +1,8 @@
 /*-------------------------------------------------------------------------
  *
  * malloccache.c
- *	  A wrapper around malloc/free for predefined sized chunks of memory
+ *	  A wrapper around malloc/free for caching predefined sized chunks of
+ *	  memory in order to reduce malloc/free thrashing.
  *
  * Portions Copyright (c) 2023, PostgreSQL Global Development Group
  *
@@ -26,13 +27,27 @@ typedef struct cached_allocation
 
 #define ALLOCATION_CACHE_ELEMENTS 4
 
+/*
+ * Here we define which sized chunks of memory we should care about caching
+ * and how many of them we should cache.
+ *
+ * Be careful here as caching too many chunks or too large chunks could mean
+ * the backend consuming unreasonable amounts of memory when in an idle state.
+ */
 struct cached_allocation allocation_cache[ALLOCATION_CACHE_ELEMENTS] = {
 	{ ALLOCSET_SMALL_INITSIZE, 100, 0, NULL },	/* 100 kB max */
 	{ ALLOCSET_DEFAULT_INITSIZE, 100, 0, NULL }, /* 800 kB max */
 	{ ALLOCSET_DEFAULT_INITSIZE * 2, 16, 0, NULL }, /* 256 kB max */
-	{ 27400, 4, 0, NULL },
+	{ 27400, 4, 0, NULL }, /* XXX this is just a test */
 };
 
+/*
+ * malloccache_fetch
+ *		Check our list of previously released memory to see if we have any
+ *		previously allocated chunks of 'size'.  If we have one, return it,
+ *		otherwise malloc 'size' bytes of memory.  Return NULL on malloc
+ *		failure.
+ */
 void *
 malloccache_fetch(size_t size)
 {
@@ -66,6 +81,12 @@ malloccache_fetch(size_t size)
 	return malloc(size);
 }
 
+/*
+ * malloccache_release
+ *		Release a chunk of memory previously created with malloccache_fetch
+ *		and either free() the memory, or cache it if we have not already
+ *		cached enough blocks of memory if the given size.
+ */
 void
 malloccache_release(void *ptr, size_t size)
 {

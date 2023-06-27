@@ -531,7 +531,6 @@ AllocSetDelete(MemoryContext context)
 
 	keepersize = KeeperBlock(set)->endptr - ((char *) set);
 
-
 	/* Free all blocks, except the keeper which is part of context header */
 	while (block != NULL)
 	{
@@ -971,7 +970,7 @@ AllocSetFree(void *pointer)
 		if (block->next)
 			block->next->prev = block->prev;
 
-		size = block->endptr - ((char *)block);
+		size = block->endptr - ((char *) block);
 		set->header.mem_allocated -= size;
 
 #ifdef CLOBBER_FREED_MEMORY
