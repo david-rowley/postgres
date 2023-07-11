@@ -17,6 +17,8 @@
 #include "optimizer/joininfo.h"
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
+#include "optimizer/planmain.h"
+#include "optimizer/restrictinfo.h"
 
 
 /*
@@ -97,6 +99,22 @@ add_join_clause_to_rels(PlannerInfo *root,
 						Relids join_relids)
 {
 	int			cur_relid;
+
+	Expr *newclause = transform_clause(root, restrictinfo->clause);
+
+	if (newclause != restrictinfo->clause)
+	{
+		restrictinfo = make_restrictinfo(root,
+										 newclause,
+										 restrictinfo->is_pushed_down,
+										 restrictinfo->has_clone,
+										 restrictinfo->is_clone,
+										 restrictinfo->pseudoconstant,
+										 restrictinfo->security_level,
+										 restrictinfo->required_relids,
+										 restrictinfo->incompatible_relids,
+										 restrictinfo->outer_relids);
+	}
 
 	cur_relid = -1;
 	while ((cur_relid = bms_next_member(join_relids, cur_relid)) >= 0)
