@@ -74,6 +74,10 @@ typedef struct BumpContext
 
 	dlist_head	blocks;			/* list of blocks with the block currently
 								 * being filled at the head */
+	char	   *freeptr;		/* pointer to start of free space in block at
+								 * head of 'blocks' list. */
+	char	   *endptr;			/* pointer to end of block at head of 'blocks'
+								 * list */
 } BumpContext;
 
 /*
@@ -88,6 +92,13 @@ struct BumpBlock
 #ifdef MEMORY_CONTEXT_CHECKING
 	BumpContext *context;		/* pointer back to the owning context */
 #endif
+
+	/*
+	 * The 'freeptr field is only updated for blocks which have already been
+	 * filled and are not the current block.  For the currently being filled
+	 * block, the set's freeptr field is used.  This saves dereferencing the
+	 * block in order to calculate the free space.
+	 */
 	char	   *freeptr;		/* start of free space in this block */
 	char	   *endptr;			/* end of space in this block */
 };
@@ -118,8 +129,6 @@ struct BumpBlock
 static inline void BumpBlockInit(BumpContext *context, BumpBlock *block,
 								 Size blksize);
 static inline bool BumpBlockIsEmpty(BumpBlock *block);
-static inline void BumpBlockMarkEmpty(BumpBlock *block);
-static inline Size BumpBlockFreeBytes(BumpBlock *block);
 static inline void BumpBlockFree(BumpContext *set, BumpBlock *block);
 
 
@@ -206,7 +215,10 @@ BumpContextCreate(MemoryContext parent,
 	firstBlockSize = allocSize - MAXALIGN(sizeof(BumpContext));
 	BumpBlockInit(set, block, firstBlockSize);
 
-	/* add it to the doubly-linked list of blocks */
+	set->freeptr = block->freeptr;
+	set->endptr = block->endptr;
+
+	/* add the keeper block to the head doubly-linked list of blocks */
 	dlist_push_head(&set->blocks, &block->node);
 
 	/*
@@ -216,6 +228,7 @@ BumpContextCreate(MemoryContext parent,
 	set->initBlockSize = (uint32) initBlockSize;
 	set->maxBlockSize = (uint32) maxBlockSize;
 	set->nextBlockSize = (uint32) initBlockSize;
+
 
 	/*
 	 * Compute the allocation chunk size limit for this context.
@@ -256,7 +269,7 @@ BumpReset(MemoryContext context)
 {
 	BumpContext *set = (BumpContext *) context;
 	dlist_mutable_iter miter;
-
+	BumpBlock *keeper = KeeperBlock(set);
 	Assert(BumpIsValid(set));
 
 #ifdef MEMORY_CONTEXT_CHECKING
@@ -268,14 +281,19 @@ BumpReset(MemoryContext context)
 	{
 		BumpBlock  *block = dlist_container(BumpBlock, node, miter.cur);
 
-		if (IsKeeperBlock(set, block))
-			BumpBlockMarkEmpty(block);
-		else
+		if (block != keeper)
 			BumpBlockFree(set, block);
 	}
 
 	/* Reset block size allocation sequence, too */
 	set->nextBlockSize = set->initBlockSize;
+
+	/*
+	 * Reset the keeper's freeptr and the set's freeptr and endptr back to point
+	 * to the keeper block.
+	 */
+	set->freeptr = keeper->freeptr = (char *) keeper + Bump_BLOCKHDRSZ;
+	set->endptr = keeper->endptr;
 
 	/* Ensure there is only 1 item in the dlist */
 	Assert(!dlist_is_empty(&set->blocks));
@@ -311,7 +329,6 @@ void *
 BumpAlloc(MemoryContext context, Size size)
 {
 	BumpContext *set = (BumpContext *) context;
-	BumpBlock  *block;
 #ifdef MEMORY_CONTEXT_CHECKING
 	MemoryChunk *chunk;
 #else
@@ -334,21 +351,22 @@ BumpAlloc(MemoryContext context, Size size)
 	if (chunk_size > set->allocChunkLimit)
 	{
 		Size		blksize = required_size + Bump_BLOCKHDRSZ;
+		BumpBlock  *newblock;
 
-		block = (BumpBlock *) malloc(blksize);
-		if (block == NULL)
+		newblock = (BumpBlock *) malloc(blksize);
+		if (newblock == NULL)
 			return NULL;
 
 		context->mem_allocated += blksize;
 
 		/* the block is completely full */
-		block->freeptr = block->endptr = ((char *) block) + blksize;
+		newblock->freeptr = newblock->endptr = ((char *) newblock) + blksize;
 
 #ifdef MEMORY_CONTEXT_CHECKING
 		/* block with a single (used) chunk */
-		block->context = set;
+		newblock->context = set;
 
-		chunk = (MemoryChunk *) (((char *) block) + Bump_BLOCKHDRSZ);
+		chunk = (MemoryChunk *) (((char *) newblock) + Bump_BLOCKHDRSZ);
 
 		/* mark the MemoryChunk as externally managed */
 		MemoryChunkSetHdrMaskExternal(chunk, MCTX_BUMP_ID);
@@ -363,8 +381,12 @@ BumpAlloc(MemoryContext context, Size size)
 		randomize_mem((char *) MemoryChunkGetPointer(chunk), size);
 #endif
 
-		/* add the block to the list of allocated blocks */
-		dlist_push_head(&set->blocks, &block->node);
+		/*
+		 * Add the block to the tail of the allocated blocks list.  The tail is used
+		 * instead of the head because we want to keep the current block at the head
+		 * of the list.
+		 */
+		dlist_push_tail(&set->blocks, &newblock->node);
 
 #ifdef MEMORY_CONTEXT_CHECKING
 		/* Ensure any padding bytes are marked NOACCESS. */
@@ -376,7 +398,7 @@ BumpAlloc(MemoryContext context, Size size)
 
 		return MemoryChunkGetPointer(chunk);
 #else
-		return (void *) (((char *) block) + Bump_BLOCKHDRSZ);
+		return (void *) (((char *) newblock) + Bump_BLOCKHDRSZ);
 #endif
 
 	}
@@ -385,10 +407,10 @@ BumpAlloc(MemoryContext context, Size size)
 	 * Not an oversized chunk.  We try to first make use of the latest block,
 	 * but if there's not enough space in it we must allocate a new block.
 	 */
-	block = dlist_container(BumpBlock, node, dlist_head_node(&set->blocks));
-
-	if (BumpBlockFreeBytes(block) < required_size)
+	if ((set->endptr - set->freeptr) < required_size)
 	{
+		BumpBlock  *currblock;
+		BumpBlock  *newblock;
 		Size		blksize;
 
 		/*
@@ -407,45 +429,52 @@ BumpAlloc(MemoryContext context, Size size)
 		if (blksize < required_size)
 			blksize = pg_nextpower2_size_t(required_size);
 
-		block = (BumpBlock *) malloc(blksize);
+		newblock = (BumpBlock *) malloc(blksize);
 
-		if (block == NULL)
+		if (newblock == NULL)
 			return NULL;
 
 		context->mem_allocated += blksize;
 
+		/*
+		 * Since we're changing the current block, we must update the freeptr of the
+		 * block that's just been filled so that the stats are up-to-date
+		 */
+		currblock = dlist_container(BumpBlock, node, dlist_head_node(&set->blocks));
+		currblock->freeptr = set->freeptr;
+
 		/* initialize the new block */
-		BumpBlockInit(set, block, blksize);
+		BumpBlockInit(set, newblock, blksize);
+		set->freeptr = newblock->freeptr;
+		set->endptr = newblock->endptr;
 
 		/* add it to the doubly-linked list of blocks */
-		dlist_push_head(&set->blocks, &block->node);
+		dlist_push_head(&set->blocks, &newblock->node);
 	}
 
-	/* we're supposed to have a block with enough free space now */
-	Assert(block != NULL);
-	Assert((block->endptr - block->freeptr) >= Bump_CHUNKHDRSZ + chunk_size);
-
 #ifdef MEMORY_CONTEXT_CHECKING
-	chunk = (MemoryChunk *) block->freeptr;
+	chunk = (MemoryChunk *) set->freeptr;
 #else
-	ptr = (void *) block->freeptr;
+	ptr = (void *) set->freeptr;
 #endif
 
 	/* point the freeptr beyond this chunk */
-	block->freeptr += (Bump_CHUNKHDRSZ + chunk_size);
-	Assert(block->freeptr <= block->endptr);
+	set->freeptr += (Bump_CHUNKHDRSZ + chunk_size);
+	Assert(set->freeptr <= set->endptr);
 
 #ifdef MEMORY_CONTEXT_CHECKING
+	{
+		BumpBlock *block = dlist_container(BumpBlock, node, dlist_head_node(&set->blocks));
 
-	/* Prepare to initialize the chunk header. */
-	VALGRIND_MAKE_MEM_UNDEFINED(chunk, Bump_CHUNKHDRSZ);
+		/* Prepare to initialize the chunk header. */
+		VALGRIND_MAKE_MEM_UNDEFINED(chunk, Bump_CHUNKHDRSZ);
 
-	MemoryChunkSetHdrMask(chunk, block, chunk_size, MCTX_BUMP_ID);
-	chunk->requested_size = size;
-	/* set mark to catch clobber of "unused" space */
-	Assert(size < chunk_size);
-	set_sentinel(MemoryChunkGetPointer(chunk), size);
-
+		MemoryChunkSetHdrMask(chunk, block, chunk_size, MCTX_BUMP_ID);
+		chunk->requested_size = size;
+		/* set mark to catch clobber of "unused" space */
+		Assert(size < chunk_size);
+		set_sentinel(MemoryChunkGetPointer(chunk), size);
+	}
 #ifdef RANDOMIZE_ALLOCATED_MEMORY
 	/* fill the allocated space with junk */
 	randomize_mem((char *) MemoryChunkGetPointer(chunk), size);
@@ -513,16 +542,6 @@ BumpBlockMarkEmpty(BumpBlock *block)
 
 	/* Reset the block, but don't return it to malloc */
 	block->freeptr = ((char *) block) + Bump_BLOCKHDRSZ;
-}
-
-/*
- * BumpBlockFreeBytes
- *		Returns the number of bytes free in 'block'
- */
-static inline Size
-BumpBlockFreeBytes(BumpBlock *block)
-{
-	return (block->endptr - block->freeptr);
 }
 
 /*
@@ -600,18 +619,15 @@ BumpIsEmpty(MemoryContext context)
 {
 	BumpContext *set = (BumpContext *) context;
 	dlist_iter	iter;
+	BumpBlock  *keeper;
 
 	Assert(BumpIsValid(set));
 
-	dlist_foreach(iter, &set->blocks)
-	{
-		BumpBlock  *block = dlist_container(BumpBlock, node, iter.cur);
+	keeper = KeeperBlock(set);
 
-		if (!BumpBlockIsEmpty(block))
-			return false;
-	}
-
-	return true;
+	if (keeper->freeptr == set->freeptr)
+		return true;
+	return false;
 }
 
 /*
@@ -628,6 +644,7 @@ BumpStats(MemoryContext context, MemoryStatsPrintFunc printfunc,
 		  void *passthru, MemoryContextCounters *totals, bool print_to_stderr)
 {
 	BumpContext *set = (BumpContext *) context;
+	BumpBlock	*currblock;
 	Size		nblocks = 0;
 	Size		totalspace = 0;
 	Size		freespace = 0;
@@ -635,13 +652,23 @@ BumpStats(MemoryContext context, MemoryStatsPrintFunc printfunc,
 
 	Assert(BumpIsValid(set));
 
+	currblock = dlist_container(BumpBlock, node, dlist_head_node(&set->blocks));
+
 	dlist_foreach(iter, &set->blocks)
 	{
 		BumpBlock  *block = dlist_container(BumpBlock, node, iter.cur);
 
 		nblocks++;
 		totalspace += (block->endptr - (char *) block);
-		freespace += (block->endptr - block->freeptr);
+
+		/*
+		 * Be careful to not use the out-of-date block's freeptr when counting
+		 * the block that's actively being filled.
+		 */
+		if (block == currblock)
+			freespace += (set->endptr - set->freeptr);
+		else
+			freespace += (block->endptr - block->freeptr);
 	}
 
 	if (printfunc)
@@ -677,9 +704,12 @@ void
 BumpCheck(MemoryContext context)
 {
 	BumpContext *bump = (BumpContext *) context;
+	BumpBlock *currblock;
 	const char *name = context->name;
 	dlist_iter	iter;
 	Size		total_allocated = 0;
+
+	currblock = dlist_container(BumpBlock, node, dlist_head_node(&bump->blocks));
 
 	/* walk all blocks in this context */
 	dlist_foreach(iter, &bump->blocks)
@@ -688,6 +718,16 @@ BumpCheck(MemoryContext context)
 		int			nchunks;
 		char	   *ptr;
 		bool		has_external_chunk = false;
+		char	   *freeptr;
+
+		/*
+		 * Be careful to not use the out-of-date block's freeptr when
+		 * accessing the block that's actively being filled.
+		 */
+		if (block == currblock)
+			freeptr = bump->freeptr;
+		else
+			freeptr = block->freeptr;
 
 		if (IsKeeperBlock(bump, block))
 			total_allocated += block->endptr - (char *) bump;
@@ -703,7 +743,7 @@ BumpCheck(MemoryContext context)
 		nchunks = 0;
 		ptr = ((char *) block) + Bump_BLOCKHDRSZ;
 
-		while (ptr < block->freeptr)
+		while (ptr < freeptr)
 		{
 			MemoryChunk *chunk = (MemoryChunk *) ptr;
 			BumpBlock  *chunkblock;
