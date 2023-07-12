@@ -618,7 +618,6 @@ bool
 BumpIsEmpty(MemoryContext context)
 {
 	BumpContext *set = (BumpContext *) context;
-	dlist_iter	iter;
 	BumpBlock  *keeper;
 
 	Assert(BumpIsValid(set));
