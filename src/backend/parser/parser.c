@@ -19,6 +19,8 @@
  *-------------------------------------------------------------------------
  */
 
+#include <time.h>
+
 #include "postgres.h"
 
 #include "gramparse.h"
@@ -44,6 +46,8 @@ raw_parser(const char *str, RawParseMode mode)
 	core_yyscan_t yyscanner;
 	base_yy_extra_type yyextra;
 	int			yyresult;
+	struct timespec start, end;
+
 
 	/* initialize the flex scanner */
 	yyscanner = scanner_init(str, &yyextra.core_yy_extra,
@@ -73,8 +77,17 @@ raw_parser(const char *str, RawParseMode mode)
 	/* initialize the bison parser */
 	parser_init(&yyextra);
 
+	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &start);
+
 	/* Parse! */
 	yyresult = base_yyparse(yyscanner);
+
+	clock_gettime(CLOCK_PROCESS_CPUTIME_ID, &end);
+
+	elog(LOG,
+		 "parse time in %f nanoseconds",
+		 ((double) (end.tv_sec * 1000000000 + end.tv_nsec) -
+		  (double) (start.tv_sec * 1000000000 + start.tv_nsec)));
 
 	/* Clean up (release memory) */
 	scanner_finish(yyscanner);
