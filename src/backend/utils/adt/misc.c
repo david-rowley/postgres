@@ -445,12 +445,13 @@ pg_keyword_lookup_bench(PG_FUNCTION_ARGS)
 	const char *keyword = text_to_cstring(PG_GETARG_TEXT_PP(0));
 	int32 iterations = PG_GETARG_INT32(1);
 	clock_t start, end;
+	size_t len = strlen(keyword);
 
 	start = clock();
 
 	while (iterations-- > 0)
 	{
-		int h = ScanKeywordLookup(keyword, &ScanKeywords);
+		int h = ScanKeywordLookup(keyword, len, &ScanKeywords);
 	}
 
 	end = clock();

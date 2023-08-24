@@ -131,7 +131,9 @@ print $kwdef join qq|\\0"\n\t"|, @keywords;
 print $kwdef qq|";\n\n|;
 
 # Emit an array of numerical offsets which will be used to index into the
-# keyword string.  Also determine max keyword length.
+# keyword string.  This array contains 1 additional element at the end to
+# allow us to easily calculate the keyword length by looking at the offset
+# into the next keyword.  Also determine max keyword length.
 
 printf $kwdef "static const uint16 %s_kw_offsets[] = {\n", $varname;
 
@@ -150,6 +152,8 @@ foreach my $name (@keywords)
 	# Update max keyword length.
 	$max_len = $this_length if $max_len < $this_length;
 }
+
+print $kwdef "\t$offset\n";
 
 print $kwdef "};\n\n";
 

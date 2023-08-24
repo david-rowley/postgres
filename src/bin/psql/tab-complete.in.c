@@ -6664,7 +6664,7 @@ identifier_needs_quotes(const char *ident)
 	 * Note: ScanKeywordLookup() does case-insensitive comparison, but that's
 	 * fine, since we already know we have all-lower-case.
 	 */
-	kwnum = ScanKeywordLookup(ident, &ScanKeywords);
+	kwnum = ScanKeywordLookup(ident, strlen(ident), &ScanKeywords);
 
 	if (kwnum >= 0 && ScanKeywordCategories[kwnum] != UNRESERVED_KEYWORD)
 		return true;
