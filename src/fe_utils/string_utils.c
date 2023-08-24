@@ -141,7 +141,7 @@ fmtIdEnc(const char *rawid, int encoding)
 		 * Note: ScanKeywordLookup() does case-insensitive comparison, but
 		 * that's fine, since we already know we have all-lower-case.
 		 */
-		int			kwnum = ScanKeywordLookup(rawid, &ScanKeywords);
+		int			kwnum = ScanKeywordLookup(rawid, (int64) (cp - rawid), &ScanKeywords);
 
 		if (kwnum >= 0 && ScanKeywordCategories[kwnum] != UNRESERVED_KEYWORD)
 			need_quotes = true;

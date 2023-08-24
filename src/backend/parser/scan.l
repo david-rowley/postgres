@@ -526,7 +526,7 @@ other			.
 					SET_YYLLOC();
 					yyless(1);	/* eat only 'n' this time */
 
-					kwnum = ScanKeywordLookup("nchar",
+					kwnum = ScanKeywordLookup("nchar", strlen("nchar"),
 											  yyextra->keywordlist);
 					if (kwnum >= 0)
 					{
@@ -1076,7 +1076,7 @@ other			.
 					SET_YYLLOC();
 
 					/* Is it a keyword? */
-					kwnum = ScanKeywordLookup(yytext,
+					kwnum = ScanKeywordLookup(yytext, yyleng,
 											  yyextra->keywordlist);
 					if (kwnum >= 0)
 					{
