@@ -231,6 +231,7 @@ plpgsql_yylex(void)
 					tok1 = T_DATUM;
 				else if (!aux1.lval.word.quoted &&
 						 (kwnum = ScanKeywordLookup(aux1.lval.word.ident,
+													strlen(aux1.lval.word.ident),
 													&UnreservedPLKeywords)) >= 0)
 				{
 					aux1.lval.keyword = GetScanKeyword(kwnum,
@@ -273,6 +274,7 @@ plpgsql_yylex(void)
 				tok1 = T_DATUM;
 			else if (!aux1.lval.word.quoted &&
 					 (kwnum = ScanKeywordLookup(aux1.lval.word.ident,
+												strlen(aux1.lval.word.ident),
 												&UnreservedPLKeywords)) >= 0)
 			{
 				aux1.lval.keyword = GetScanKeyword(kwnum,

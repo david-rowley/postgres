@@ -39,14 +39,15 @@ int
 ScanECPGKeywordLookup(const char *text)
 {
 	int			kwnum;
+	size_t		len = strlen(text);
 
 	/* First check SQL symbols defined by the backend. */
-	kwnum = ScanKeywordLookup(text, &ScanKeywords);
+	kwnum = ScanKeywordLookup(text, len, &ScanKeywords);
 	if (kwnum >= 0)
 		return SQLScanKeywordTokens[kwnum];
 
 	/* Try ECPG-specific keywords. */
-	kwnum = ScanKeywordLookup(text, &ScanECPGKeywords);
+	kwnum = ScanKeywordLookup(text, len, &ScanECPGKeywords);
 	if (kwnum >= 0)
 		return ECPGScanKeywordTokens[kwnum];
 
