@@ -216,6 +216,8 @@ typedef struct PlannerInfo PlannerInfo;
 #define HAVE_PLANNERINFO_TYPEDEF 1
 #endif
 
+struct EquivalenceClassIndexes;
+
 struct PlannerInfo
 {
 	pg_node_attr(no_copy_equal, no_read, no_query_jumble)
@@ -271,6 +273,13 @@ struct PlannerInfo
 	 * because it'd be redundant with append_rel_list.)
 	 */
 	struct AppendRelInfo **append_rel_array pg_node_attr(read_write_ignore);
+
+	/*
+	 * eclass_indexes_array is the same length as simple_rel_array and holds
+	 * the indexes of the corresponding rels for faster EquivalenceMember
+	 * lookups. See the EquivalenceClass comment for more details.
+	 */
+	struct EquivalenceClassIndexes *eclass_indexes_array pg_node_attr(read_write_ignore);
 
 	/*
 	 * all_baserels is a Relids set of all base relids (but not joins or
@@ -985,6 +994,17 @@ typedef struct RelOptInfo
 	uint32		amflags;
 
 	/*
+	 * information about a join rel
+	 */
+	/* index in root->join_rel_list of this rel */
+	int			join_rel_list_index;
+
+	/*
+	 * EquivalenceMembers referencing this rel
+	 */
+	List	   *eclass_child_members;
+
+	/*
 	 * Information about foreign tables and foreign joins
 	 */
 	/* identifies server for the table or join */
@@ -1403,6 +1423,12 @@ typedef struct JoinDomain
  * entry: consider SELECT random() AS a, random() AS b ... ORDER BY b,a.
  * So we record the SortGroupRef of the originating sort clause.
  *
+ * EquivalenceClass->ec_members can only have parent members, and child members
+ * are stored in RelOptInfos, from which those child members are translated. To
+ * lookup child EquivalenceMembers, we use EquivalenceMemberIterator. See
+ * its comment for usage. The approach to lookup child members quickly is
+ * described as setup_eclass_member_iterator_with_children() comment.
+ *
  * NB: if ec_merged isn't NULL, this class has been merged into another, and
  * should be ignored in favor of using the pointed-to class.
  *
@@ -1477,7 +1503,60 @@ typedef struct EquivalenceMember
 	JoinDomain *em_jdomain;		/* join domain containing the source clause */
 	/* if em_is_child is true, this links to corresponding EM for top parent */
 	struct EquivalenceMember *em_parent pg_node_attr(read_write_ignore);
+	EquivalenceClass *em_ec;	/* EquivalenceClass which has this member */
 } EquivalenceMember;
+
+/*
+ * EquivalenceMemberIterator
+ *
+ * EquivalenceMemberIterator is designed to iterate over all parent
+ * EquivalenceMembers and child members associated with the given 'ec' that
+ * are relevant to the specified 'relids'. In particular, it iterates over:
+ *	- All parent members stored directly in ec->ec_members.
+ *	- The child members whose em_relids is a subset of the given 'relids'.
+ *
+ * Note:
+ *	- The iterator may return false positives, i.e., child members whose
+ *	  em_relids is not a subset. So the caller must check that they satisfy
+ *	  the desired condition.
+ *
+ * The most common way to use this iterator is as follows:
+ * -----
+ * PlannerInfo					   *root = given;
+ * EquivalenceClass				   *ec = given;
+ * Relids							rel = given;
+ * EquivalenceMemberIterator		it;
+ * EquivalenceMember			   *em;
+ *
+ * setup_eclass_member_iterator_with_children(&it, root, ec, rel);
+ * while ((em = eclass_member_iterator_next(&it)) != NULL)
+ * {
+ *     use em ...;
+ * }
+ * dispose_eclass_member_iterator(&it);
+ * -----
+ */
+typedef struct
+{
+	int			index;			/* current index within 'ec_members'. */
+	bool		list_is_copy;	/* is 'ec_members' a newly allocated one? */
+	List	   *ec_members;		/* parent and child members */
+} EquivalenceMemberIterator;
+
+/*
+ * EquivalenceClassIndexes
+ *
+ * As mentioned in the EquivalenceClass comment, we introduce a
+ * bitmapset-based indexing mechanism for faster lookups of child
+ * EquivalenceMembers. This struct exists for each relation and holds the
+ * corresponding indexes.
+ */
+typedef struct EquivalenceClassIndexes
+{
+	Bitmapset  *joinrel_indexes;	/* Indexes in PlannerInfo's join_rel_list
+									 * list for RelOptInfos that mention this
+									 * relation */
+} EquivalenceClassIndexes;
 
 /*
  * PathKeys

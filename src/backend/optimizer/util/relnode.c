@@ -119,15 +119,22 @@ setup_simple_rel_arrays(PlannerInfo *root)
 		root->simple_rte_array[rti++] = rte;
 	}
 
-	/* append_rel_array is not needed if there are no AppendRelInfos */
+	/*
+	 * append_rel_array and eclass_indexes_array are not needed if there are
+	 * no AppendRelInfos.
+	 */
 	if (root->append_rel_list == NIL)
 	{
 		root->append_rel_array = NULL;
+		root->eclass_indexes_array = NULL;
 		return;
 	}
 
 	root->append_rel_array = (AppendRelInfo **)
 		palloc0(size * sizeof(AppendRelInfo *));
+
+	root->eclass_indexes_array = (EquivalenceClassIndexes *)
+		palloc0(size * sizeof(EquivalenceClassIndexes));
 
 	/*
 	 * append_rel_array is filled with any already-existing AppendRelInfos,
@@ -175,11 +182,21 @@ expand_planner_arrays(PlannerInfo *root, int add_size)
 		repalloc0_array(root->simple_rte_array, RangeTblEntry *, root->simple_rel_array_size, new_size);
 
 	if (root->append_rel_array)
+	{
+		Assert(root->eclass_indexes_array);
 		root->append_rel_array =
 			repalloc0_array(root->append_rel_array, AppendRelInfo *, root->simple_rel_array_size, new_size);
+		root->eclass_indexes_array =
+			repalloc0_array(root->eclass_indexes_array, EquivalenceClassIndexes, root->simple_rel_array_size, new_size);
+	}
 	else
+	{
+		Assert(!root->eclass_indexes_array);
 		root->append_rel_array =
 			palloc0_array(AppendRelInfo *, new_size);
+		root->eclass_indexes_array =
+			palloc0_array(EquivalenceClassIndexes, new_size);
+	}
 
 	root->simple_rel_array_size = new_size;
 }
@@ -234,6 +251,8 @@ build_simple_rel(PlannerInfo *root, int relid, RelOptInfo *parent)
 	rel->subplan_params = NIL;
 	rel->rel_parallel_workers = -1; /* set up in get_relation_info */
 	rel->amflags = 0;
+	rel->join_rel_list_index = -1;
+	rel->eclass_child_members = NIL;
 	rel->serverid = InvalidOid;
 	if (rte->rtekind == RTE_RELATION)
 	{
@@ -626,6 +645,12 @@ set_foreign_rel_properties(RelOptInfo *joinrel, RelOptInfo *outer_rel,
 static void
 add_join_rel(PlannerInfo *root, RelOptInfo *joinrel)
 {
+	/*
+	 * Store the index of this joinrel to use in
+	 * add_child_join_rel_equivalences().
+	 */
+	joinrel->join_rel_list_index = list_length(root->join_rel_list);
+
 	/* GEQO requires us to append the new joinrel to the end of the list! */
 	root->join_rel_list = lappend(root->join_rel_list, joinrel);
 
@@ -741,6 +766,8 @@ build_join_rel(PlannerInfo *root,
 	joinrel->subplan_params = NIL;
 	joinrel->rel_parallel_workers = -1;
 	joinrel->amflags = 0;
+	joinrel->join_rel_list_index = -1;
+	joinrel->eclass_child_members = NIL;
 	joinrel->serverid = InvalidOid;
 	joinrel->userid = InvalidOid;
 	joinrel->useridiscurrent = false;
@@ -928,6 +955,8 @@ build_child_join_rel(PlannerInfo *root, RelOptInfo *outer_rel,
 	joinrel->subroot = NULL;
 	joinrel->subplan_params = NIL;
 	joinrel->amflags = 0;
+	joinrel->join_rel_list_index = -1;
+	joinrel->eclass_child_members = NIL;
 	joinrel->serverid = InvalidOid;
 	joinrel->userid = InvalidOid;
 	joinrel->useridiscurrent = false;
@@ -1490,6 +1519,8 @@ fetch_upper_rel(PlannerInfo *root, UpperRelationKind kind, Relids relids)
 	upperrel->cheapest_total_path = NULL;
 	upperrel->cheapest_unique_path = NULL;
 	upperrel->cheapest_parameterized_paths = NIL;
+	upperrel->join_rel_list_index = -1;
+	upperrel->eclass_child_members = NIL;
 
 	root->upper_rels[kind] = lappend(root->upper_rels[kind], upperrel);
 

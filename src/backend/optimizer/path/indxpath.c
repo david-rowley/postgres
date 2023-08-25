@@ -190,7 +190,7 @@ static IndexClause *expand_indexqual_rowcompare(PlannerInfo *root,
 												IndexOptInfo *index,
 												Oid expr_op,
 												bool var_on_left);
-static void match_pathkeys_to_index(IndexOptInfo *index, List *pathkeys,
+static void match_pathkeys_to_index(PlannerInfo *root, IndexOptInfo *index, List *pathkeys,
 									List **orderby_clauses_p,
 									List **clause_columns_p);
 static Expr *match_clause_to_ordering_op(IndexOptInfo *index,
@@ -934,7 +934,7 @@ build_index_paths(PlannerInfo *root, RelOptInfo *rel,
 		 * query_pathkeys will allow an incremental sort to be considered on
 		 * the index's partially sorted results.
 		 */
-		match_pathkeys_to_index(index, root->query_pathkeys,
+		match_pathkeys_to_index(root, index, root->query_pathkeys,
 								&orderbyclauses,
 								&orderbyclausecols);
 		if (list_length(root->query_pathkeys) == list_length(orderbyclauses))
@@ -3796,7 +3796,7 @@ expand_indexqual_rowcompare(PlannerInfo *root,
  * item in the given 'pathkeys' list.
  */
 static void
-match_pathkeys_to_index(IndexOptInfo *index, List *pathkeys,
+match_pathkeys_to_index(PlannerInfo *root, IndexOptInfo *index, List *pathkeys,
 						List **orderby_clauses_p,
 						List **clause_columns_p)
 {
@@ -3813,7 +3813,8 @@ match_pathkeys_to_index(IndexOptInfo *index, List *pathkeys,
 	{
 		PathKey    *pathkey = (PathKey *) lfirst(lc1);
 		bool		found = false;
-		ListCell   *lc2;
+		EquivalenceMemberIterator it;
+		EquivalenceMember *member;
 
 
 		/* Pathkey must request default sort order for the target opfamily */
@@ -3833,9 +3834,10 @@ match_pathkeys_to_index(IndexOptInfo *index, List *pathkeys,
 		 * be considered to match more than one pathkey list, which is OK
 		 * here.  See also get_eclass_for_sort_expr.)
 		 */
-		foreach(lc2, pathkey->pk_eclass->ec_members)
+		setup_eclass_member_iterator_with_children(&it, root, pathkey->pk_eclass,
+												   index->rel->relids);
+		while ((member = eclass_member_iterator_next(&it)) != NULL)
 		{
-			EquivalenceMember *member = (EquivalenceMember *) lfirst(lc2);
 			int			indexcol;
 
 			/* No possibility of match if it references other relations */
@@ -3870,6 +3872,7 @@ match_pathkeys_to_index(IndexOptInfo *index, List *pathkeys,
 			if (found)			/* don't want to look at remaining members */
 				break;
 		}
+		dispose_eclass_member_iterator(&it);
 
 		/*
 		 * Return the matches found so far when this pathkey couldn't be

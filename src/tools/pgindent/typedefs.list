@@ -703,7 +703,9 @@ EphemeralNamedRelationData
 EphemeralNamedRelationMetadata
 EphemeralNamedRelationMetadataData
 EquivalenceClass
+EquivalenceClassIndexes
 EquivalenceMember
+EquivalenceMemberIterator
 ErrorContextCallback
 ErrorData
 ErrorSaveContext
