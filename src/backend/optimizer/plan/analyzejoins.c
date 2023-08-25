@@ -52,7 +52,7 @@ static void remove_leftjoinrel_from_query(PlannerInfo *root, int relid,
 										  SpecialJoinInfo *sjinfo);
 static void remove_rel_from_restrictinfo(RestrictInfo *rinfo,
 										 int relid, int ojrelid);
-static void remove_rel_from_eclass(EquivalenceClass *ec,
+static void remove_rel_from_eclass(PlannerInfo *root, EquivalenceClass *ec,
 								   int relid, int ojrelid);
 static List *remove_rel_from_joinlist(List *joinlist, int relid, int *nremoved);
 static bool rel_supports_distinctness(PlannerInfo *root, RelOptInfo *rel);
@@ -570,7 +570,7 @@ remove_leftjoinrel_from_query(PlannerInfo *root, int relid,
 
 		if (bms_is_member(relid, ec->ec_relids) ||
 			bms_is_member(ojrelid, ec->ec_relids))
-			remove_rel_from_eclass(ec, relid, ojrelid);
+			remove_rel_from_eclass(root, ec, relid, ojrelid);
 	}
 
 	/*
@@ -655,7 +655,8 @@ remove_rel_from_restrictinfo(RestrictInfo *rinfo, int relid, int ojrelid)
  * level(s).
  */
 static void
-remove_rel_from_eclass(EquivalenceClass *ec, int relid, int ojrelid)
+remove_rel_from_eclass(PlannerInfo *root, EquivalenceClass *ec, int relid,
+					   int ojrelid)
 {
 	ListCell   *lc;
 
