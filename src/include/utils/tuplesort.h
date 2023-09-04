@@ -137,7 +137,6 @@ typedef struct
 {
 	void	   *tuple;			/* the tuple itself */
 	Datum		datum1;			/* value of first key column */
-	bool		isnull1;		/* is first key column NULL? */
 	int			srctape;		/* source tape number */
 } SortTuple;
 
@@ -189,7 +188,7 @@ typedef struct
 	 * from the slab memory arena, or is palloc'd, see
 	 * tuplesort_readtup_alloc().
 	 */
-	void		(*readtup) (Tuplesortstate *state, SortTuple *stup,
+	void		(*readtup) (Tuplesortstate *state, SortTuple *stup, bool *isnull1,
 							LogicalTape *tape, unsigned int len);
 
 	/*
@@ -363,10 +362,10 @@ extern Tuplesortstate *tuplesort_begin_common(int workMem,
 extern void tuplesort_set_bound(Tuplesortstate *state, int64 bound);
 extern bool tuplesort_used_bound(Tuplesortstate *state);
 extern void tuplesort_puttuple_common(Tuplesortstate *state,
-									  SortTuple *tuple, bool useAbbrev);
+									  SortTuple *tuple, bool isnull, bool useAbbrev);
 extern void tuplesort_performsort(Tuplesortstate *state);
 extern bool tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
-									  SortTuple *stup);
+									  SortTuple *stup, bool *isnull1);
 extern bool tuplesort_skiptuples(Tuplesortstate *state, int64 ntuples,
 								 bool forward);
 extern void tuplesort_end(Tuplesortstate *state);

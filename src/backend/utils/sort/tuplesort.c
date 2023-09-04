@@ -218,6 +218,12 @@ struct Tuplesortstate
 	int			memtupsize;		/* allocated length of memtuples array */
 	bool		growmemtuples;	/* memtuples' growth still underway? */
 
+	/* Same as above but to store tuples with an NULL datum1 */
+	SortTuple  *nulltuples;			/* array of tuples with a NULL datum1 */
+	int			nulltupcount;		/* number of tuples in nulltuples */
+	int			nulltupsize;		/* allocated length of nulltuples array */
+	bool		grownulltuples;		/* nulltuples growth still underway? */
+
 	/*
 	 * Memory for tuples is sometimes allocated using a simple slab allocator,
 	 * rather than with palloc().  Currently, we switch to slab allocation
@@ -396,7 +402,7 @@ struct Sharedsort
 #define REMOVEABBREV(state,stup,count)	((*(state)->base.removeabbrev) (state, stup, count))
 #define COMPARETUP(state,a,b)	((*(state)->base.comparetup) (a, b, state))
 #define WRITETUP(state,tape,stup)	((*(state)->base.writetup) (state, tape, stup))
-#define READTUP(state,stup,tape,len) ((*(state)->base.readtup) (state, stup, tape, len))
+#define READTUP(state,stup,isnull1,tape,len) ((*(state)->base.readtup) (state, stup, isnull1, tape, len))
 #define FREESTATE(state)	((state)->base.freestate ? (*(state)->base.freestate) (state) : (void) 0)
 #define LACKMEM(state)		((state)->availMem < 0 && !(state)->slabAllocatorUsed)
 #define USEMEM(state,amt)	((state)->availMem -= (amt))
@@ -497,8 +503,8 @@ qsort_tuple_unsigned_compare(SortTuple *a, SortTuple *b, Tuplesortstate *state)
 {
 	int			compare;
 
-	compare = ApplyUnsignedSortComparator(a->datum1, a->isnull1,
-										  b->datum1, b->isnull1,
+	compare = ApplyUnsignedSortComparator(a->datum1,
+										  b->datum1,
 										  &state->base.sortKeys[0]);
 	if (compare != 0)
 		return compare;
@@ -520,8 +526,8 @@ qsort_tuple_signed_compare(SortTuple *a, SortTuple *b, Tuplesortstate *state)
 {
 	int			compare;
 
-	compare = ApplySignedSortComparator(a->datum1, a->isnull1,
-										b->datum1, b->isnull1,
+	compare = ApplySignedSortComparator(a->datum1,
+										b->datum1,
 										&state->base.sortKeys[0]);
 
 	if (compare != 0)
@@ -544,8 +550,8 @@ qsort_tuple_int32_compare(SortTuple *a, SortTuple *b, Tuplesortstate *state)
 {
 	int			compare;
 
-	compare = ApplyInt32SortComparator(a->datum1, a->isnull1,
-									   b->datum1, b->isnull1,
+	compare = ApplyInt32SortComparator(a->datum1,
+									   b->datum1,
 									   &state->base.sortKeys[0]);
 
 	if (compare != 0)
@@ -612,11 +618,20 @@ qsort_tuple_int32_compare(SortTuple *a, SortTuple *b, Tuplesortstate *state)
 #define ST_SORT qsort_ssup
 #define ST_ELEMENT_TYPE SortTuple
 #define ST_COMPARE(a, b, ssup) \
-	ApplySortComparator((a)->datum1, (a)->isnull1, \
-						(b)->datum1, (b)->isnull1, (ssup))
+	ApplySortComparatorNotNull((a)->datum1, (b)->datum1, (ssup))
 #define ST_COMPARE_ARG_TYPE SortSupportData
 #define ST_CHECK_FOR_INTERRUPTS
 #define ST_SCOPE static
+#define ST_DEFINE
+#include "lib/sort_template.h"
+
+#define ST_SORT qsort_nulltuple
+#define ST_ELEMENT_TYPE SortTuple
+#define ST_COMPARE_RUNTIME_POINTER
+#define ST_COMPARE_ARG_TYPE Tuplesortstate
+#define ST_CHECK_FOR_INTERRUPTS
+#define ST_SCOPE static
+#define ST_DECLARE
 #define ST_DEFINE
 #include "lib/sort_template.h"
 
@@ -705,6 +720,9 @@ tuplesort_begin_common(int workMem, SortCoordinate coordinate, int sortopt)
 	 */
 	state->memtupsize = INITIAL_MEMTUPSIZE;
 	state->memtuples = NULL;
+
+	state->nulltupsize = INITIAL_MEMTUPSIZE; /* XXX need it be this big? */
+	state->nulltuples = NULL;
 
 	/*
 	 * After all of the other non-parallel-related state, we setup all of the
@@ -807,6 +825,20 @@ tuplesort_begin_batch(Tuplesortstate *state)
 	{
 		state->memtuples = (SortTuple *) palloc(state->memtupsize * sizeof(SortTuple));
 		USEMEM(state, GetMemoryChunkSpace(state->memtuples));
+	}
+
+	/* As above but for the nulltuples array */
+	state->grownulltuples = true;
+	if (state->nulltuples != NULL && state->nulltupsize != INITIAL_MEMTUPSIZE)
+	{
+		pfree(state->nulltuples);
+		state->nulltuples = NULL;
+		state->nulltupsize = INITIAL_MEMTUPSIZE;
+	}
+	if (state->nulltuples == NULL)
+	{
+		state->nulltuples = (SortTuple *) palloc(state->nulltupsize * sizeof(SortTuple));
+		USEMEM(state, GetMemoryChunkSpace(state->nulltuples));
 	}
 
 	/* workMem must be large enough for the minimal memtuples array */
@@ -1181,10 +1213,131 @@ noalloc:
 }
 
 /*
+ * As grow_memtuples(), but for the nulltuples array.
+ */
+static bool
+grow_nulltuples(Tuplesortstate *state)
+{
+	int			newnulltupsize;
+	int			nulltupsize = state->nulltupsize;
+	int64		memNowUsed = state->allowedMem - state->availMem;
+
+	/*
+	 * Forget it if we've already maxed out nulltuples, per header comment in
+	 * grow_memtuples()
+	 */
+	if (!state->grownulltuples)
+		return false;
+
+	/* Select new value of nulltupsize */
+	if (memNowUsed <= state->availMem)
+	{
+		/*
+		 * We've used no more than half of allowedMem; double our usage,
+		 * clamping at INT_MAX tuples.
+		 */
+		if (nulltupsize < INT_MAX / 2)
+			newnulltupsize = nulltupsize * 2;
+		else
+		{
+			newnulltupsize = INT_MAX;
+			state->grownulltuples = false;
+		}
+	}
+	else
+	{
+		/*
+		 * This will be the last increment of nulltupsize.  Abandon doubling
+		 * strategy and instead increase as much as we safely can.
+		 *
+		 * To stay within allowedMem, we can't increase nulltupsize by more
+		 * than availMem / sizeof(void *) elements.  In practice, we want
+		 * to increase it by considerably less, because we need to leave some
+		 * space for the tuples to which the new array slots will refer.  We
+		 * assume the new tuples will be about the same size as the tuples
+		 * we've already seen, and thus we can extrapolate from the space
+		 * consumption so far to estimate an appropriate new size for the
+		 * nulltuples array.  The optimal value might be higher or lower than
+		 * this estimate, but it's hard to know that in advance.  We again
+		 * clamp at INT_MAX tuples.
+		 *
+		 * This calculation is safe against enlarging the array so much that
+		 * LACKMEM becomes true, because the memory currently used includes
+		 * the present array; thus, there would be enough allowedMem for the
+		 * new array elements even if no other memory were currently used.
+		 *
+		 * We do the arithmetic in float8, because otherwise the product of
+		 * nulltupsize and allowedMem could overflow.  Any inaccuracy in the
+		 * result should be insignificant; but even if we computed a
+		 * completely insane result, the checks below will prevent anything
+		 * really bad from happening.
+		 */
+		double		grow_ratio;
+
+		grow_ratio = (double) state->allowedMem / (double) memNowUsed;
+		if (nulltupsize * grow_ratio < INT_MAX)
+			newnulltupsize = (int) (nulltupsize * grow_ratio);
+		else
+			newnulltupsize = INT_MAX;
+
+		/* We won't make any further enlargement attempts */
+		state->growmemtuples = false;
+	}
+
+	/* Must enlarge array by at least one element, else report failure */
+	if (newnulltupsize <= nulltupsize)
+		goto noalloc;
+
+	/*
+	 * On a 32-bit machine, allowedMem could exceed MaxAllocHugeSize.  Clamp
+	 * to ensure our request won't be rejected.  Note that we can easily
+	 * exhaust address space before facing this outcome.  (This is presently
+	 * impossible due to guc.c's MAX_KILOBYTES limitation on work_mem, but
+	 * don't rely on that at this distance.)
+	 */
+	if ((Size) newnulltupsize >= MaxAllocHugeSize / sizeof(SortTuple))
+	{
+		newnulltupsize = (int) (MaxAllocHugeSize / sizeof(SortTuple));
+		state->grownulltuples = false;	/* can't grow any more */
+	}
+
+	/*
+	 * We need to be sure that we do not cause LACKMEM to become true, else
+	 * the space management algorithm will go nuts.  The code above should
+	 * never generate a dangerous request, but to be safe, check explicitly
+	 * that the array growth fits within availMem.  (We could still cause
+	 * LACKMEM if the memory chunk overhead associated with the nulltuples
+	 * array were to increase.  That shouldn't happen because we chose the
+	 * initial array size large enough to ensure that palloc will be treating
+	 * both old and new arrays as separate chunks.  But we'll check LACKMEM
+	 * explicitly below just in case.)
+	 */
+	if (state->availMem < (int64) ((newnulltupsize - nulltupsize) * sizeof(SortTuple)))
+		goto noalloc;
+
+	/* OK, do it */
+	FREEMEM(state, GetMemoryChunkSpace(state->nulltuples));
+	state->nulltupsize = newnulltupsize;
+	state->nulltuples = (SortTuple *)
+		repalloc_huge(state->nulltuples,
+					  state->nulltupsize * sizeof(SortTuple));
+	USEMEM(state, GetMemoryChunkSpace(state->nulltuples));
+	if (LACKMEM(state))
+		elog(ERROR, "unexpected out-of-memory situation in tuplesort");
+	return true;
+
+noalloc:
+	/* If for any reason we didn't realloc, shut off future attempts */
+	state->grownulltuples = false;
+	return false;
+}
+
+/*
  * Shared code for tuple and datum cases.
  */
 void
-tuplesort_puttuple_common(Tuplesortstate *state, SortTuple *tuple, bool useAbbrev)
+tuplesort_puttuple_common(Tuplesortstate *state, SortTuple *tuple,
+						  bool isnull, bool useAbbrev)
 {
 	MemoryContext oldcontext = MemoryContextSwitchTo(state->base.sortcontext);
 
@@ -1229,19 +1382,36 @@ tuplesort_puttuple_common(Tuplesortstate *state, SortTuple *tuple, bool useAbbre
 	{
 		case TSS_INITIAL:
 
-			/*
-			 * Save the tuple into the unsorted array.  First, grow the array
-			 * as needed.  Note that we try to grow the array when there is
-			 * still one free slot remaining --- if we fail, there'll still be
-			 * room to store the incoming tuple, and then we'll switch to
-			 * tape-based operation.
-			 */
-			if (state->memtupcount >= state->memtupsize - 1)
+			if (isnull)
 			{
-				(void) grow_memtuples(state);
-				Assert(state->memtupcount < state->memtupsize);
+				/*
+				 * Save the tuple into the nulltuples array, growing it if
+				 * we're short on space.
+				 */
+				if (state->nulltupcount >= state->nulltupsize - 1)
+				{
+					(void) grow_nulltuples(state);
+					Assert(state->nulltupcount < state->nulltupsize);
+				}
+
+				state->nulltuples[state->nulltupcount++] = *tuple;
 			}
-			state->memtuples[state->memtupcount++] = *tuple;
+			else
+			{
+				/*
+				 * Save the tuple into the unsorted array.  First, grow the array
+				 * as needed.  Note that we try to grow the array when there is
+				 * still one free slot remaining --- if we fail, there'll still be
+				 * room to store the incoming tuple, and then we'll switch to
+				 * tape-based operation.
+				 */
+				if (state->memtupcount >= state->memtupsize - 1)
+				{
+					(void) grow_memtuples(state);
+					Assert(state->memtupcount < state->memtupsize);
+				}
+				state->memtuples[state->memtupcount++] = *tuple;
+			}
 
 			/*
 			 * Check if it's time to switch over to a bounded heapsort. We do
@@ -1256,8 +1426,8 @@ tuplesort_puttuple_common(Tuplesortstate *state, SortTuple *tuple, bool useAbbre
 			 * exceed workMem significantly.
 			 */
 			if (state->bounded &&
-				(state->memtupcount > state->bound * 2 ||
-				 (state->memtupcount > state->bound && LACKMEM(state))))
+				(state->memtupcount + state->nulltupcount > state->bound * 2 ||
+				 (state->memtupcount + state->nulltupcount > state->bound && LACKMEM(state))))
 			{
 #ifdef TRACE_SORT
 				if (trace_sort)
@@ -1273,7 +1443,9 @@ tuplesort_puttuple_common(Tuplesortstate *state, SortTuple *tuple, bool useAbbre
 			/*
 			 * Done if we still fit in available memory and have array slots.
 			 */
-			if (state->memtupcount < state->memtupsize && !LACKMEM(state))
+			if (state->memtupcount < state->memtupsize &&
+				state->nulltupcount < state->nulltupsize && 
+				!LACKMEM(state))
 			{
 				MemoryContextSwitchTo(oldcontext);
 				return;
@@ -1491,7 +1663,7 @@ tuplesort_performsort(Tuplesortstate *state)
  */
 bool
 tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
-						  SortTuple *stup)
+						  SortTuple *stup, bool *isnull1)
 {
 	unsigned int tuplen;
 	size_t		nmoved;
@@ -1565,7 +1737,7 @@ tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
 
 				if ((tuplen = getlen(state->result_tape, true)) != 0)
 				{
-					READTUP(state, stup, state->result_tape, tuplen);
+					READTUP(state, stup, isnull1, state->result_tape, tuplen);
 
 					/*
 					 * Remember the tuple we return, so that we can recycle
@@ -1649,7 +1821,7 @@ tuplesort_gettuple_common(Tuplesortstate *state, bool forward,
 										  tuplen);
 			if (nmoved != tuplen)
 				elog(ERROR, "bogus tuple length in backward scan");
-			READTUP(state, stup, state->result_tape, tuplen);
+			READTUP(state, stup, isnull1, state->result_tape, tuplen);
 
 			/*
 			 * Remember the tuple we return, so that we can recycle its memory
@@ -1773,9 +1945,10 @@ tuplesort_skiptuples(Tuplesortstate *state, int64 ntuples, bool forward)
 			oldcontext = MemoryContextSwitchTo(state->base.sortcontext);
 			while (ntuples-- > 0)
 			{
+				bool isnull1;
 				SortTuple	stup;
 
-				if (!tuplesort_gettuple_common(state, forward, &stup))
+				if (!tuplesort_gettuple_common(state, forward, &stup, &isnull1))
 				{
 					MemoryContextSwitchTo(oldcontext);
 					return false;
@@ -2317,11 +2490,12 @@ static bool
 mergereadnext(Tuplesortstate *state, LogicalTape *srcTape, SortTuple *stup)
 {
 	unsigned int tuplen;
+	bool		isnull1;
 
 	/* read next tuple, if any */
 	if ((tuplen = getlen(srcTape, true)) == 0)
 		return false;
-	READTUP(state, stup, srcTape, tuplen);
+	READTUP(state, stup, &isnull1, srcTape, tuplen);
 
 	return true;
 }
@@ -2354,7 +2528,7 @@ dumptuples(Tuplesortstate *state, bool alltuples)
 	 * creating a completely empty run.  In a worker, though, we must produce
 	 * at least one tape, even if it's empty.
 	 */
-	if (state->memtupcount == 0 && state->currentRun > 0)
+	if (state->memtupcount == 0 && state->nulltupcount && state->currentRun > 0)
 		return;
 
 	Assert(state->status == TSS_BUILDRUNS);
@@ -2758,6 +2932,14 @@ tuplesort_sort_memtuples(Tuplesortstate *state)
 						state->base.comparetup,
 						state);
 		}
+	}
+
+	if (state->nulltupcount > 1)
+	{
+		qsort_nulltuple(state->nulltuples,
+						state->nulltupcount,
+						state->base.comparetup,
+						state);
 	}
 }
 

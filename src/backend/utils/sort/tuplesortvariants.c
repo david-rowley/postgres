@@ -51,7 +51,7 @@ static int	comparetup_heap_tiebreak(const SortTuple *a, const SortTuple *b,
 									 Tuplesortstate *state);
 static void writetup_heap(Tuplesortstate *state, LogicalTape *tape,
 						  SortTuple *stup);
-static void readtup_heap(Tuplesortstate *state, SortTuple *stup,
+static void readtup_heap(Tuplesortstate *state, SortTuple *stup, bool *isnull1,
 						 LogicalTape *tape, unsigned int len);
 static int	comparetup_cluster(const SortTuple *a, const SortTuple *b,
 							   Tuplesortstate *state);
@@ -59,7 +59,7 @@ static int	comparetup_cluster_tiebreak(const SortTuple *a, const SortTuple *b,
 										Tuplesortstate *state);
 static void writetup_cluster(Tuplesortstate *state, LogicalTape *tape,
 							 SortTuple *stup);
-static void readtup_cluster(Tuplesortstate *state, SortTuple *stup,
+static void readtup_cluster(Tuplesortstate *state, SortTuple *stup, bool *isnull1,
 							LogicalTape *tape, unsigned int tuplen);
 static int	comparetup_index_btree(const SortTuple *a, const SortTuple *b,
 								   Tuplesortstate *state);
@@ -71,7 +71,7 @@ static int	comparetup_index_hash_tiebreak(const SortTuple *a, const SortTuple *b
 										   Tuplesortstate *state);
 static void writetup_index(Tuplesortstate *state, LogicalTape *tape,
 						   SortTuple *stup);
-static void readtup_index(Tuplesortstate *state, SortTuple *stup,
+static void readtup_index(Tuplesortstate *state, SortTuple *stup, bool *isnull1,
 						  LogicalTape *tape, unsigned int len);
 static int	comparetup_datum(const SortTuple *a, const SortTuple *b,
 							 Tuplesortstate *state);
@@ -79,7 +79,7 @@ static int	comparetup_datum_tiebreak(const SortTuple *a, const SortTuple *b,
 									  Tuplesortstate *state);
 static void writetup_datum(Tuplesortstate *state, LogicalTape *tape,
 						   SortTuple *stup);
-static void readtup_datum(Tuplesortstate *state, SortTuple *stup,
+static void readtup_datum(Tuplesortstate *state, SortTuple *stup, bool *isnull1,
 						  LogicalTape *tape, unsigned int len);
 static void freestate_cluster(Tuplesortstate *state);
 
@@ -621,6 +621,7 @@ tuplesort_puttupleslot(Tuplesortstate *state, TupleTableSlot *slot)
 	SortTuple	stup;
 	MinimalTuple tuple;
 	HeapTupleData htup;
+	bool		isnull1;
 
 	/* copy the tuple into sort storage */
 	tuple = ExecCopySlotMinimalTuple(slot);
@@ -631,11 +632,11 @@ tuplesort_puttupleslot(Tuplesortstate *state, TupleTableSlot *slot)
 	stup.datum1 = heap_getattr(&htup,
 							   base->sortKeys[0].ssup_attno,
 							   tupDesc,
-							   &stup.isnull1);
+							   &isnull1);
 
 	tuplesort_puttuple_common(state, &stup,
 							  base->sortKeys->abbrev_converter &&
-							  !stup.isnull1);
+							  !isnull1, isnull1);
 
 	MemoryContextSwitchTo(oldcontext);
 }
@@ -652,6 +653,7 @@ tuplesort_putheaptuple(Tuplesortstate *state, HeapTuple tup)
 	TuplesortPublic *base = TuplesortstateGetPublic(state);
 	MemoryContext oldcontext = MemoryContextSwitchTo(base->tuplecontext);
 	TuplesortClusterArg *arg = (TuplesortClusterArg *) base->arg;
+	bool		isnull1;
 
 	/* copy the tuple into sort storage */
 	tup = heap_copytuple(tup);
@@ -666,13 +668,14 @@ tuplesort_putheaptuple(Tuplesortstate *state, HeapTuple tup)
 		stup.datum1 = heap_getattr(tup,
 								   arg->indexInfo->ii_IndexAttrNumbers[0],
 								   arg->tupDesc,
-								   &stup.isnull1);
+								   &isnull1);
 	}
 
 	tuplesort_puttuple_common(state, &stup,
 							  base->haveDatum1 &&
 							  base->sortKeys->abbrev_converter &&
-							  !stup.isnull1);
+							  !isnull1,
+							  isnull1);
 
 	MemoryContextSwitchTo(oldcontext);
 }
@@ -690,6 +693,7 @@ tuplesort_putindextuplevalues(Tuplesortstate *state, Relation rel,
 	IndexTuple	tuple;
 	TuplesortPublic *base = TuplesortstateGetPublic(state);
 	TuplesortIndexArg *arg = (TuplesortIndexArg *) base->arg;
+	bool		isnull1;
 
 	stup.tuple = index_form_tuple_context(RelationGetDescr(rel), values,
 										  isnull, base->tuplecontext);
@@ -699,12 +703,13 @@ tuplesort_putindextuplevalues(Tuplesortstate *state, Relation rel,
 	stup.datum1 = index_getattr(tuple,
 								1,
 								RelationGetDescr(arg->indexRel),
-								&stup.isnull1);
+								&isnull1);
 
 	tuplesort_puttuple_common(state, &stup,
 							  base->sortKeys &&
 							  base->sortKeys->abbrev_converter &&
-							  !stup.isnull1);
+							  !isnull1,
+							  isnull1);
 }
 
 /*
@@ -739,19 +744,18 @@ tuplesort_putdatum(Tuplesortstate *state, Datum val, bool isNull)
 		 * and to support cheap inequality tests for NULL abbreviated keys).
 		 */
 		stup.datum1 = !isNull ? val : (Datum) 0;
-		stup.isnull1 = isNull;
 		stup.tuple = NULL;		/* no separate storage */
 	}
 	else
 	{
-		stup.isnull1 = false;
 		stup.datum1 = datumCopy(val, false, arg->datumTypeLen);
 		stup.tuple = DatumGetPointer(stup.datum1);
 	}
 
 	tuplesort_puttuple_common(state, &stup,
 							  base->tuples &&
-							  base->sortKeys->abbrev_converter && !isNull);
+							  base->sortKeys->abbrev_converter && !isNull,
+							  isNull);
 
 	MemoryContextSwitchTo(oldcontext);
 }
@@ -783,8 +787,9 @@ tuplesort_gettupleslot(Tuplesortstate *state, bool forward, bool copy,
 	TuplesortPublic *base = TuplesortstateGetPublic(state);
 	MemoryContext oldcontext = MemoryContextSwitchTo(base->sortcontext);
 	SortTuple	stup;
+	bool		isnull1;
 
-	if (!tuplesort_gettuple_common(state, forward, &stup))
+	if (!tuplesort_gettuple_common(state, forward, &stup, &isnull1))
 		stup.tuple = NULL;
 
 	MemoryContextSwitchTo(oldcontext);
@@ -820,8 +825,9 @@ tuplesort_getheaptuple(Tuplesortstate *state, bool forward)
 	TuplesortPublic *base = TuplesortstateGetPublic(state);
 	MemoryContext oldcontext = MemoryContextSwitchTo(base->sortcontext);
 	SortTuple	stup;
+	bool isnull1;
 
-	if (!tuplesort_gettuple_common(state, forward, &stup))
+	if (!tuplesort_gettuple_common(state, forward, &stup, &isnull1))
 		stup.tuple = NULL;
 
 	MemoryContextSwitchTo(oldcontext);
@@ -841,8 +847,9 @@ tuplesort_getindextuple(Tuplesortstate *state, bool forward)
 	TuplesortPublic *base = TuplesortstateGetPublic(state);
 	MemoryContext oldcontext = MemoryContextSwitchTo(base->sortcontext);
 	SortTuple	stup;
+	bool		isnull1;
 
-	if (!tuplesort_gettuple_common(state, forward, &stup))
+	if (!tuplesort_gettuple_common(state, forward, &stup, &isnull1))
 		stup.tuple = NULL;
 
 	MemoryContextSwitchTo(oldcontext);
@@ -884,7 +891,7 @@ tuplesort_getdatum(Tuplesortstate *state, bool forward, bool copy,
 	TuplesortDatumArg *arg = (TuplesortDatumArg *) base->arg;
 	SortTuple	stup;
 
-	if (!tuplesort_gettuple_common(state, forward, &stup))
+	if (!tuplesort_gettuple_common(state, forward, &stup, isNull))
 	{
 		MemoryContextSwitchTo(oldcontext);
 		return false;
@@ -897,10 +904,9 @@ tuplesort_getdatum(Tuplesortstate *state, bool forward, bool copy,
 	if (base->sortKeys->abbrev_converter && abbrev)
 		*abbrev = stup.datum1;
 
-	if (stup.isnull1 || !base->tuples)
+	if (isNull || !base->tuples)
 	{
 		*val = stup.datum1;
-		*isNull = stup.isnull1;
 	}
 	else
 	{
@@ -930,6 +936,7 @@ removeabbrev_heap(Tuplesortstate *state, SortTuple *stups, int count)
 	for (i = 0; i < count; i++)
 	{
 		HeapTupleData htup;
+		bool		  isnull1;
 
 		htup.t_len = ((MinimalTuple) stups[i].tuple)->t_len +
 			MINIMAL_TUPLE_OFFSET;
@@ -938,7 +945,8 @@ removeabbrev_heap(Tuplesortstate *state, SortTuple *stups, int count)
 		stups[i].datum1 = heap_getattr(&htup,
 									   base->sortKeys[0].ssup_attno,
 									   (TupleDesc) base->arg,
-									   &stups[i].isnull1);
+									   &isnull1);
+		Assert(!isnull1);
 	}
 }
 
@@ -951,9 +959,7 @@ comparetup_heap(const SortTuple *a, const SortTuple *b, Tuplesortstate *state)
 
 
 	/* Compare the leading sort key */
-	compare = ApplySortComparator(a->datum1, a->isnull1,
-								  b->datum1, b->isnull1,
-								  sortKey);
+	compare = ApplySortComparatorNotNull(a->datum1, b->datum1, sortKey);
 	if (compare != 0)
 		return compare;
 
@@ -1035,7 +1041,7 @@ writetup_heap(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
 }
 
 static void
-readtup_heap(Tuplesortstate *state, SortTuple *stup,
+readtup_heap(Tuplesortstate *state, SortTuple *stup, bool *isnull1,
 			 LogicalTape *tape, unsigned int len)
 {
 	unsigned int tupbodylen = len - sizeof(int);
@@ -1057,7 +1063,7 @@ readtup_heap(Tuplesortstate *state, SortTuple *stup,
 	stup->datum1 = heap_getattr(&htup,
 								base->sortKeys[0].ssup_attno,
 								(TupleDesc) base->arg,
-								&stup->isnull1);
+								isnull1);
 }
 
 /*
@@ -1075,12 +1081,14 @@ removeabbrev_cluster(Tuplesortstate *state, SortTuple *stups, int count)
 	for (i = 0; i < count; i++)
 	{
 		HeapTuple	tup;
+		bool		isnull1;
 
 		tup = (HeapTuple) stups[i].tuple;
 		stups[i].datum1 = heap_getattr(tup,
 									   arg->indexInfo->ii_IndexAttrNumbers[0],
 									   arg->tupDesc,
-									   &stups[i].isnull1);
+									   &isnull1);
+		Assert(!isnull1);
 	}
 }
 
@@ -1095,9 +1103,7 @@ comparetup_cluster(const SortTuple *a, const SortTuple *b,
 	/* Compare the leading sort key, if it's simple */
 	if (base->haveDatum1)
 	{
-		compare = ApplySortComparator(a->datum1, a->isnull1,
-									  b->datum1, b->isnull1,
-									  sortKey);
+		compare = ApplySortComparatorNotNull(a->datum1, b->datum1, sortKey);
 		if (compare != 0)
 			return compare;
 	}
@@ -1228,7 +1234,7 @@ writetup_cluster(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
 }
 
 static void
-readtup_cluster(Tuplesortstate *state, SortTuple *stup,
+readtup_cluster(Tuplesortstate *state, SortTuple *stup, bool *isnull1,
 				LogicalTape *tape, unsigned int tuplen)
 {
 	TuplesortPublic *base = TuplesortstateGetPublic(state);
@@ -1253,7 +1259,7 @@ readtup_cluster(Tuplesortstate *state, SortTuple *stup,
 		stup->datum1 = heap_getattr(tuple,
 									arg->indexInfo->ii_IndexAttrNumbers[0],
 									arg->tupDesc,
-									&stup->isnull1);
+									isnull1);
 }
 
 static void
@@ -1290,12 +1296,14 @@ removeabbrev_index(Tuplesortstate *state, SortTuple *stups, int count)
 	for (i = 0; i < count; i++)
 	{
 		IndexTuple	tuple;
+		bool		isnull1;
 
 		tuple = stups[i].tuple;
 		stups[i].datum1 = index_getattr(tuple,
 										1,
 										RelationGetDescr(arg->indexRel),
-										&stups[i].isnull1);
+										&isnull1);
+		Assert(!isnull1);
 	}
 }
 
@@ -1313,9 +1321,7 @@ comparetup_index_btree(const SortTuple *a, const SortTuple *b,
 	int32		compare;
 
 	/* Compare the leading sort key */
-	compare = ApplySortComparator(a->datum1, a->isnull1,
-								  b->datum1, b->isnull1,
-								  sortKey);
+	compare = ApplySortComparatorNotNull(a->datum1, b->datum1, sortKey);
 	if (compare != 0)
 		return compare;
 
@@ -1357,11 +1363,11 @@ comparetup_index_btree_tiebreak(const SortTuple *a, const SortTuple *b,
 												sortKey);
 		if (compare != 0)
 			return compare;
-	}
 
-	/* they are equal, so we only need to examine one null flag */
-	if (a->isnull1)
-		equal_hasnull = true;
+		/* they are equal, so we only need to examine one null flag */
+		if (isnull1)
+			equal_hasnull = true;
+	}
 
 	sortKey++;
 	for (nkey = 2; nkey <= keysz; nkey++, sortKey++)
@@ -1463,11 +1469,9 @@ comparetup_index_hash(const SortTuple *a, const SortTuple *b,
 	 * initial sort is just on the bucket number.  We know that the first
 	 * column of the index tuple is the hash key.
 	 */
-	Assert(!a->isnull1);
 	bucket1 = _hash_hashkey2bucket(DatumGetUInt32(a->datum1),
 								   arg->max_buckets, arg->high_mask,
 								   arg->low_mask);
-	Assert(!b->isnull1);
 	bucket2 = _hash_hashkey2bucket(DatumGetUInt32(b->datum1),
 								   arg->max_buckets, arg->high_mask,
 								   arg->low_mask);
@@ -1545,7 +1549,7 @@ writetup_index(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
 }
 
 static void
-readtup_index(Tuplesortstate *state, SortTuple *stup,
+readtup_index(Tuplesortstate *state, SortTuple *stup, bool *isnull1,
 			  LogicalTape *tape, unsigned int len)
 {
 	TuplesortPublic *base = TuplesortstateGetPublic(state);
@@ -1561,7 +1565,7 @@ readtup_index(Tuplesortstate *state, SortTuple *stup,
 	stup->datum1 = index_getattr(tuple,
 								 1,
 								 RelationGetDescr(arg->indexRel),
-								 &stup->isnull1);
+								 isnull1);
 }
 
 /*
@@ -1583,9 +1587,8 @@ comparetup_datum(const SortTuple *a, const SortTuple *b, Tuplesortstate *state)
 	TuplesortPublic *base = TuplesortstateGetPublic(state);
 	int			compare;
 
-	compare = ApplySortComparator(a->datum1, a->isnull1,
-								  b->datum1, b->isnull1,
-								  base->sortKeys);
+	compare = ApplySortComparatorNotNull(a->datum1, b->datum1,
+										 base->sortKeys);
 	if (compare != 0)
 		return compare;
 
@@ -1600,8 +1603,10 @@ comparetup_datum_tiebreak(const SortTuple *a, const SortTuple *b, Tuplesortstate
 
 	/* if we have abbreviations, then "tuple" has the original value */
 	if (base->sortKeys->abbrev_converter)
-		compare = ApplySortAbbrevFullComparator(PointerGetDatum(a->tuple), a->isnull1,
-												PointerGetDatum(b->tuple), b->isnull1,
+		compare = ApplySortAbbrevFullComparator(PointerGetDatum(a->tuple),
+												false, /* XXX? */
+												PointerGetDatum(b->tuple),
+												false, /* XXX? */
 												base->sortKeys);
 
 	return compare;
@@ -1616,7 +1621,7 @@ writetup_datum(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
 	unsigned int tuplen;
 	unsigned int writtenlen;
 
-	if (stup->isnull1)
+	if (stup->tuple == NULL)
 	{
 		waddr = NULL;
 		tuplen = 0;
@@ -1642,7 +1647,7 @@ writetup_datum(Tuplesortstate *state, LogicalTape *tape, SortTuple *stup)
 }
 
 static void
-readtup_datum(Tuplesortstate *state, SortTuple *stup,
+readtup_datum(Tuplesortstate *state, SortTuple *stup, bool *isnull1,
 			  LogicalTape *tape, unsigned int len)
 {
 	TuplesortPublic *base = TuplesortstateGetPublic(state);
@@ -1652,14 +1657,14 @@ readtup_datum(Tuplesortstate *state, SortTuple *stup,
 	{
 		/* it's NULL */
 		stup->datum1 = (Datum) 0;
-		stup->isnull1 = true;
+		*isnull1 = true;
 		stup->tuple = NULL;
 	}
 	else if (!base->tuples)
 	{
 		Assert(tuplen == sizeof(Datum));
 		LogicalTapeReadExact(tape, &stup->datum1, tuplen);
-		stup->isnull1 = false;
+		*isnull1 = false;
 		stup->tuple = NULL;
 	}
 	else
@@ -1668,7 +1673,7 @@ readtup_datum(Tuplesortstate *state, SortTuple *stup,
 
 		LogicalTapeReadExact(tape, raddr, tuplen);
 		stup->datum1 = PointerGetDatum(raddr);
-		stup->isnull1 = false;
+		*isnull1 = false;
 		stup->tuple = raddr;
 	}
 
