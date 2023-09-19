@@ -1,48 +1,75 @@
 --
--- Tests for predicate handling
+-- Tests for predicate transformation
 --
 
---
--- test that restrictions that are always true are ignored
---
--- currently we only check for NullTest quals and OR clauses that include
--- NullTest quals.  We may extend it in the future.
---
-create table pred_tab (a int not null, b int);
+CREATE TABLE pred_tab (a INT NOT NULL, b INT);
 
--- An IS_NOT_NULL qual in restriction clauses can be ignored if it's on a NOT
+--
+-- test that restrictions that we detect as always true are ignored
+--
+
+-- An IS NOT NULL qual in restriction clauses can be ignored if it's on a NOT
 -- NULL column
-explain (costs off)
-select * from pred_tab t where t.a is not null;
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t WHERE t.a IS NOT NULL;
 
--- On the contrary, an IS_NOT_NULL qual in restriction clauses can not be
--- ignored if it's not on a NOT NULL column
-explain (costs off)
-select * from pred_tab t where t.b is not null;
+-- A more complex variant of the above.  Ensure we're left only with the
+-- t.b = 1 qual since t.a IS NOT NULL is always true
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t WHERE t.b = 1 AND t.a IS NOT NULL;
 
--- Tests for OR clauses in restriction clauses
-explain (costs off)
-select * from pred_tab t where t.a is not null or t.b = 1;
+-- Ensure t.b IS NOT NULL is not removed as t.b allows NULL values.
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t WHERE t.b IS NOT NULL;
 
-explain (costs off)
-select * from pred_tab t where t.b is not null or t.a = 1;
+-- Ensure the t.a IS NOT NULL is detected as always true.  We shouldn't see
+-- any quals in the scan.
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t WHERE t.a IS NOT NULL OR t.b = 1;
 
--- An IS_NOT_NULL qual in join clauses can be ignored if
--- a) it's on a NOT NULL column, and
+-- Ensure the quals remain as t.b allows NULL values.
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t WHERE t.b IS NOT NULL OR t.a = 1;
+
+-- An IS NOT NULL NullTest in join clauses can be ignored if
+-- a) it's on a NOT NULL column, and;
 -- b) its Var is not nulled by any outer joins
-explain (costs off)
-select * from pred_tab t1 left join pred_tab t2 on true left join pred_tab t3 on t2.a is not null;
 
--- Otherwise the IS_NOT_NULL qual in join clauses cannot be ignored
-explain (costs off)
-select * from pred_tab t1 left join pred_tab t2 on t1.a = 1 left join pred_tab t3 on t2.a is not null;
+-- Ensure t2.a IS NOT NULL is not seen in the plan
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON true
+LEFT JOIN pred_tab t3 ON t2.a IS NOT NULL;
 
--- Tests for OR clauses in join clauses
-explain (costs off)
-select * from pred_tab t1 left join pred_tab t2 on true left join pred_tab t3 on t2.a is not null or t2.b = 1;
+-- When some t2 rows are missing due to the left join we cannot forego
+-- including the t2.a is not null in the plan.  Ensure it remains.
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a = 1
+LEFT JOIN pred_tab t3 ON t2.a IS NOT NULL;
 
-explain (costs off)
-select * from pred_tab t1 left join pred_tab t2 on t1.a = 1 left join pred_tab t3 on t2.a is not null or t2.b = 1;
+-- Ensure t2.a IS NULL is detected as constantly TRUE and results in none of
+-- the quals appearing in the plan.
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON true
+LEFT JOIN pred_tab t3 ON t2.a IS NOT NULL OR t2.b = 1;
 
-drop table pred_tab;
+-- Ensure that the IS NOT NULL qual isn't removed as t2.a is nullable from
+-- t2's left join to t1.
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t1 LEFT JOIN pred_tab t2 ON t1.a = 1
+LEFT JOIN pred_tab t3 ON t2.a IS NOT NULL OR t2.b = 1;
+
+--
+-- Ensure that impossible IS NULL NullTests are detected when the Var cannot
+-- be NULL
+--
+
+-- Ensure we detect t.a IS NULL is impossible AND forego the scan
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t WHERE t.a IS NULL;
+
+-- As above, but add an additional qual
+EXPLAIN (COSTS OFF)
+SELECT * FROM pred_tab t WHERE t.a = 1234 AND t.a IS NULL;
+
+DROP TABLE pred_tab;
 

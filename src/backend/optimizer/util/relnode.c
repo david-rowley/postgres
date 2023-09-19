@@ -905,6 +905,7 @@ build_child_join_rel(PlannerInfo *root, RelOptInfo *outer_rel,
 	joinrel->max_attr = 0;
 	joinrel->attr_needed = NULL;
 	joinrel->attr_widths = NULL;
+	joinrel->notnullattnums = NULL;
 	joinrel->nulling_relids = NULL;
 	joinrel->lateral_vars = NIL;
 	joinrel->lateral_referencers = NULL;
