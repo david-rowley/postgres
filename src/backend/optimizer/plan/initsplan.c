@@ -2799,6 +2799,44 @@ transform_clause(PlannerInfo *root, Expr *clause)
 	return clause;
 }
 
+void
+transform_join_clauses(PlannerInfo *root)
+{
+	if (root->simple_rel_array_size == 1)
+		return;
+
+	for (int i = 1; i < root->simple_rel_array_size; i++)
+	{
+		RelOptInfo *rel = root->simple_rel_array[i];
+		ListCell *lc;
+
+		if (rel == NULL || rel->reloptkind != RELOPT_BASEREL)
+			continue;
+
+		foreach(lc, rel->joininfo)
+		{
+			RestrictInfo *restrictinfo = lfirst(lc);
+			Expr *newclause = transform_clause(root, restrictinfo->clause);
+
+			if (newclause != restrictinfo->clause)
+			{
+				restrictinfo =
+						make_restrictinfo(root,
+										  newclause,
+										  restrictinfo->is_pushed_down,
+										  restrictinfo->has_clone,
+										  restrictinfo->is_clone,
+										  restrictinfo->pseudoconstant,
+										  restrictinfo->security_level,
+										  restrictinfo->required_relids,
+										  restrictinfo->incompatible_relids,
+										  restrictinfo->outer_relids);
+				lfirst(lc) = restrictinfo;
+			}
+		}
+	}
+}
+
 /*
  * distribute_restrictinfo_to_rels
  *	  Push a completed RestrictInfo into the proper restriction or join

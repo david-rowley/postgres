@@ -76,6 +76,7 @@ extern void find_lateral_references(PlannerInfo *root);
 extern void create_lateral_join_info(PlannerInfo *root);
 extern List *deconstruct_jointree(PlannerInfo *root);
 extern Expr *transform_clause(PlannerInfo *root, Expr *clause);
+extern void transform_join_clauses(PlannerInfo *root);
 extern void distribute_restrictinfo_to_rels(PlannerInfo *root,
 											RestrictInfo *restrictinfo);
 extern RestrictInfo *process_implied_equality(PlannerInfo *root,
