@@ -380,6 +380,46 @@ create_plan(PlannerInfo *root, Path *best_path)
 	return plan;
 }
 
+#ifdef USE_ASSERT_CHECKING
+static void
+assert_pathkeys_in_target(Path *path)
+{
+	List *pathkeys = path->pathkeys;
+	PathTarget *target = path->pathtarget;
+	Relids relids = path->parent->relids;
+	ListCell *lc;
+
+	foreach (lc, pathkeys)
+	{
+		ListCell *lc2;
+		PathKey *pathkey = lfirst_node(PathKey, lc);
+		bool found = false;
+		foreach (lc2, target->exprs)
+		{
+			Expr *expr = lfirst(lc2);
+
+			if (find_ec_member_matching_expr(pathkey->pk_eclass, expr, relids))
+			{
+				found = true;
+				break;
+			}
+
+		}
+		if (!found)
+		{
+			if (find_computable_ec_member(NULL,
+										  pathkey->pk_eclass,
+										  target->exprs,
+										  relids,
+										  false))
+				found = true;
+		}
+
+		Assert(found);
+	}
+}
+#endif
+
 /*
  * create_plan_recurse
  *	  Recursive guts of create_plan().
@@ -391,6 +431,10 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 
 	/* Guard against stack overflow due to overly complex plans */
 	check_stack_depth();
+
+#ifdef USE_ASSERT_CHECKING
+	assert_pathkeys_in_target(best_path);
+#endif
 
 	switch (best_path->pathtype)
 	{
