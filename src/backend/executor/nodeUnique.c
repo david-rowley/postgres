@@ -115,6 +115,7 @@ UniqueState *
 ExecInitUnique(Unique *node, EState *estate, int eflags)
 {
 	UniqueState *uniquestate;
+	const TupleTableSlotOps *ops;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
@@ -137,11 +138,14 @@ ExecInitUnique(Unique *node, EState *estate, int eflags)
 	 */
 	outerPlanState(uniquestate) = ExecInitNode(outerPlan(node), estate, eflags);
 
+	/* initialize result slot and type */
+	ops = ExecGetResultSlotOps(outerPlanState(uniquestate), NULL);
+	ExecInitResultTupleSlotTL(&uniquestate->ps, ops);
+
 	/*
-	 * Initialize result slot and type. Unique nodes do no projections, so
-	 * initialize projection info for this node appropriately.
+	 * Unique nodes do no projections, so initialize projection info for this
+	 * node appropriately.
 	 */
-	ExecInitResultTupleSlotTL(&uniquestate->ps, &TTSOpsMinimalTuple);
 	uniquestate->ps.ps_ProjInfo = NULL;
 
 	/*
