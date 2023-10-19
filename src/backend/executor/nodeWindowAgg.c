@@ -2514,6 +2514,8 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 	if (node->partNumCols > 0)
 		winstate->partEqfunction =
 			execTuplesMatchPrepare(scanDesc,
+								   NULL,
+								   NULL,
 								   node->partNumCols,
 								   node->partColIdx,
 								   node->partOperators,
@@ -2523,6 +2525,8 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 	if (node->ordNumCols > 0)
 		winstate->ordEqfunction =
 			execTuplesMatchPrepare(scanDesc,
+								   NULL,
+								   NULL,
 								   node->ordNumCols,
 								   node->ordColIdx,
 								   node->ordOperators,

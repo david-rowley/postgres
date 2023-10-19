@@ -508,12 +508,15 @@ ExecInitLimit(Limit *node, EState *estate, int eflags)
 	{
 		TupleDesc	desc;
 		const TupleTableSlotOps *ops;
+		bool		isfixed;
 
 		desc = ExecGetResultType(outerPlanState(limitstate));
-		ops = ExecGetResultSlotOps(outerPlanState(limitstate), NULL);
+		ops = ExecGetResultSlotOps(outerPlanState(limitstate), &isfixed);
 
 		limitstate->last_slot = ExecInitExtraTupleSlot(estate, desc, ops);
 		limitstate->eqfunction = execTuplesMatchPrepare(desc,
+														isfixed ? ops : NULL,
+														isfixed ? ops : NULL,
 														node->uniqNumCols,
 														node->uniqColIdx,
 														node->uniqOperators,

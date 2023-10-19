@@ -3511,6 +3511,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 
 					phasedata->eqfunctions[length - 1] =
 						execTuplesMatchPrepare(scanDesc,
+											   NULL,
+											   NULL,
 											   length,
 											   aggnode->grpColIdx,
 											   aggnode->grpOperators,
@@ -3524,6 +3526,8 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 				{
 					phasedata->eqfunctions[aggnode->numCols - 1] =
 						execTuplesMatchPrepare(scanDesc,
+											   NULL,
+											   NULL,
 											   aggnode->numCols,
 											   aggnode->grpColIdx,
 											   aggnode->grpOperators,
@@ -4272,6 +4276,8 @@ build_pertrans_for_aggref(AggStatePerTrans pertrans,
 		else
 			pertrans->equalfnMulti =
 				execTuplesMatchPrepare(pertrans->sortdesc,
+									   NULL,
+									   NULL,
 									   numDistinctCols,
 									   pertrans->sortColIdx,
 									   ops,

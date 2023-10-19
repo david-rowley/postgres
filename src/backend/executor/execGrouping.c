@@ -54,9 +54,18 @@ static inline TupleHashEntry LookupTupleHashEntry_internal(TupleHashTable hashta
  * execTuplesMatchPrepare
  *		Build expression that can be evaluated using ExecQual(), returning
  *		whether an ExprContext's inner/outer tuples are NOT DISTINCT
+ *
+ * 'fixed_lops' or 'fixed_rops' may be passed as non-NULL if the corresponding
+ * inner (left) or outer (right) slot  will always have the given fixed
+ * TupleTableSlotOps.  If the slot's TupleTableSlotOps are unknown or not
+ * fixed then the corresponding TupleTableSlotOps must be passed as NULL.
+ * Passing the TupleTableSlotOps may allow the returned ExprState to skip
+ * the tuple deforming step.
  */
 ExprState *
 execTuplesMatchPrepare(TupleDesc desc,
+					   const TupleTableSlotOps *fixed_lops,
+					   const TupleTableSlotOps *fixed_rops,
 					   int numCols,
 					   const AttrNumber *keyColIdx,
 					   const Oid *eqOperators,
@@ -75,7 +84,7 @@ execTuplesMatchPrepare(TupleDesc desc,
 		eqFunctions[i] = get_opcode(eqOperators[i]);
 
 	/* build actual expression */
-	expr = ExecBuildGroupingEqual(desc, desc, NULL, NULL,
+	expr = ExecBuildGroupingEqual(desc, desc, fixed_lops, fixed_rops,
 								  numCols, keyColIdx, eqFunctions, collations,
 								  parent);
 

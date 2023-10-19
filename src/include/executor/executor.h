@@ -121,6 +121,8 @@ extern bool execCurrentOf(CurrentOfExpr *cexpr,
  * prototypes from functions in execGrouping.c
  */
 extern ExprState *execTuplesMatchPrepare(TupleDesc desc,
+										 const TupleTableSlotOps *fixed_lops,
+										 const TupleTableSlotOps *fixed_rops,
 										 int numCols,
 										 const AttrNumber *keyColIdx,
 										 const Oid *eqOperators,

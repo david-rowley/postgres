@@ -163,6 +163,7 @@ ExecInitGroup(Group *node, EState *estate, int eflags)
 {
 	GroupState *grpstate;
 	const TupleTableSlotOps *tts_ops;
+	bool		isfixed;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
@@ -189,7 +190,7 @@ ExecInitGroup(Group *node, EState *estate, int eflags)
 	/*
 	 * Initialize scan slot and type.
 	 */
-	tts_ops = ExecGetResultSlotOps(outerPlanState(&grpstate->ss), NULL);
+	tts_ops = ExecGetResultSlotOps(outerPlanState(&grpstate->ss), &isfixed);
 	ExecCreateScanSlotFromOuterPlan(estate, &grpstate->ss, tts_ops);
 
 	/*
@@ -209,6 +210,8 @@ ExecInitGroup(Group *node, EState *estate, int eflags)
 	 */
 	grpstate->eqfunction =
 		execTuplesMatchPrepare(ExecGetResultType(outerPlanState(grpstate)),
+							   isfixed ? tts_ops : NULL,
+							   isfixed ? tts_ops : NULL,
 							   node->numCols,
 							   node->grpColIdx,
 							   node->grpOperators,

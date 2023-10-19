@@ -116,6 +116,7 @@ ExecInitUnique(Unique *node, EState *estate, int eflags)
 {
 	UniqueState *uniquestate;
 	const TupleTableSlotOps *ops;
+	bool		isfixed;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
@@ -139,7 +140,7 @@ ExecInitUnique(Unique *node, EState *estate, int eflags)
 	outerPlanState(uniquestate) = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/* initialize result slot and type */
-	ops = ExecGetResultSlotOps(outerPlanState(uniquestate), NULL);
+	ops = ExecGetResultSlotOps(outerPlanState(uniquestate), &isfixed);
 	ExecInitResultTupleSlotTL(&uniquestate->ps, ops);
 
 	/*
@@ -153,6 +154,8 @@ ExecInitUnique(Unique *node, EState *estate, int eflags)
 	 */
 	uniquestate->eqfunction =
 		execTuplesMatchPrepare(ExecGetResultType(outerPlanState(uniquestate)),
+							   isfixed ? ops : NULL,
+							   isfixed ? ops : NULL,
 							   node->numCols,
 							   node->uniqColIdx,
 							   node->uniqOperators,

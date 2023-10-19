@@ -552,6 +552,8 @@ ExecInitSetOp(SetOp *node, EState *estate, int eflags)
 	else
 		setopstate->eqfunction =
 			execTuplesMatchPrepare(outerDesc,
+								   NULL,
+								   NULL,
 								   node->numCols,
 								   node->dupColIdx,
 								   node->dupOperators,

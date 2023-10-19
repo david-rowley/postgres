@@ -1351,6 +1351,8 @@ hypothetical_dense_rank_final(PG_FUNCTION_ARGS)
 
 		oldContext = MemoryContextSwitchTo(osastate->qstate->qcontext);
 		compareTuple = execTuplesMatchPrepare(osastate->qstate->tupdesc,
+											  NULL,
+											  NULL,
 											  numDistinctCols,
 											  sortColIdx,
 											  osastate->qstate->eqOperators,
