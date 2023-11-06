@@ -174,7 +174,10 @@ struct TupleTableSlotOps
 
 	/*
 	 * Copy the contents of the source slot into the destination slot's own
-	 * context. Invoked using callback of the destination slot.
+	 * context. Invoked using callback of the destination slot.  'dstslot' and
+	 * 'srcslot' can be assumed to match in terms of attribute count and data
+	 * types.  However, either TupleDesc may sometimes contain attribute types
+	 * of InvalidOid in cases where the attribute refers to a dropped column.
 	 */
 	void		(*copyslot) (TupleTableSlot *dstslot, TupleTableSlot *srcslot);
 
@@ -340,6 +343,35 @@ extern void slot_getsomeattrs_int(TupleTableSlot *slot, int attnum);
 
 #ifndef FRONTEND
 
+
+/*
+ * VerifySlotCompatibility
+ *		Ensure the two given slots are compatible with one another in terms of
+ *		their number of attributes and attribute types.
+ */
+static void
+VerifySlotCompatibility(TupleTableSlot *slot1, TupleTableSlot *slot2)
+{
+#ifdef USE_ASSERT_CHECKING
+	TupleDesc desc1 = slot1->tts_tupleDescriptor;
+	TupleDesc desc2 = slot2->tts_tupleDescriptor;
+
+	Assert(desc1->natts == desc2->natts);
+
+	for (int i = 0; i < desc1->natts; i++)
+	{
+		Oid type1 = desc1->attrs[i].atttypid;
+		Oid type2 = desc2->attrs[i].atttypid;
+
+		/*
+		 * Ensure the attribute types match.  InvalidOid is permitted as we can end
+		 * up with dropped columns in a TupleDesc
+		 */
+		Assert(type1 == type2 || !OidIsValid(type1) || !OidIsValid(type2));
+	}
+#endif
+}
+
 /*
  * This function forces the entries of the slot's Datum/isnull arrays to be
  * valid at least up through the attnum'th entry.
@@ -477,12 +509,17 @@ ExecCopySlotMinimalTuple(TupleTableSlot *slot)
  *
  * If a source's system attributes are supposed to be accessed in the target
  * slot, the target slot and source slot types need to match.
+ *
+ * The source and destination slot's tuple descriptor must match in terms of
+ * attribute types and number of attributes.
  */
 static inline TupleTableSlot *
 ExecCopySlot(TupleTableSlot *dstslot, TupleTableSlot *srcslot)
 {
 	Assert(!TTS_EMPTY(srcslot));
 	Assert(srcslot != dstslot);
+
+	VerifySlotCompatibility(dstslot, srcslot);
 
 	dstslot->tts_ops->copyslot(dstslot, srcslot);
 
