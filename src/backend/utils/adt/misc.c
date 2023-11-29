@@ -19,6 +19,7 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <math.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "access/htup_details.h"
@@ -437,6 +438,26 @@ pg_sleep(PG_FUNCTION_ARGS)
 
 	PG_RETURN_VOID();
 }
+
+Datum
+pg_keyword_lookup_bench(PG_FUNCTION_ARGS)
+{
+	const char *keyword = text_to_cstring(PG_GETARG_TEXT_PP(0));
+	int32 iterations = PG_GETARG_INT32(1);
+	clock_t start, end;
+
+	start = clock();
+
+	while (iterations-- > 0)
+	{
+		int h = ScanKeywordLookup(keyword, &ScanKeywords);
+	}
+
+	end = clock();
+
+	PG_RETURN_FLOAT8((double) (end - start) / CLOCKS_PER_SEC);
+}
+
 
 /* Function to return the list of grammar keywords */
 Datum
