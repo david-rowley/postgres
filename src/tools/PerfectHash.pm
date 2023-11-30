@@ -32,7 +32,6 @@ package PerfectHash;
 use strict;
 use warnings FATAL => 'all';
 
-
 # At runtime, we'll compute two simple hash functions of the input key,
 # and use them to index into a mapping table.  The hash functions are just
 # multiply-and-add in uint32 arithmetic, with different multipliers and
@@ -81,7 +80,8 @@ sub generate_hash_function
 	# to calculate via shift-and-add, so don't change them without care.
 	# (Commonly, random seeds are tried, but we want reproducible results
 	# from this program so we don't do that.)
-	my $hash_mult1 = 257;
+	my @primes = (17, 31, 257, 8191, 65539, 1000003);
+	my $hash_mult1;
 	my $hash_mult2;
 	my $hash_seed1;
 	my $hash_seed2;
@@ -89,16 +89,21 @@ sub generate_hash_function
   FIND_PARAMS:
 	for ($hash_seed1 = 0; $hash_seed1 < 10; $hash_seed1++)
 	{
-
 		for ($hash_seed2 = 0; $hash_seed2 < 10; $hash_seed2++)
 		{
-			foreach (17, 31, 127, 8191)
+			foreach ( @primes )
 			{
-				$hash_mult2 = $_;    # "foreach $hash_mult2" doesn't work
-				@subresult = _construct_hash_table(
-					$keys_ref, $hash_mult1, $hash_mult2,
-					$hash_seed1, $hash_seed2);
-				last FIND_PARAMS if @subresult;
+				$hash_mult1 = $_;
+
+				foreach ( @primes )
+				{
+					$hash_mult2 = $_;    # "foreach $hash_mult2" doesn't work
+
+					@subresult = _construct_hash_table(
+						$keys_ref, $hash_mult1, $hash_mult2,
+						$hash_seed1, $hash_seed2);
+					last FIND_PARAMS if @subresult;
+				}
 			}
 		}
 	}
@@ -140,6 +145,15 @@ sub generate_hash_function
 	  if (defined $options{fixed_key_length});
 	$f .= sprintf "\tuint32\t\ta = %d;\n", $hash_seed1;
 	$f .= sprintf "\tuint32\t\tb = %d;\n\n", $hash_seed2;
+	$f .= sprintf "\twhile (keylen >= 4)\n\t{\n";
+	$f .= sprintf "\t\tuint32 i;\n";
+	$f .= sprintf "\t\tmemcpy(&i, k, 4);\n";
+	$f .= sprintf "\t\ti |= 0x20202020;\n" if $case_fold;
+	$f .= sprintf "\t\ta = a * %d + i;\n", $hash_mult1;
+	$f .= sprintf "\t\tb = b * %d + i;\n", $hash_mult2;
+	$f .= sprintf "\t\tkeylen -= 4;\n";
+	$f .= sprintf "\t\tk += 4;\n";
+	$f .= sprintf "\t}\n";
 	$f .= sprintf "\twhile (keylen--)\n\t{\n";
 	$f .= sprintf "\t\tunsigned char c = *k++";
 	$f .= sprintf " | 0x20" if $case_fold;                 # see comment below
@@ -167,15 +181,33 @@ sub _calc_hash
 	my ($key, $mult, $seed) = @_;
 
 	my $result = $seed;
+	my $idx = 0;
+	my $i = 0;
 	for my $c (split //, $key)
 	{
-		my $cn = ord($c);
+		my $cn |= ord($c);
 		$cn |= 0x20 if $case_fold;
-		$result = ($result * $mult + $cn) % 4294967296;
+		$cn -= 96;
+		if ($idx < (length($key) & (~3)))
+		{
+			my $lshift = (8 * ($idx & 3));
+			$i |= ($cn << $lshift);
+			if (($idx & 3) == 3)
+			{
+				# printf("$key $i $mult %d\n", ($result * $mult + $i)) if ($result * $mult + $i) >= 4294967296;
+				$result = ($result * $mult + $i) % 4294967296;
+				$i = 0;
+			}
+		}
+		else
+		{
+			$result = ($result * $mult + $cn) % 4294967296;
+		}
+		$idx += 1;
 	}
+	printf("$key,$mult,$seed,$result\n");
 	return $result;
 }
-
 
 # Attempt to construct a mapping table for a minimal perfect hash function
 # for the given keys, using the specified hash parameters.
