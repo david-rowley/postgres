@@ -60,7 +60,7 @@ initStringInfo(StringInfo str)
 {
 	int			size = 1024;	/* initial default buffer size */
 
-	str->data = (char *) palloc(size);
+	str->str = (char *) palloc(size);
 	str->maxlen = size;
 	resetStringInfo(str);
 }
@@ -80,7 +80,7 @@ resetStringInfo(StringInfo str)
 	/* don't allow resets of read-only StringInfos */
 	Assert(str->maxlen != 0);
 
-	str->data[0] = '\0';
+	str->str[0] = '\0';
 	str->len = 0;
 	str->cursor = 0;
 }
@@ -152,7 +152,7 @@ appendStringInfoVA(StringInfo str, const char *fmt, va_list args)
 	if (avail < 16)
 		return 32;
 
-	nprinted = pvsnprintf(str->data + str->len, (size_t) avail, fmt, args);
+	nprinted = pvsnprintf(str->str + str->len, (size_t) avail, fmt, args);
 
 	if (nprinted < (size_t) avail)
 	{
@@ -162,7 +162,7 @@ appendStringInfoVA(StringInfo str, const char *fmt, va_list args)
 	}
 
 	/* Restore the trailing null so that str is unmodified. */
-	str->data[str->len] = '\0';
+	str->str[str->len] = '\0';
 
 	/*
 	 * Return pvsnprintf's estimate of the space needed.  (Although this is
@@ -198,9 +198,9 @@ appendStringInfoChar(StringInfo str, char ch)
 		enlargeStringInfo(str, 1);
 
 	/* OK, append the character */
-	str->data[str->len] = ch;
+	str->str[str->len] = ch;
 	str->len++;
-	str->data[str->len] = '\0';
+	str->str[str->len] = '\0';
 }
 
 /*
@@ -217,9 +217,9 @@ appendStringInfoSpaces(StringInfo str, int count)
 		enlargeStringInfo(str, count);
 
 		/* OK, append the spaces */
-		memset(&str->data[str->len], ' ', count);
+		memset(&str->str[str->len], ' ', count);
 		str->len += count;
-		str->data[str->len] = '\0';
+		str->str[str->len] = '\0';
 	}
 }
 
@@ -238,7 +238,7 @@ appendBinaryStringInfo(StringInfo str, const void *data, int datalen)
 	enlargeStringInfo(str, datalen);
 
 	/* OK, append the data */
-	memcpy(str->data + str->len, data, datalen);
+	memcpy(str->str + str->len, data, datalen);
 	str->len += datalen;
 
 	/*
@@ -246,7 +246,7 @@ appendBinaryStringInfo(StringInfo str, const void *data, int datalen)
 	 * binary data.  (Some callers are dealing with text but call this because
 	 * their input isn't null-terminated.)
 	 */
-	str->data[str->len] = '\0';
+	str->str[str->len] = '\0';
 }
 
 /*
@@ -264,7 +264,7 @@ appendBinaryStringInfoNT(StringInfo str, const void *data, int datalen)
 	enlargeStringInfo(str, datalen);
 
 	/* OK, append the data */
-	memcpy(str->data + str->len, data, datalen);
+	memcpy(str->str + str->len, data, datalen);
 	str->len += datalen;
 }
 
@@ -346,7 +346,7 @@ enlargeStringInfo(StringInfo str, int needed)
 	if (newlen > (int) MaxAllocSize)
 		newlen = (int) MaxAllocSize;
 
-	str->data = (char *) repalloc(str->data, newlen);
+	str->str = (char *) repalloc(str->str, newlen);
 
 	str->maxlen = newlen;
 }

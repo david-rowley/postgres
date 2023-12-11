@@ -20,13 +20,13 @@
 
 /*-------------------------
  * StringInfoData holds information about an extensible string.
- *		data	is the current buffer for the string.
+ *		str		is the current buffer for the string.
  *		len		is the current string length.  Except in the case of read-only
  *				strings described below, there is guaranteed to be a
- *				terminating '\0' at data[len].
- *		maxlen	is the allocated size in bytes of 'data', i.e. the maximum
+ *				terminating '\0' at str[len].
+ *		maxlen	is the allocated size in bytes of 'str', i.e. the maximum
  *				string size (including the terminating '\0' char) that we can
- *				currently store in 'data' without having to reallocate
+ *				currently store in 'str' without having to reallocate
  *				more space.  We must always have maxlen > len, except
  *				in the read-only case described below.
  *		cursor	is initialized to zero by makeStringInfo, initStringInfo,
@@ -35,7 +35,7 @@
  *				use it to scan through a StringInfo.
  *
  * As a special case, a StringInfoData can be initialized with a read-only
- * string buffer.  In this case "data" does not necessarily point at a
+ * string buffer.  In this case "str" does not necessarily point at a
  * palloc'd chunk, and management of the buffer storage is the caller's
  * responsibility.  maxlen is set to zero to indicate that this is the case.
  * Read-only StringInfoDatas cannot be appended to or reset.
@@ -45,7 +45,7 @@
  */
 typedef struct StringInfoData
 {
-	char	   *data;
+	char	   *str;
 	int			len;
 	int			maxlen;
 	int			cursor;
@@ -128,7 +128,7 @@ extern void initStringInfo(StringInfo str);
 static inline void
 initReadOnlyStringInfo(StringInfo str, char *data, int len)
 {
-	str->data = data;
+	str->str = data;
 	str->len = len;
 	str->maxlen = 0;			/* read-only */
 	str->cursor = 0;
@@ -148,10 +148,16 @@ initStringInfoFromString(StringInfo str, char *data, int len)
 {
 	Assert(data[len] == '\0');
 
-	str->data = data;
+	str->str = data;
 	str->len = len;
 	str->maxlen = len + 1;
 	str->cursor = 0;
+}
+
+static inline char *
+StringInfoGetString(StringInfo str)
+{
+	return str->str;
 }
 
 /*------------------------
@@ -203,7 +209,7 @@ extern void appendStringInfoChar(StringInfo str, char ch);
 #define appendStringInfoCharMacro(str,ch) \
 	(((str)->len + 1 >= (str)->maxlen) ? \
 	 appendStringInfoChar(str, ch) : \
-	 (void)((str)->data[(str)->len] = (ch), (str)->data[++(str)->len] = '\0'))
+	 (void)((str)->str[(str)->len] = (ch), (str)->str[++(str)->len] = '\0'))
 
 /*------------------------
  * appendStringInfoSpaces
