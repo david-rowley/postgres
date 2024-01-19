@@ -1686,11 +1686,11 @@ update_eclasses(PlannerInfo *root, EquivalenceClass *ec, int from, int to)
 		j = -1;
 		while ((j = bms_next_member(rinfo->clause_relids, j)) >= 0)
 		{
-			RangeTblEntry *rte = root->simple_rte_array[j];
+			EquivalenceClassIndexes *index = &root->eclass_indexes_array[j];
 
-			Assert(bms_is_member(i, rte->eclass_derive_indexes));
-			rte->eclass_derive_indexes =
-				bms_del_member(rte->eclass_derive_indexes, i);
+			Assert(bms_is_member(i, index->derive_indexes));
+			index->derive_indexes =
+				bms_del_member(index->derive_indexes, i);
 		}
 
 		/*
@@ -1752,11 +1752,11 @@ update_eclasses(PlannerInfo *root, EquivalenceClass *ec, int from, int to)
 			j = -1;
 			while ((j = bms_next_member(rinfo->clause_relids, j)) >= 0)
 			{
-				RangeTblEntry *rte = root->simple_rte_array[j];
+				EquivalenceClassIndexes *index = &root->eclass_indexes_array[j];
 
-				Assert(bms_is_member(i, rte->eclass_source_indexes));
-				rte->eclass_source_indexes =
-					bms_del_member(rte->eclass_source_indexes, i);
+				Assert(bms_is_member(i, index->source_indexes));
+				index->source_indexes =
+					bms_del_member(index->source_indexes, i);
 			}
 
 			/*

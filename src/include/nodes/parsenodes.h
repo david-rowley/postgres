@@ -1202,12 +1202,6 @@ typedef struct RangeTblEntry
 	bool		inh;			/* inheritance requested? */
 	bool		inFromCl;		/* present in FROM clause? */
 	List	   *securityQuals;	/* security barrier quals to apply, if any */
-	Bitmapset  *eclass_source_indexes;	/* Indexes in PlannerInfo's eq_sources
-										 * list for RestrictInfos that mention
-										 * this relation */
-	Bitmapset  *eclass_derive_indexes;	/* Indexes in PlannerInfo's eq_derives
-										 * list for RestrictInfos that mention
-										 * this relation */
 } RangeTblEntry;
 
 /*

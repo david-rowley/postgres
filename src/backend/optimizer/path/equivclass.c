@@ -607,10 +607,10 @@ add_eq_source(PlannerInfo *root, EquivalenceClass *ec, RestrictInfo *rinfo)
 	i = -1;
 	while ((i = bms_next_member(rinfo->clause_relids, i)) >= 0)
 	{
-		RangeTblEntry *rte = root->simple_rte_array[i];
+		EquivalenceClassIndexes *index = &root->eclass_indexes_array[i];
 
-		rte->eclass_source_indexes = bms_add_member(rte->eclass_source_indexes,
-													source_idx);
+		index->source_indexes = bms_add_member(index->source_indexes,
+											   source_idx);
 	}
 }
 
@@ -631,10 +631,10 @@ add_eq_derive(PlannerInfo *root, EquivalenceClass *ec, RestrictInfo *rinfo)
 	i = -1;
 	while ((i = bms_next_member(rinfo->clause_relids, i)) >= 0)
 	{
-		RangeTblEntry *rte = root->simple_rte_array[i];
+		EquivalenceClassIndexes *index = &root->eclass_indexes_array[i];
 
-		rte->eclass_derive_indexes = bms_add_member(rte->eclass_derive_indexes,
-													derive_idx);
+		index->derive_indexes = bms_add_member(index->derive_indexes,
+											   derive_idx);
 	}
 }
 
@@ -673,22 +673,22 @@ update_clause_relids(PlannerInfo *root, RestrictInfo *rinfo,
 	i = -1;
 	while ((i = bms_next_member(removing_relids, i)) >= 0)
 	{
-		RangeTblEntry *rte = root->simple_rte_array[i];
+		EquivalenceClassIndexes *index = &root->eclass_indexes_array[i];
 
 		if (rinfo->eq_sources_index != -1)
 		{
 			Assert(bms_is_member(rinfo->eq_sources_index,
-								 rte->eclass_source_indexes));
-			rte->eclass_source_indexes =
-				bms_del_member(rte->eclass_source_indexes,
+								 index->source_indexes));
+			index->source_indexes =
+				bms_del_member(index->source_indexes,
 							   rinfo->eq_sources_index);
 		}
 		if (rinfo->eq_derives_index != -1)
 		{
 			Assert(bms_is_member(rinfo->eq_derives_index,
-								 rte->eclass_derive_indexes));
-			rte->eclass_derive_indexes =
-				bms_del_member(rte->eclass_derive_indexes,
+								 index->derive_indexes));
+			index->derive_indexes =
+				bms_del_member(index->derive_indexes,
 							   rinfo->eq_derives_index);
 		}
 	}
@@ -702,22 +702,22 @@ update_clause_relids(PlannerInfo *root, RestrictInfo *rinfo,
 	i = -1;
 	while ((i = bms_next_member(adding_relids, i)) >= 0)
 	{
-		RangeTblEntry *rte = root->simple_rte_array[i];
+		EquivalenceClassIndexes *index = &root->eclass_indexes_array[i];
 
 		if (rinfo->eq_sources_index != -1)
 		{
 			Assert(!bms_is_member(rinfo->eq_sources_index,
-								  rte->eclass_source_indexes));
-			rte->eclass_source_indexes =
-				bms_add_member(rte->eclass_source_indexes,
+								  index->source_indexes));
+			index->source_indexes =
+				bms_add_member(index->source_indexes,
 							   rinfo->eq_sources_index);
 		}
 		if (rinfo->eq_derives_index != -1)
 		{
 			Assert(!bms_is_member(rinfo->eq_derives_index,
-								  rte->eclass_derive_indexes));
-			rte->eclass_derive_indexes =
-				bms_add_member(rte->eclass_derive_indexes,
+								  index->derive_indexes));
+			index->derive_indexes =
+				bms_add_member(index->derive_indexes,
 							   rinfo->eq_derives_index);
 		}
 	}
@@ -731,17 +731,17 @@ update_clause_relids(PlannerInfo *root, RestrictInfo *rinfo,
 	i = -1;
 	while ((i = bms_next_member(common_relids, i)) >= 0)
 	{
-		RangeTblEntry *rte = root->simple_rte_array[i];
+		EquivalenceClassIndexes *index = &root->eclass_indexes_array[i];
 
 		if (rinfo->eq_sources_index != -1)
 		{
 			Assert(bms_is_member(rinfo->eq_sources_index,
-								 rte->eclass_source_indexes));
+								 index->source_indexes));
 		}
 		if (rinfo->eq_derives_index != -1)
 		{
 			Assert(bms_is_member(rinfo->eq_derives_index,
-								 rte->eclass_derive_indexes));
+								 index->derive_indexes));
 		}
 	}
 	bms_free(common_relids);
@@ -3777,9 +3777,9 @@ get_ec_source_indexes(PlannerInfo *root, EquivalenceClass *ec, Relids relids)
 
 	while ((i = bms_next_member(relids, i)) >= 0)
 	{
-		RangeTblEntry *rte = root->simple_rte_array[i];
+		EquivalenceClassIndexes *index = &root->eclass_indexes_array[i];
 
-		rel_esis = bms_add_members(rel_esis, rte->eclass_source_indexes);
+		rel_esis = bms_add_members(rel_esis, index->source_indexes);
 	}
 
 #ifdef USE_ASSERT_CHECKING
@@ -3815,7 +3815,7 @@ get_ec_source_indexes_strict(PlannerInfo *root, EquivalenceClass *ec,
 
 	if (i >= 0)
 	{
-		RangeTblEntry *rte = root->simple_rte_array[i];
+		EquivalenceClassIndexes *index = &root->eclass_indexes_array[i];
 
 		/*
 		 * bms_intersect to the first relation to try to keep the resulting
@@ -3824,12 +3824,12 @@ get_ec_source_indexes_strict(PlannerInfo *root, EquivalenceClass *ec,
 		 * more words than the other.
 		 */
 		esis = bms_intersect(ec->ec_source_indexes,
-							 rte->eclass_source_indexes);
+							 index->source_indexes);
 
 		while ((i = bms_next_member(relids, i)) >= 0)
 		{
-			rte = root->simple_rte_array[i];
-			esis = bms_int_members(esis, rte->eclass_source_indexes);
+			index = &root->eclass_indexes_array[i];
+			esis = bms_int_members(esis, index->source_indexes);
 		}
 	}
 
@@ -3866,9 +3866,9 @@ get_ec_derive_indexes(PlannerInfo *root, EquivalenceClass *ec, Relids relids)
 
 	while ((i = bms_next_member(relids, i)) >= 0)
 	{
-		RangeTblEntry *rte = root->simple_rte_array[i];
+		EquivalenceClassIndexes *index = &root->eclass_indexes_array[i];
 
-		rel_edis = bms_add_members(rel_edis, rte->eclass_derive_indexes);
+		rel_edis = bms_add_members(rel_edis, index->derive_indexes);
 	}
 
 #ifdef USE_ASSERT_CHECKING
@@ -3904,7 +3904,7 @@ get_ec_derive_indexes_strict(PlannerInfo *root, EquivalenceClass *ec,
 
 	if (i >= 0)
 	{
-		RangeTblEntry *rte = root->simple_rte_array[i];
+		EquivalenceClassIndexes *index = &root->eclass_indexes_array[i];
 
 		/*
 		 * bms_intersect to the first relation to try to keep the resulting
@@ -3913,12 +3913,12 @@ get_ec_derive_indexes_strict(PlannerInfo *root, EquivalenceClass *ec,
 		 * more words than the other.
 		 */
 		edis = bms_intersect(ec->ec_derive_indexes,
-							 rte->eclass_derive_indexes);
+							 index->derive_indexes);
 
 		while ((i = bms_next_member(relids, i)) >= 0)
 		{
-			rte = root->simple_rte_array[i];
-			edis = bms_int_members(edis, rte->eclass_derive_indexes);
+			index = &root->eclass_indexes_array[i];
+			edis = bms_int_members(edis, index->derive_indexes);
 		}
 	}
 
@@ -3941,9 +3941,8 @@ get_ec_derive_indexes_strict(PlannerInfo *root, EquivalenceClass *ec,
 /*
  * verify_eclass_indexes
  *		Verify that there are no missing references between RestrictInfos and
- *		EquivalenceMember's indexes, namely eclass_source_indexes and
- *		eclass_derive_indexes. If you modify these indexes, you should check
- *		them with this function.
+ *		EquivalenceMember's indexes, namely source_indexes and derive_indexes.
+ *		If you modify these indexes, you should check them with this function.
  */
 void
 verify_eclass_indexes(PlannerInfo *root, EquivalenceClass *ec)
@@ -3952,7 +3951,7 @@ verify_eclass_indexes(PlannerInfo *root, EquivalenceClass *ec)
 
 	/*
 	 * All RestrictInfos in root->eq_sources must have references to
-	 * eclass_source_indexes.
+	 * source_indexes.
 	 */
 	foreach(lc, root->eq_sources)
 	{
@@ -3969,13 +3968,13 @@ verify_eclass_indexes(PlannerInfo *root, EquivalenceClass *ec)
 		while ((k = bms_next_member(rinfo->clause_relids, k)) >= 0)
 		{
 			/* must have a reference */
-			Assert(bms_is_member(index, root->simple_rte_array[k]->eclass_source_indexes));
+			Assert(bms_is_member(index, root->eclass_indexes_array[k].source_indexes));
 		}
 	}
 
 	/*
 	 * All RestrictInfos in root->eq_derives must have references to
-	 * eclass_derive_indexes.
+	 * derive_indexes.
 	 */
 	foreach(lc, root->eq_derives)
 	{
@@ -3992,7 +3991,7 @@ verify_eclass_indexes(PlannerInfo *root, EquivalenceClass *ec)
 		while ((k = bms_next_member(rinfo->clause_relids, k)) >= 0)
 		{
 			/* must have a reference */
-			Assert(bms_is_member(index, root->simple_rte_array[k]->eclass_derive_indexes));
+			Assert(bms_is_member(index, root->eclass_indexes_array[k].derive_indexes));
 		}
 	}
 }
