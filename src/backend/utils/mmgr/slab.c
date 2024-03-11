@@ -569,6 +569,8 @@ SlabAllocFromNewBlock(MemoryContext context, Size size, int flags)
 	dlist_head *blocklist;
 	int			blocklist_idx;
 
+	context->isReset = false;
+
 	/* to save allocating a new one, first check the empty blocks list */
 	if (dclist_count(&slab->emptyblocks) > 0)
 	{
@@ -689,6 +691,12 @@ SlabAlloc(MemoryContext context, Size size, int flags)
 		int			new_blocklist_idx;
 
 		Assert(!dlist_is_empty(blocklist));
+
+		/*
+		 * We should already have already un-reset the context if we've got a
+		 * non-zero curBlocklistIndex
+		 */
+		Assert(!context->isReset);
 
 		/* grab the block from the blocklist */
 		block = dlist_head_element(SlabBlock, node, blocklist);

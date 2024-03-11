@@ -752,6 +752,7 @@ AllocSetAllocLarge(MemoryContext context, Size size, int flags)
 	chunk_size = MAXALIGN(size);
 #endif
 
+	context->isReset = false;
 	blksize = chunk_size + ALLOC_BLOCKHDRSZ + ALLOC_CHUNKHDRSZ;
 	block = (AllocBlock) malloc(blksize);
 	if (block == NULL)
@@ -1050,6 +1051,9 @@ AllocSetAlloc(MemoryContext context, Size size, int flags)
 	{
 		AllocFreeListLink *link = GetFreeListLink(chunk);
 
+		/* should already be unset if we've something in the freelist */
+		Assert(context->isReset == false);
+
 		/* Allow access to the chunk header. */
 		VALGRIND_MAKE_MEM_DEFINED(chunk, ALLOC_CHUNKHDRSZ);
 
@@ -1089,6 +1093,13 @@ AllocSetAlloc(MemoryContext context, Size size, int flags)
 
 	block = set->blocks;
 	availspace = block->endptr - block->freeptr;
+
+	/*
+	 * We must un-reset the context here as lack of space for this allocation
+	 * on a block is no guarantee that we've already seen an allocation as
+	 * the given block could be the keeper block.
+	 */
+	context->isReset = false;
 
 	/*
 	 * If there is enough room in the active allocation block, we will put the

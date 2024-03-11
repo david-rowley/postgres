@@ -559,6 +559,14 @@ GenerationAlloc(MemoryContext context, Size size, int flags)
 
 	Assert(GenerationIsValid(set));
 
+	/*
+	 * Unset the isReset flag.  Ideally we'd only be doing this in
+	 * GenerationAllocFromNewBlock and GenerationAllocLarge, but because we
+	 * have a keeper block, those the first allocation is likely to be via
+	 * GenerationAllocChunkFromBlock.
+	 */
+	context->isReset = false;
+
 #ifdef MEMORY_CONTEXT_CHECKING
 	/* ensure there's always space for the sentinel byte */
 	chunk_size = MAXALIGN(size + 1);

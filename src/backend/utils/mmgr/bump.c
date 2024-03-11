@@ -331,6 +331,7 @@ BumpAllocLarge(MemoryContext context, Size size, int flags)
 	chunk_size = MAXALIGN(size);
 #endif
 
+	context->isReset = false;
 	required_size = chunk_size + Bump_CHUNKHDRSZ;
 	blksize = required_size + Bump_BLOCKHDRSZ;
 
@@ -522,6 +523,14 @@ BumpAlloc(MemoryContext context, Size size, int flags)
 	Size		required_size;
 
 	Assert(BumpIsValid(set));
+
+	/*
+	 * Unset the isReset flag.  Ideally we'd only be doing this in
+	 * BumpAllocFromNewBlock and BumpAllocLarge, but because we have a keeper
+	 * block, those the first allocation is likely to be via
+	 * BumpAllocChunkFromBlock.
+	 */
+	context->isReset = false;
 
 #ifdef MEMORY_CONTEXT_CHECKING
 	/* ensure there's always space for the sentinel byte */
