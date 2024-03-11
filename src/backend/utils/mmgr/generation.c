@@ -531,6 +531,8 @@ GenerationAlloc(MemoryContext context, Size size, int flags)
 	Size		chunk_size;
 	Size		required_size;
 
+	context->isReset = false;
+
 	Assert(GenerationIsValid(set));
 
 #ifdef MEMORY_CONTEXT_CHECKING
