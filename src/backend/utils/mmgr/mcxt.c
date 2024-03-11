@@ -1233,8 +1233,6 @@ MemoryContextAlloc(MemoryContext context, Size size)
 	Assert(MemoryContextIsValid(context));
 	AssertNotInCriticalSection(context);
 
-	context->isReset = false;
-
 	/*
 	 * For efficiency reasons, we purposefully offload the handling of
 	 * allocation failures to the MemoryContextMethods implementation as this
@@ -1246,6 +1244,8 @@ MemoryContextAlloc(MemoryContext context, Size size)
 	 * function instead.
 	 */
 	ret = context->methods->alloc(context, size, 0);
+
+	Assert(!context->isReset);
 
 	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
 
@@ -1267,9 +1267,9 @@ MemoryContextAllocZero(MemoryContext context, Size size)
 	Assert(MemoryContextIsValid(context));
 	AssertNotInCriticalSection(context);
 
-	context->isReset = false;
-
 	ret = context->methods->alloc(context, size, 0);
+
+	Assert(!context->isReset);
 
 	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
 
@@ -1294,9 +1294,10 @@ MemoryContextAllocExtended(MemoryContext context, Size size, int flags)
 		  AllocSizeIsValid(size)))
 		elog(ERROR, "invalid memory alloc request size %zu", size);
 
-	context->isReset = false;
-
 	ret = context->methods->alloc(context, size, flags);
+
+	Assert(!context->isReset);
+
 	if (unlikely(ret == NULL))
 		return NULL;
 
@@ -1371,8 +1372,6 @@ palloc(Size size)
 	Assert(MemoryContextIsValid(context));
 	AssertNotInCriticalSection(context);
 
-	context->isReset = false;
-
 	/*
 	 * For efficiency reasons, we purposefully offload the handling of
 	 * allocation failures to the MemoryContextMethods implementation as this
@@ -1384,6 +1383,9 @@ palloc(Size size)
 	 * function instead.
 	 */
 	ret = context->methods->alloc(context, size, 0);
+
+	Assert(!context->isReset);
+
 	/* We expect OOM to be handled by the alloc function */
 	Assert(ret != NULL);
 	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
@@ -1401,11 +1403,12 @@ palloc0(Size size)
 	Assert(MemoryContextIsValid(context));
 	AssertNotInCriticalSection(context);
 
-	context->isReset = false;
-
 	ret = context->methods->alloc(context, size, 0);
+
 	/* We expect OOM to be handled by the alloc function */
 	Assert(ret != NULL);
+	Assert(!context->isReset);
+
 	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
 
 	MemSetAligned(ret, 0, size);
@@ -1423,9 +1426,10 @@ palloc_extended(Size size, int flags)
 	Assert(MemoryContextIsValid(context));
 	AssertNotInCriticalSection(context);
 
-	context->isReset = false;
-
 	ret = context->methods->alloc(context, size, flags);
+
+	Assert(!context->isReset);
+
 	if (unlikely(ret == NULL))
 	{
 		/* NULL can be returned only when using MCXT_ALLOC_NO_OOM */
@@ -1707,8 +1711,6 @@ MemoryContextAllocHuge(MemoryContext context, Size size)
 	Assert(MemoryContextIsValid(context));
 	AssertNotInCriticalSection(context);
 
-	context->isReset = false;
-
 	/*
 	 * For efficiency reasons, we purposefully offload the handling of
 	 * allocation failures to the MemoryContextMethods implementation as this
@@ -1720,6 +1722,8 @@ MemoryContextAllocHuge(MemoryContext context, Size size)
 	 * function instead.
 	 */
 	ret = context->methods->alloc(context, size, MCXT_ALLOC_HUGE);
+
+	Assert(!context->isReset);
 
 	VALGRIND_MEMPOOL_ALLOC(context, ret, size);
 

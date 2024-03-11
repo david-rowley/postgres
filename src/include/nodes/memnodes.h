@@ -61,7 +61,11 @@ typedef struct MemoryContextMethods
 	 * Function to handle memory allocation requests of 'size' to allocate
 	 * memory into the given 'context'.  The function must handle flags
 	 * MCXT_ALLOC_HUGE and MCXT_ALLOC_NO_OOM.  MCXT_ALLOC_ZERO is handled by
-	 * the calling function.
+	 * the calling function.  The implementation must handle setting
+	 * MemoryContext.isReset to false before returning.  Leaving this up to
+	 * the implementing function can allow this flag to be unset more
+	 * efficiently.  For example, they may be able to do this only when doing
+	 * malloc() for a new block to store palloc'd chunks.
 	 */
 	void	   *(*alloc) (MemoryContext context, Size size, int flags);
 
