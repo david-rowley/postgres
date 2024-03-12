@@ -1034,6 +1034,120 @@ build_expression_pathkey(PlannerInfo *root,
 	return pathkeys;
 }
 
+static EquivalenceClass *
+find_subquery_eclass(EquivalenceClass *eclass, RelOptInfo *rel, List *subquery_tlist)
+{
+	ListCell *lc;
+
+	foreach (lc, eclass->ec_members)
+	{
+		EquivalenceMember *em = lfirst_node(EquivalenceMember, lc);
+		ListCell *lc2;
+
+		/*
+		 * Ignore child members unless they belong to the requested rel.
+		 */
+		if (em->em_is_child && !bms_is_subset(em->em_relids, rel->relids))
+			continue;
+
+		foreach (lc2, subquery_tlist)
+		{
+			TargetEntry *tle = (TargetEntry *) lfirst(lc2);
+			EquivalenceClass *sub_ec;
+			Var *outer_var;
+
+			outer_var = find_var_for_subquery_tle(rel, tle);
+
+			if (!equal(outer_var, em->em_expr))
+				continue;
+
+			sub_ec = get_eclass_for_sort_expr(rel->subroot,
+											  (Expr *) tle->expr,
+											  eclass->ec_opfamilies,
+											  em->em_datatype,
+											  exprCollation((Node *) em->em_expr),
+											  0,
+											  NULL,
+											  false);
+
+			if (sub_ec)
+				return sub_ec;
+		}
+	}
+
+	return NULL;
+}
+
+/*
+ * subquery_matches_pathkeys
+ *		Check if the subquery in 'rel' with the given 'subquery_pathkeys'
+ *		implements 'query_pathkeys', taking into account that some of the
+ *		given 'subquery_pathkeys' may have been marked as redundant or
+ *		consecutive query_pathkeys may have been merged into a single
+ *		EquivalenceClass in the subquery.
+ *
+ * 'query_pathkeys' must not be an empty List.
+ */
+static bool
+subquery_matches_pathkeys(PlannerInfo *root, RelOptInfo *rel,
+						  List *subquery_pathkeys, List *subquery_tlist,
+						  List *query_pathkeys)
+{
+	ListCell *sub_lc = list_head(subquery_pathkeys);
+	ListCell *lc;
+
+	Assert(query_pathkeys != NIL);
+
+	foreach (lc, query_pathkeys)
+	{
+		PathKey *pathkey = lfirst_node(PathKey, lc);
+		EquivalenceClass *eclass = pathkey->pk_eclass;
+		EquivalenceClass *sub_eclass;
+		PathKey *sub_pathkey;
+
+		/*
+		 * Look through every member in this eclass and look to see if there's
+		 * a subquery target mentioning one of the eclass's members.  If found
+		 * search for an eclass for that subquery target and return it.
+		 */
+		sub_eclass = find_subquery_eclass(eclass, rel, subquery_tlist);
+
+		if (sub_eclass == NULL)
+			return false;
+
+		if (EC_MUST_BE_REDUNDANT(sub_eclass))
+		{
+			/*
+			 * The subquery pathkey must have been removed because it's redundant.
+			 * skip to the next query_pathkey
+			 */
+			continue;
+		}
+
+		if (sub_lc == NULL)
+			return false;
+
+		sub_pathkey = lfirst_node(PathKey, sub_lc);
+
+		/* if the eclass matches then skip to the next sub_pathkey */
+		if (sub_eclass == sub_pathkey->pk_eclass)
+		{
+			/* matching eclasses.  Check for matching properties */
+			if (sub_pathkey->pk_strategy != pathkey->pk_strategy ||
+				sub_pathkey->pk_nulls_first != pathkey->pk_nulls_first)
+				return false;
+
+			/* 1:1 match. Skip to the next pathkeys */
+			/* TODO try matching this sub_pathkey to the next query_pathkey */
+			sub_lc = lnext(subquery_pathkeys, sub_lc);
+		}
+		else
+			return false;
+	}
+
+	return true;
+}
+
 /*
  * convert_subquery_pathkeys
  *	  Build a pathkeys list that describes the ordering of a subquery's
@@ -1059,6 +1173,15 @@ convert_subquery_pathkeys(PlannerInfo *root, RelOptInfo *rel,
 	int			retvallen = 0;
 	int			outer_query_keys = list_length(root->query_pathkeys);
 	ListCell   *i;
+
+	/* XXX should this be a List of Lists of interesting pathkeys? */
+	if (root->query_pathkeys != NIL &&
+		subquery_matches_pathkeys(root,
+								  rel,
+								  subquery_pathkeys,
+								  subquery_tlist,
+								  root->query_pathkeys))
+		return root->query_pathkeys;
 
 	foreach(i, subquery_pathkeys)
 	{
