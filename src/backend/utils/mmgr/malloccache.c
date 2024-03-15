@@ -4,7 +4,7 @@
  *	  A wrapper around malloc/free for caching predefined sized chunks of
  *	  memory in order to reduce malloc/free thrashing.
  *
- * Portions Copyright (c) 2023, PostgreSQL Global Development Group
+ * Portions Copyright (c) 2024, PostgreSQL Global Development Group
  *
  * IDENTIFICATION
  *	  src/backend/utils/mmgr/malloccache.c

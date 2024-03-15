@@ -334,7 +334,7 @@ GenerationDelete(MemoryContext context)
 	GenerationReset(context);
 	/* And free the context header and keeper block */
 
-	keepersize = set->keeper->endptr - ((char *) set);
+	keepersize = KeeperBlock(set)->endptr - ((char *) set);
 
 	malloccache_release(context, keepersize);
 }
