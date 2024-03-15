@@ -85,7 +85,7 @@ malloccache_fetch(size_t size)
  * malloccache_release
  *		Release a chunk of memory previously created with malloccache_fetch
  *		and either free() the memory, or cache it if we have not already
- *		cached enough blocks of memory if the given size.
+ *		cached enough blocks of memory of the given size.
  */
 void
 malloccache_release(void *ptr, size_t size)
