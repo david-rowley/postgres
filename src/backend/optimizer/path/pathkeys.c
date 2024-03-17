@@ -1034,11 +1034,24 @@ build_expression_pathkey(PlannerInfo *root,
 	return pathkeys;
 }
 
+/*
+ * find_subquery_eclass
+ *		For the given 'eclass', search in the subquery belonging to 'rel' for
+ *		the corresponding EquivalenceClass in the subquery matching them up
+ *		according to the subquery's targetlist.  Return NULL when no match can
+ *		be found.
+ */
 static EquivalenceClass *
-find_subquery_eclass(EquivalenceClass *eclass, RelOptInfo *rel, List *subquery_tlist)
+find_subquery_eclass(EquivalenceClass *eclass, RelOptInfo *rel,
+					 List *subquery_tlist)
 {
 	ListCell *lc;
 
+	/*
+	 * Look through each member of the given EquivalenceClass and try to find
+	 * a target entry for the given member.  If found, look for an eclass in
+	 * subquery using the subquery expr and return that.
+	 */
 	foreach (lc, eclass->ec_members)
 	{
 		EquivalenceMember *em = lfirst_node(EquivalenceMember, lc);
@@ -1056,11 +1069,14 @@ find_subquery_eclass(EquivalenceClass *eclass, RelOptInfo *rel, List *subquery_t
 			EquivalenceClass *sub_ec;
 			Var *outer_var;
 
+			/* find the Var attno for this target entry */
 			outer_var = find_var_for_subquery_tle(rel, tle);
 
+			/* skip anything that does not match em_expr */
 			if (!equal(outer_var, em->em_expr))
 				continue;
 
+			/* see if there's an existing subquery eclass for this target */
 			sub_ec = get_eclass_for_sort_expr(rel->subroot,
 											  (Expr *) tle->expr,
 											  eclass->ec_opfamilies,
@@ -1075,36 +1091,51 @@ find_subquery_eclass(EquivalenceClass *eclass, RelOptInfo *rel, List *subquery_t
 		}
 	}
 
+	/* nothing found */
 	return NULL;
 }
+
+/*
+ * SubqueryPathKeyMatchContext
+ *		Context to store inputs and the working state for
+ *		subquery_matches_pathkeys_recurse.
+ */
+typedef struct SubqueryPathKeyMatchContext
+{
+	/* inputs */
+	PlannerInfo *root;
+	RelOptInfo *rel;
+	List *subquery_tlist;
+	List *subquery_pathkeys;
+	List *query_pathkeys;
+
+	/* working state */
+	List *query_pathkeys_matched;
+} SubqueryPathKeyMatchContext;
 
 /*
  * subquery_matches_pathkeys_recurse
  *		Recursive helper function for subquery_matches_pathkeys
  */
 static bool
-subquery_matches_pathkeys_recurse(PlannerInfo *root, RelOptInfo *rel,
-								  List *subquery_tlist,
-								  List *subquery_pathkeys,
+subquery_matches_pathkeys_recurse(SubqueryPathKeyMatchContext *ctx,
 								  int subquery_pathkeys_idx,
-								  List *query_pathkeys,
-								  int query_pathkeys_idx,
-								  PathKey *redundant_sub_pathkey)
+								  int query_pathkeys_idx)
 
 {
 	ListCell *sub_lc;
 	ListCell *lc;
 
-	Assert(query_pathkeys != NIL);
+	Assert(ctx->query_pathkeys != NIL);
 
 	check_stack_depth();
 
-	if (subquery_pathkeys != NIL)
-		sub_lc = list_nth_cell(subquery_pathkeys, subquery_pathkeys_idx);
+	if (ctx->subquery_pathkeys != NIL)
+		sub_lc = list_nth_cell(ctx->subquery_pathkeys, subquery_pathkeys_idx);
 	else
 		sub_lc = NULL;
 
-	for_each_from(lc, query_pathkeys, query_pathkeys_idx)
+	for_each_from(lc, ctx->query_pathkeys, query_pathkeys_idx)
 	{
 		PathKey *pathkey = lfirst_node(PathKey, lc);
 		EquivalenceClass *eclass = pathkey->pk_eclass;
@@ -1116,14 +1147,17 @@ subquery_matches_pathkeys_recurse(PlannerInfo *root, RelOptInfo *rel,
 		 * a subquery target mentioning one of the eclass's members.  If found
 		 * search for an eclass for that subquery target and return it.
 		 */
-		sub_eclass = find_subquery_eclass(eclass, rel, subquery_tlist);
+		sub_eclass = find_subquery_eclass(eclass, ctx->rel,
+										  ctx->subquery_tlist);
 
 		if (sub_eclass == NULL)
 			return false;
 
 		if (EC_MUST_BE_REDUNDANT(sub_eclass))
 		{
-			redundant_sub_pathkey = NULL;
+			ctx->query_pathkeys_matched = lappend(ctx->query_pathkeys_matched,
+												  pathkey);
+
 			/*
 			 * The subquery pathkey must have been removed because it's redundant.
 			 * skip to the next query_pathkey.  We needn't check for matching
@@ -1141,12 +1175,20 @@ subquery_matches_pathkeys_recurse(PlannerInfo *root, RelOptInfo *rel,
 		/* if the eclass matches then skip to the next sub_pathkey */
 		if (sub_eclass == sub_pathkey->pk_eclass)
 		{
-			/* Eclasses match.  The properties must also match, however, if this is the
-			 * same pathkey */
-			if (redundant_sub_pathkey != sub_pathkey &&
+			int nmatched;
+
+			/*
+			 * Eclasses match.  The properties must also match, however, if
+			 * we've already matched this pathkey then the pathkeys are
+			 * already correctly sorted by that pathkey, in which case we
+			 * don't care about the properties.
+			 */
+			if (!list_member(ctx->query_pathkeys_matched, pathkey) &&
 				(sub_pathkey->pk_strategy != pathkey->pk_strategy ||
 				sub_pathkey->pk_nulls_first != pathkey->pk_nulls_first))
 				return false;
+
+			nmatched = list_length(ctx->query_pathkeys_matched);
 
 			/*
 			 * Try matching this sub_pathkey to the next pathkey.  For queries
@@ -1157,23 +1199,23 @@ subquery_matches_pathkeys_recurse(PlannerInfo *root, RelOptInfo *rel,
 			 * subquery pathkey.  If this does not match, we'll continue on
 			 * with the non-recursive search.
 			 */
-			if (subquery_matches_pathkeys_recurse(root,
-												  rel,
-												  subquery_tlist,
-												  subquery_pathkeys,
-												  list_cell_number(subquery_pathkeys, sub_lc),
-												  query_pathkeys,
-												  foreach_current_index(lc) + 1,
-												  sub_pathkey))
+			if (subquery_matches_pathkeys_recurse(ctx,
+												  list_cell_number(ctx->subquery_pathkeys, sub_lc),
+												  foreach_current_index(lc) + 1))
 				return true;
 
+			/*
+			 * Trim this back down as the recursive call above may have added
+			 * pathkeys to the list.
+			 */
+			ctx->query_pathkeys_matched =
+					list_truncate(ctx->query_pathkeys_matched, nmatched);
+
 			/* Skip to the next pathkey to the next sub_pathkey */
-			sub_lc = lnext(subquery_pathkeys, sub_lc);
+			sub_lc = lnext(ctx->subquery_pathkeys, sub_lc);
 		}
 		else
 			return false;
-
-		redundant_sub_pathkey = NULL;
 	}
 
 	return true;
@@ -1184,8 +1226,9 @@ subquery_matches_pathkeys_recurse(PlannerInfo *root, RelOptInfo *rel,
  *		Check if the subquery in 'rel' with the given 'subquery_pathkeys'
  *		implements 'query_pathkeys', taking into account that some of the
  *		given 'subquery_pathkeys' may have been marked as redundant or
- *		consecutive query_pathkeys may have been merged into a single
- *		EquivalenceClass in the subquery.
+ *		consecutive query_pathkeys may belong to a single EquivalenceClass in
+ *		the subquery but belong to multiple EquivalenceClasses in the outer
+ *		query.
  *
  * 'query_pathkeys' must not be an empty List.
  */
@@ -1194,14 +1237,16 @@ subquery_matches_pathkeys(PlannerInfo *root, RelOptInfo *rel,
 						  List *subquery_tlist, List *subquery_pathkeys,
 						  List *query_pathkeys)
 {
-	return subquery_matches_pathkeys_recurse(root,
-											 rel,
-											 subquery_tlist,
-											 subquery_pathkeys,
-											 0,
-											 query_pathkeys,
-											 0,
-											 NULL);
+	SubqueryPathKeyMatchContext context;
+
+	context.root = root;
+	context.rel = rel;
+	context.subquery_tlist = subquery_tlist;
+	context.subquery_pathkeys = subquery_pathkeys;
+	context.query_pathkeys = query_pathkeys;
+	context.query_pathkeys_matched = NIL;
+
+	return subquery_matches_pathkeys_recurse(&context, 0, 0);
 }
 
 /*
