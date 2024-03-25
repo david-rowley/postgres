@@ -998,6 +998,7 @@ AllocSetAlloc(MemoryContext context, Size size, int flags)
 	 * doubling the memory requirements for such allocations.
 	 */
 	fidx = AllocSetFreeIndex(size);
+#ifdef ALLOCSET_USE_FREELIST
 	chunk = set->freelist[fidx];
 	if (chunk != NULL)
 	{
@@ -1033,6 +1034,7 @@ AllocSetAlloc(MemoryContext context, Size size, int flags)
 
 		return MemoryChunkGetPointer(chunk);
 	}
+#endif
 
 	/*
 	 * Choose the actual chunk size to allocate.
