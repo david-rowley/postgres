@@ -5444,7 +5444,7 @@ serialize_prepare_info(SerializeDestReceiver *receiver,
 			/* wire protocol format text */
 			getTypeOutputInfo(attr->atttypid,
 							  &typoutput,
-							  &typisvarlena);
+							  &typisvarlena, NULL);
 			fmgr_info(typoutput, finfo);
 		}
 		else if (receiver->format == 1)

@@ -232,6 +232,38 @@ text_to_cstring(const text *t)
 }
 
 /*
+ * text_to_cstring_with_len
+ *
+ * Create a palloc'd, null-terminated C string from a text value.
+ *
+ * We support being passed a compressed or toasted text value.
+ * This is a bit bogus since such values shouldn't really be referred to as
+ * "text *", but it seems useful for robustness.  If we didn't handle that
+ * case here, we'd need another routine that did, anyway.
+ *
+ * TODO make one common inline function to use for text_to_cstring and this?
+ */
+char *
+text_to_cstring_with_len(const text *t, int *length)
+{
+	/* must cast away the const, unfortunately */
+	text *tunpacked = pg_detoast_datum_packed(unconstify(text *, t));
+	int len = VARSIZE_ANY_EXHDR(tunpacked);
+	char *result;
+
+	result = (char *) palloc(len + 1);
+	memcpy(result, VARDATA_ANY(tunpacked), len);
+	result[len] = '\0';
+
+	if (tunpacked != t)
+		pfree(tunpacked);
+
+	*length = len;
+
+	return result;
+}
+
+/*
  * text_to_cstring_buffer
  *
  * Copy a text value into a caller-supplied buffer of size dst_len.
@@ -589,9 +621,15 @@ textin(PG_FUNCTION_ARGS)
 Datum
 textout(PG_FUNCTION_ARGS)
 {
-	Datum		txt = PG_GETARG_DATUM(0);
+	OutputFunctionData *output = (OutputFunctionData *) PG_GETARG_POINTER(0);
+	text	   *txt = PG_GETARG_TEXT_PP(1);
+	int			len;
+	char	   *str = text_to_cstring_with_len(txt, &len);
 
-	PG_RETURN_CSTRING(TextDatumGetCString(txt));
+	output->output_len = len;
+	output->output_str = str;
+
+	PG_RETURN_CSTRING(str);
 }
 
 /*
@@ -5380,7 +5418,7 @@ build_concat_foutcache(FunctionCallInfo fcinfo, int argidx)
 		if (!OidIsValid(valtype))
 			elog(ERROR, "could not determine data type of concat() input");
 
-		getTypeOutputInfo(valtype, &typOutput, &typIsVarlena);
+		getTypeOutputInfo(valtype, &typOutput, &typIsVarlena, NULL);
 		fmgr_info_cxt(typOutput, &foutcache[i], fcinfo->flinfo->fn_mcxt);
 	}
 
@@ -5790,7 +5828,7 @@ text_format(PG_FUNCTION_ARGS)
 					Oid			typoutputfunc;
 					bool		typIsVarlena;
 
-					getTypeOutputInfo(typid, &typoutputfunc, &typIsVarlena);
+					getTypeOutputInfo(typid, &typoutputfunc, &typIsVarlena, NULL);
 					fmgr_info(typoutputfunc, &typoutputinfo_width);
 					prev_width_type = typid;
 				}
@@ -5840,7 +5878,7 @@ text_format(PG_FUNCTION_ARGS)
 			Oid			typoutputfunc;
 			bool		typIsVarlena;
 
-			getTypeOutputInfo(typid, &typoutputfunc, &typIsVarlena);
+			getTypeOutputInfo(typid, &typoutputfunc, &typIsVarlena, NULL);
 			fmgr_info(typoutputfunc, &typoutputfinfo);
 			prev_type = typid;
 		}

@@ -483,6 +483,16 @@ typedef struct
 	FMGR_ABI_EXTRA, \
 }
 
+/*
+ * Struct to pass to output functions with 2 arguments to allow them to
+ * populate the output string and the length of that string.
+ */
+typedef struct
+{
+	char *output_str;
+	size_t output_len;
+} OutputFunctionData;
+
 StaticAssertDecl(sizeof(FMGR_ABI_EXTRA) <= sizeof(((Pg_magic_struct *) 0)->abi_extra),
 				 "FMGR_ABI_EXTRA too long");
 
@@ -710,6 +720,8 @@ extern bool DirectInputFunctionCallSafe(PGFunction func, char *str,
 extern Datum OidInputFunctionCall(Oid functionId, char *str,
 								  Oid typioparam, int32 typmod);
 extern char *OutputFunctionCall(FmgrInfo *flinfo, Datum val);
+extern char *OutputFunctionCallWithLen(FmgrInfo *flinfo, Datum val,
+									   size_t *len);
 extern char *OidOutputFunctionCall(Oid functionId, Datum val);
 extern Datum ReceiveFunctionCall(FmgrInfo *flinfo, fmStringInfo buf,
 								 Oid typioparam, int32 typmod);

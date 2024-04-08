@@ -1466,7 +1466,7 @@ plperl_sv_to_literal(SV *sv, char *fqtypename)
 		return NULL;
 
 	getTypeOutputInfo(typid,
-					  &typoutput, &typisvarlena);
+					  &typoutput, &typisvarlena, NULL);
 
 	return OidOutputFunctionCall(typoutput, datum);
 }
@@ -3088,7 +3088,7 @@ plperl_hash_from_tuple(HeapTuple tuple, TupleDesc tupdesc, bool include_generate
 				char	   *outputstr;
 
 				/* XXX should have a way to cache these lookups */
-				getTypeOutputInfo(att->atttypid, &typoutput, &typisvarlena);
+				getTypeOutputInfo(att->atttypid, &typoutput, &typisvarlena, NULL);
 
 				outputstr = OidOutputFunctionCall(typoutput, attr);
 				sv = cstr2sv(outputstr);

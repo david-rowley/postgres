@@ -276,7 +276,7 @@ printtup_prepare_info(DR_printtup *myState, TupleDesc typeinfo, int numAttrs)
 		{
 			getTypeOutputInfo(attr->atttypid,
 							  &thisState->typoutput,
-							  &thisState->typisvarlena);
+							  &thisState->typisvarlena, NULL);
 			fmgr_info(thisState->typoutput, &thisState->finfo);
 		}
 		else if (format == 1)
@@ -356,9 +356,10 @@ printtup(TupleTableSlot *slot, DestReceiver *self)
 		{
 			/* Text output */
 			char	   *outputstr;
+			size_t		len;
 
-			outputstr = OutputFunctionCall(&thisState->finfo, attr);
-			pq_sendcountedtext(buf, outputstr, strlen(outputstr));
+			outputstr = OutputFunctionCallWithLen(&thisState->finfo, attr, &len);
+			pq_sendcountedtext(buf, outputstr, len);
 		}
 		else
 		{
@@ -476,7 +477,7 @@ debugtup(TupleTableSlot *slot, DestReceiver *self)
 		if (isnull)
 			continue;
 		getTypeOutputInfo(TupleDescAttr(typeinfo, i)->atttypid,
-						  &typoutput, &typisvarlena);
+						  &typoutput, &typisvarlena, NULL);
 
 		value = OidOutputFunctionCall(typoutput, attr);
 

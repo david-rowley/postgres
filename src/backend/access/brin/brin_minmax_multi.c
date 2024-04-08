@@ -3026,7 +3026,7 @@ brin_minmax_multi_summary_out(PG_FUNCTION_ARGS)
 	ranges = (SerializedRanges *) PG_DETOAST_DATUM(PG_GETARG_DATUM(0));
 
 	/* lookup output func for the type */
-	getTypeOutputInfo(ranges->typid, &outfunc, &isvarlena);
+	getTypeOutputInfo(ranges->typid, &outfunc, &isvarlena, NULL);
 	fmgr_info(outfunc, &fmgrinfo);
 
 	/* deserialize the range info easy-to-process pieces */
@@ -3069,7 +3069,7 @@ brin_minmax_multi_summary_out(PG_FUNCTION_ARGS)
 		Datum		val;
 		char	   *extval;
 
-		getTypeOutputInfo(ANYARRAYOID, &typoutput, &typIsVarlena);
+		getTypeOutputInfo(ANYARRAYOID, &typoutput, &typIsVarlena, NULL);
 
 		val = makeArrayResult(astate_values, CurrentMemoryContext);
 
@@ -3103,7 +3103,7 @@ brin_minmax_multi_summary_out(PG_FUNCTION_ARGS)
 		Datum		val;
 		char	   *extval;
 
-		getTypeOutputInfo(ANYARRAYOID, &typoutput, &typIsVarlena);
+		getTypeOutputInfo(ANYARRAYOID, &typoutput, &typIsVarlena, NULL);
 
 		val = makeArrayResult(astate_values, CurrentMemoryContext);
 

@@ -1580,7 +1580,7 @@ ExecInitExprRec(Expr *node, ExprState *state,
 				scratch.d.iocoerce.fcinfo_data_out = palloc0(SizeForFunctionCallInfo(1));
 
 				getTypeOutputInfo(exprType((Node *) iocoerce->arg),
-								  &iofunc, &typisvarlena);
+								  &iofunc, &typisvarlena, NULL);
 				fmgr_info(iofunc, scratch.d.iocoerce.finfo_out);
 				fmgr_info_set_expr((Node *) node, scratch.d.iocoerce.finfo_out);
 				InitFunctionCallInfoData(*scratch.d.iocoerce.fcinfo_data_out,

@@ -1662,7 +1662,7 @@ ExecBuildSlotPartitionKeyDescription(Relation rel,
 			bool		typisvarlena;
 
 			getTypeOutputInfo(get_partition_col_typid(key, i),
-							  &foutoid, &typisvarlena);
+							  &foutoid, &typisvarlena, NULL);
 			val = OidOutputFunctionCall(foutoid, values[i]);
 		}
 

@@ -189,7 +189,7 @@ brin_page_items(PG_FUNCTION_ARGS)
 		column->nstored = opcinfo->oi_nstored;
 		for (i = 0; i < opcinfo->oi_nstored; i++)
 		{
-			getTypeOutputInfo(opcinfo->oi_typcache[i]->type_id, &output, &isVarlena);
+			getTypeOutputInfo(opcinfo->oi_typcache[i]->type_id, &output, &isVarlena, NULL);
 			fmgr_info(output, &column->outputFn[i]);
 		}
 

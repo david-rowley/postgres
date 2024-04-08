@@ -5996,7 +5996,7 @@ json_categorize_type(Oid typoid, bool is_jsonb,
 		case FLOAT4OID:
 		case FLOAT8OID:
 		case NUMERICOID:
-			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena);
+			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena, NULL);
 			*tcategory = JSONTYPE_NUMERIC;
 			break;
 
@@ -6016,12 +6016,12 @@ json_categorize_type(Oid typoid, bool is_jsonb,
 			break;
 
 		case JSONOID:
-			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena);
+			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena, NULL);
 			*tcategory = JSONTYPE_JSON;
 			break;
 
 		case JSONBOID:
-			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena);
+			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena, NULL);
 			*tcategory = is_jsonb ? JSONTYPE_JSONB : JSONTYPE_JSON;
 			break;
 
@@ -6062,13 +6062,13 @@ json_categorize_type(Oid typoid, bool is_jsonb,
 					else
 					{
 						/* non builtin type with no cast */
-						getTypeOutputInfo(typoid, outfuncoid, &typisvarlena);
+						getTypeOutputInfo(typoid, outfuncoid, &typisvarlena, NULL);
 					}
 				}
 				else
 				{
 					/* any other builtin type */
-					getTypeOutputInfo(typoid, outfuncoid, &typisvarlena);
+					getTypeOutputInfo(typoid, outfuncoid, &typisvarlena, NULL);
 				}
 			}
 			break;

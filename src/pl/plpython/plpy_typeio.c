@@ -534,7 +534,7 @@ PLy_input_setup_func(PLyDatumToOb *arg, MemoryContext arg_mcxt,
 				break;
 			default:
 				arg->func = PLyUnicode_FromScalar;
-				getTypeOutputInfo(typeOid, &typoutput, &typisvarlena);
+				getTypeOutputInfo(typeOid, &typoutput, &typisvarlena, NULL);
 				fmgr_info_cxt(typoutput, &arg->u.scalar.typfunc, arg_mcxt);
 				break;
 		}

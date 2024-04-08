@@ -570,7 +570,7 @@ tuple_to_stringinfo(StringInfo s, TupleDesc tupdesc, HeapTuple tuple, bool skip_
 
 		/* query output function */
 		getTypeOutputInfo(typid,
-						  &typoutput, &typisvarlena);
+						  &typoutput, &typisvarlena, NULL);
 
 		/* print separator */
 		appendStringInfoChar(s, ':');

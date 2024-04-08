@@ -3038,7 +3038,7 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 	}
 
 	getTypeOutputInfo(node->consttype,
-					  &typoutput, &typIsVarlena);
+					  &typoutput, &typIsVarlena, NULL);
 	extval = OidOutputFunctionCall(typoutput, node->constvalue);
 
 	switch (node->consttype)

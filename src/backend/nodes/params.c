@@ -384,7 +384,7 @@ BuildParamLogString(ParamListInfo params, char **knownTextValues, int maxlen)
 				bool		typisvarlena;
 				char	   *pstring;
 
-				getTypeOutputInfo(param->ptype, &typoutput, &typisvarlena);
+				getTypeOutputInfo(param->ptype, &typoutput, &typisvarlena, NULL);
 				pstring = OidOutputFunctionCall(typoutput, param->value);
 				appendStringInfoStringQuoted(&buf, pstring, maxlen);
 			}

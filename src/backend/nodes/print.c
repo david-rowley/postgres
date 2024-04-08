@@ -374,7 +374,7 @@ print_expr(const Node *expr, const List *rtable)
 		}
 
 		getTypeOutputInfo(c->consttype,
-						  &typoutput, &typIsVarlena);
+						  &typoutput, &typIsVarlena, NULL);
 
 		outputstr = OidOutputFunctionCall(typoutput, c->constvalue);
 		printf("%s", outputstr);

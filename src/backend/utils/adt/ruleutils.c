@@ -11130,7 +11130,7 @@ get_const_expr(Const *constval, deparse_context *context, int showtype)
 	}
 
 	getTypeOutputInfo(constval->consttype,
-					  &typoutput, &typIsVarlena);
+					  &typoutput, &typIsVarlena, NULL);
 
 	extval = OidOutputFunctionCall(typoutput, constval->constvalue);
 

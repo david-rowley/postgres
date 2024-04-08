@@ -2904,7 +2904,7 @@ getTypeInputInfo(Oid type, Oid *typInput, Oid *typIOParam)
  *		Get info needed for printing values of a type
  */
 void
-getTypeOutputInfo(Oid type, Oid *typOutput, bool *typIsVarlena)
+getTypeOutputInfo(Oid type, Oid *typOutput, bool *typIsVarlena, int16 *outputNargs)
 {
 	HeapTuple	typeTuple;
 	Form_pg_type pt;
@@ -2924,6 +2924,19 @@ getTypeOutputInfo(Oid type, Oid *typOutput, bool *typIsVarlena)
 				(errcode(ERRCODE_UNDEFINED_FUNCTION),
 				 errmsg("no output function available for type %s",
 						format_type_be(type))));
+
+	if (outputNargs != NULL)
+	{
+		HeapTuple procTuple;
+		Form_pg_proc proc;
+
+		procTuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(pt->typoutput));
+		if (!HeapTupleIsValid(typeTuple))
+			elog(ERROR, "cache lookup failed for function %u", pt->typoutput);
+		proc = (Form_pg_proc) GETSTRUCT(procTuple);
+		*outputNargs = proc->pronargs;
+		ReleaseSysCache(procTuple);
+	}
 
 	*typOutput = pt->typoutput;
 	*typIsVarlena = (!pt->typbyval) && (pt->typlen == -1);
