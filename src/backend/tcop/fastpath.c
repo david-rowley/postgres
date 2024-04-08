@@ -83,7 +83,7 @@ SendFunctionResult(Datum retval, bool isnull, Oid rettype, int16 format)
 			bool		typisvarlena;
 			char	   *outputstr;
 
-			getTypeOutputInfo(rettype, &typoutput, &typisvarlena);
+			getTypeOutputInfo(rettype, &typoutput, &typisvarlena, NULL);
 			outputstr = OidOutputFunctionCall(typoutput, retval);
 			pq_sendcountedtext(&buf, outputstr, strlen(outputstr));
 			pfree(outputstr);

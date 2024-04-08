@@ -777,7 +777,7 @@ DoCopyTo(CopyToState cstate)
 		else
 			getTypeOutputInfo(attr->atttypid,
 							  &out_func_oid,
-							  &isvarlena);
+							  &isvarlena, NULL);
 		fmgr_info(out_func_oid, &cstate->out_functions[attnum - 1]);
 	}
 

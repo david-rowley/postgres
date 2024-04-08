@@ -1419,7 +1419,7 @@ pg_stats_ext_mcvlist_items(PG_FUNCTION_ARGS)
 				text	   *txt;
 
 				/* lookup output func for the type */
-				getTypeOutputInfo(mcvlist->types[i], &outfunc, &isvarlena);
+				getTypeOutputInfo(mcvlist->types[i], &outfunc, &isvarlena, NULL);
 				fmgr_info(outfunc, &fmgrinfo);
 
 				val = FunctionCall1(&fmgrinfo, item->values[i]);

@@ -4844,7 +4844,7 @@ cost_qual_eval_walker(Node *node, cost_qual_eval_context *context)
 						  &context->total);
 		/* check the input type's output function */
 		getTypeOutputInfo(exprType((Node *) iocoerce->arg),
-						  &iofunc, &typisvarlena);
+						  &iofunc, &typisvarlena, NULL);
 		add_function_cost(context->root, iofunc, NULL,
 						  &context->total);
 	}

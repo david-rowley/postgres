@@ -1967,7 +1967,7 @@ check_functions_in_node(Node *node, check_function_callback checker,
 					return true;
 				/* check the input type's output function */
 				getTypeOutputInfo(exprType((Node *) expr->arg),
-								  &iofunc, &typisvarlena);
+								  &iofunc, &typisvarlena, NULL);
 				if (checker(iofunc, context))
 					return true;
 			}

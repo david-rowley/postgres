@@ -173,7 +173,8 @@ extern Oid	get_array_type(Oid typid);
 extern Oid	get_promoted_array_type(Oid typid);
 extern Oid	get_base_element_type(Oid typid);
 extern void getTypeInputInfo(Oid type, Oid *typInput, Oid *typIOParam);
-extern void getTypeOutputInfo(Oid type, Oid *typOutput, bool *typIsVarlena);
+extern void getTypeOutputInfo(Oid type, Oid *typOutput, bool *typIsVarlena,
+							  int16 *outputNargs);
 extern void getTypeBinaryInputInfo(Oid type, Oid *typReceive, Oid *typIOParam);
 extern void getTypeBinaryOutputInfo(Oid type, Oid *typSend, bool *typIsVarlena);
 extern Oid	get_typmodin(Oid typid);

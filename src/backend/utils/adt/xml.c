@@ -2608,7 +2608,7 @@ map_sql_value_to_xml_value(Datum value, Oid type, bool xml_escape_strings)
 		/*
 		 * otherwise, just use the type's native text representation
 		 */
-		getTypeOutputInfo(type, &typeOut, &isvarlena);
+		getTypeOutputInfo(type, &typeOut, &isvarlena, NULL);
 		str = OidOutputFunctionCall(typeOut, value);
 
 		/* ... exactly as-is for XML, and when escaping is not wanted */

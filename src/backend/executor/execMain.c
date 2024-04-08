@@ -2303,7 +2303,7 @@ ExecBuildSlotValueDescription(Oid reloid,
 				bool		typisvarlena;
 
 				getTypeOutputInfo(att->atttypid,
-								  &foutoid, &typisvarlena);
+								  &foutoid, &typisvarlena, NULL);
 				val = OidOutputFunctionCall(foutoid, slot->tts_values[i]);
 			}
 

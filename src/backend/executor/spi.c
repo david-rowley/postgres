@@ -1240,7 +1240,7 @@ SPI_getvalue(HeapTuple tuple, TupleDesc tupdesc, int fnumber)
 	else
 		typoid = (SystemAttributeDefinition(fnumber))->atttypid;
 
-	getTypeOutputInfo(typoid, &foutoid, &typisvarlena);
+	getTypeOutputInfo(typoid, &foutoid, &typisvarlena, NULL);
 
 	return OidOutputFunctionCall(foutoid, val);
 }

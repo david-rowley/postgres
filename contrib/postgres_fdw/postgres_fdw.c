@@ -4027,7 +4027,7 @@ create_foreign_modify(EState *estate,
 			elog(ERROR, "could not find junk ctid column");
 
 		/* First transmittable parameter will be ctid */
-		getTypeOutputInfo(TIDOID, &typefnoid, &isvarlena);
+		getTypeOutputInfo(TIDOID, &typefnoid, &isvarlena, NULL);
 		fmgr_info(typefnoid, &fmstate->p_flinfo[fmstate->p_nums]);
 		fmstate->p_nums++;
 	}
@@ -4045,7 +4045,7 @@ create_foreign_modify(EState *estate,
 			/* Ignore generated columns; they are set to DEFAULT */
 			if (attr->attgenerated)
 				continue;
-			getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
+			getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena, NULL);
 			fmgr_info(typefnoid, &fmstate->p_flinfo[fmstate->p_nums]);
 			fmstate->p_nums++;
 		}
@@ -4855,7 +4855,7 @@ prepare_query_params(PlanState *node,
 		Oid			typefnoid;
 		bool		isvarlena;
 
-		getTypeOutputInfo(exprType(param_expr), &typefnoid, &isvarlena);
+		getTypeOutputInfo(exprType(param_expr), &typefnoid, &isvarlena, NULL);
 		fmgr_info(typefnoid, &(*param_flinfo)[i]);
 		i++;
 	}

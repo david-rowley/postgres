@@ -257,7 +257,7 @@ BuildIndexValueDescription(Relation indexRelation,
 			 * okay, but we might have to try harder in future.
 			 */
 			getTypeOutputInfo(indexRelation->rd_opcintype[i],
-							  &foutoid, &typisvarlena);
+							  &foutoid, &typisvarlena, NULL);
 			val = OidOutputFunctionCall(foutoid, values[i]);
 		}
 
