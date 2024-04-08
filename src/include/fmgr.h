@@ -709,8 +709,10 @@ extern bool DirectInputFunctionCallSafe(PGFunction func, char *str,
 										Datum *result);
 extern Datum OidInputFunctionCall(Oid functionId, char *str,
 								  Oid typioparam, int32 typmod);
-extern char *OutputFunctionCall(FmgrInfo *flinfo, Datum val);
-extern char *OidOutputFunctionCall(Oid functionId, Datum val);
+extern char *OutputFunctionCall(FmgrInfo *flinfo, char ioversion, Datum val);
+extern char *OutputFunctionCallWithLen(FmgrInfo *flinfo, Datum val,
+									   size_t *len);
+extern char *OidOutputFunctionCall(Oid functionId, char ioversion, Datum val);
 extern Datum ReceiveFunctionCall(FmgrInfo *flinfo, fmStringInfo buf,
 								 Oid typioparam, int32 typmod);
 extern Datum OidReceiveFunctionCall(Oid functionId, fmStringInfo buf,

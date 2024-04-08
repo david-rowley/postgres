@@ -307,11 +307,17 @@ gist_page_items(PG_FUNCTION_ARGS)
 				{
 					Oid			foutoid;
 					bool		typisvarlena;
+					char		typIOVersion;
 					Oid			typoid;
 
 					typoid = TupleDescAttr(tupdesc, i)->atttypid;
-					getTypeOutputInfo(typoid, &foutoid, &typisvarlena);
-					value = OidOutputFunctionCall(foutoid, itup_values[i]);
+					getTypeOutputInfo(typoid,
+									  &foutoid,
+									  &typisvarlena,
+									  &typIOVersion);
+					value = OidOutputFunctionCall(foutoid,
+												  typIOVersion,
+												  itup_values[i]);
 				}
 
 				if (i == IndexRelationGetNumberOfKeyAttributes(indexRel))

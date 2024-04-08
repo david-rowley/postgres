@@ -77,6 +77,7 @@ struct typinfo
 	int16		len;
 	bool		byval;
 	char		align;
+	char		ioversion;
 	char		storage;
 	Oid			collation;
 	Oid			inproc;
@@ -84,55 +85,55 @@ struct typinfo
 };
 
 static const struct typinfo TypInfo[] = {
-	{"bool", BOOLOID, 0, 1, true, TYPALIGN_CHAR, TYPSTORAGE_PLAIN, InvalidOid,
+	{"bool", BOOLOID, 0, 1, true, TYPALIGN_CHAR, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_BOOLIN, F_BOOLOUT},
-	{"bytea", BYTEAOID, 0, -1, false, TYPALIGN_INT, TYPSTORAGE_EXTENDED, InvalidOid,
+	{"bytea", BYTEAOID, 0, -1, false, TYPALIGN_INT, TYPIOVERSION_STANDARD,TYPSTORAGE_EXTENDED, InvalidOid,
 	F_BYTEAIN, F_BYTEAOUT},
-	{"char", CHAROID, 0, 1, true, TYPALIGN_CHAR, TYPSTORAGE_PLAIN, InvalidOid,
+	{"char", CHAROID, 0, 1, true, TYPALIGN_CHAR, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_CHARIN, F_CHAROUT},
-	{"int2", INT2OID, 0, 2, true, TYPALIGN_SHORT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"int2", INT2OID, 0, 2, true, TYPALIGN_SHORT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_INT2IN, F_INT2OUT},
-	{"int4", INT4OID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"int4", INT4OID, 0, 4, true, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_INT4IN, F_INT4OUT},
-	{"float4", FLOAT4OID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"float4", FLOAT4OID, 0, 4, true, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_FLOAT4IN, F_FLOAT4OUT},
-	{"name", NAMEOID, CHAROID, NAMEDATALEN, false, TYPALIGN_CHAR, TYPSTORAGE_PLAIN, C_COLLATION_OID,
+	{"name", NAMEOID, CHAROID, NAMEDATALEN, false, TYPALIGN_CHAR, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, C_COLLATION_OID,
 	F_NAMEIN, F_NAMEOUT},
-	{"regclass", REGCLASSOID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"regclass", REGCLASSOID, 0, 4, true, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_REGCLASSIN, F_REGCLASSOUT},
-	{"regproc", REGPROCOID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"regproc", REGPROCOID, 0, 4, true, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_REGPROCIN, F_REGPROCOUT},
-	{"regtype", REGTYPEOID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"regtype", REGTYPEOID, 0, 4, true, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_REGTYPEIN, F_REGTYPEOUT},
-	{"regrole", REGROLEOID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"regrole", REGROLEOID, 0, 4, true, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_REGROLEIN, F_REGROLEOUT},
-	{"regnamespace", REGNAMESPACEOID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"regnamespace", REGNAMESPACEOID, 0, 4, true, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_REGNAMESPACEIN, F_REGNAMESPACEOUT},
-	{"text", TEXTOID, 0, -1, false, TYPALIGN_INT, TYPSTORAGE_EXTENDED, DEFAULT_COLLATION_OID,
+	{"text", TEXTOID, 0, -1, false, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_EXTENDED, DEFAULT_COLLATION_OID,
 	F_TEXTIN, F_TEXTOUT},
-	{"oid", OIDOID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"oid", OIDOID, 0, 4, true, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_OIDIN, F_OIDOUT},
-	{"tid", TIDOID, 0, 6, false, TYPALIGN_SHORT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"tid", TIDOID, 0, 6, false, TYPALIGN_SHORT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_TIDIN, F_TIDOUT},
-	{"xid", XIDOID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"xid", XIDOID, 0, 4, true, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_XIDIN, F_XIDOUT},
-	{"cid", CIDOID, 0, 4, true, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"cid", CIDOID, 0, 4, true, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_CIDIN, F_CIDOUT},
-	{"pg_node_tree", PG_NODE_TREEOID, 0, -1, false, TYPALIGN_INT, TYPSTORAGE_EXTENDED, DEFAULT_COLLATION_OID,
+	{"pg_node_tree", PG_NODE_TREEOID, 0, -1, false, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_EXTENDED, DEFAULT_COLLATION_OID,
 	F_PG_NODE_TREE_IN, F_PG_NODE_TREE_OUT},
-	{"int2vector", INT2VECTOROID, INT2OID, -1, false, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"int2vector", INT2VECTOROID, INT2OID, -1, false, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_INT2VECTORIN, F_INT2VECTOROUT},
-	{"oidvector", OIDVECTOROID, OIDOID, -1, false, TYPALIGN_INT, TYPSTORAGE_PLAIN, InvalidOid,
+	{"oidvector", OIDVECTOROID, OIDOID, -1, false, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_PLAIN, InvalidOid,
 	F_OIDVECTORIN, F_OIDVECTOROUT},
-	{"_int4", INT4ARRAYOID, INT4OID, -1, false, TYPALIGN_INT, TYPSTORAGE_EXTENDED, InvalidOid,
+	{"_int4", INT4ARRAYOID, INT4OID, -1, false, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_EXTENDED, InvalidOid,
 	F_ARRAY_IN, F_ARRAY_OUT},
-	{"_text", 1009, TEXTOID, -1, false, TYPALIGN_INT, TYPSTORAGE_EXTENDED, DEFAULT_COLLATION_OID,
+	{"_text", 1009, TEXTOID, -1, false, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_EXTENDED, DEFAULT_COLLATION_OID,
 	F_ARRAY_IN, F_ARRAY_OUT},
-	{"_oid", 1028, OIDOID, -1, false, TYPALIGN_INT, TYPSTORAGE_EXTENDED, InvalidOid,
+	{"_oid", 1028, OIDOID, -1, false, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_EXTENDED, InvalidOid,
 	F_ARRAY_IN, F_ARRAY_OUT},
-	{"_char", 1002, CHAROID, -1, false, TYPALIGN_INT, TYPSTORAGE_EXTENDED, InvalidOid,
+	{"_char", 1002, CHAROID, -1, false, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_EXTENDED, InvalidOid,
 	F_ARRAY_IN, F_ARRAY_OUT},
-	{"_aclitem", 1034, ACLITEMOID, -1, false, TYPALIGN_INT, TYPSTORAGE_EXTENDED, InvalidOid,
+	{"_aclitem", 1034, ACLITEMOID, -1, false, TYPALIGN_INT, TYPIOVERSION_STANDARD, TYPSTORAGE_EXTENDED, InvalidOid,
 	F_ARRAY_IN, F_ARRAY_OUT}
 };
 
@@ -629,6 +630,7 @@ InsertOneValue(char *value, int i)
 	bool		typbyval;
 	char		typalign;
 	char		typdelim;
+	char		typioversion;
 	Oid			typioparam;
 	Oid			typinput;
 	Oid			typoutput;
@@ -641,7 +643,7 @@ InsertOneValue(char *value, int i)
 
 	boot_get_type_io_data(typoid,
 						  &typlen, &typbyval, &typalign,
-						  &typdelim, &typioparam,
+						  &typdelim, &typioversion, &typioparam,
 						  &typinput, &typoutput);
 
 	values[i] = OidInputFunctionCall(typinput, value, typioparam, -1);
@@ -652,7 +654,7 @@ InsertOneValue(char *value, int i)
 	 */
 	ereport(DEBUG4,
 			(errmsg_internal("inserted -> %s",
-							 OidOutputFunctionCall(typoutput, values[i]))));
+							 OidOutputFunctionCall(typoutput, typioversion, values[i]))));
 }
 
 /* ----------------
@@ -807,6 +809,7 @@ boot_get_type_io_data(Oid typid,
 					  bool *typbyval,
 					  char *typalign,
 					  char *typdelim,
+					  char *typioversion,
 					  Oid *typioparam,
 					  Oid *typinput,
 					  Oid *typoutput)
@@ -831,6 +834,7 @@ boot_get_type_io_data(Oid typid,
 		*typbyval = ap->am_typ.typbyval;
 		*typalign = ap->am_typ.typalign;
 		*typdelim = ap->am_typ.typdelim;
+		*typioversion = ap->am_typ.typioversion;
 
 		/* XXX this logic must match getTypeIOParam() */
 		if (OidIsValid(ap->am_typ.typelem))
@@ -859,6 +863,7 @@ boot_get_type_io_data(Oid typid,
 		*typalign = TypInfo[typeindex].align;
 		/* We assume typdelim is ',' for all boot-time types */
 		*typdelim = ',';
+		*typioversion = TypInfo[typeindex].ioversion;
 
 		/* XXX this logic must match getTypeIOParam() */
 		if (OidIsValid(TypInfo[typeindex].elem))

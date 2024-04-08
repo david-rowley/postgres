@@ -34,10 +34,16 @@ PG_FUNCTION_INFO_V1(brin_revmap_data);
 
 #define IS_BRIN(r) ((r)->rd_rel->relam == BRIN_AM_OID)
 
+typedef struct brin_output_func
+{
+	FmgrInfo outputFn;
+	char	typioversion;
+} brin_output_func;
+
 typedef struct brin_column_state
 {
 	int			nstored;
-	FmgrInfo	outputFn[FLEXIBLE_ARRAY_MEMBER];
+	brin_output_func outputdet[FLEXIBLE_ARRAY_MEMBER];
 } brin_column_state;
 
 
@@ -183,14 +189,18 @@ brin_page_items(PG_FUNCTION_ARGS)
 		brin_column_state *column;
 
 		opcinfo = bdesc->bd_info[attno - 1];
-		column = palloc(offsetof(brin_column_state, outputFn) +
-						sizeof(FmgrInfo) * opcinfo->oi_nstored);
+		column = palloc(offsetof(brin_column_state, outputdet) +
+						sizeof(brin_output_func) * opcinfo->oi_nstored);
 
 		column->nstored = opcinfo->oi_nstored;
 		for (i = 0; i < opcinfo->oi_nstored; i++)
 		{
-			getTypeOutputInfo(opcinfo->oi_typcache[i]->type_id, &output, &isVarlena);
-			fmgr_info(output, &column->outputFn[i]);
+			getTypeOutputInfo(opcinfo->oi_typcache[i]->type_id,
+							  &output,
+							  &isVarlena,
+							  &column->outputdet[i].typioversion);
+			fmgr_info(output, &column->outputdet[i].outputFn);
+			column->
 		}
 
 		columns[attno - 1] = column;
@@ -281,7 +291,8 @@ brin_page_items(PG_FUNCTION_ARGS)
 					if (!first)
 						appendStringInfoString(&s, " .. ");
 					first = false;
-					val = OutputFunctionCall(&columns[att]->outputFn[i],
+					val = OutputFunctionCall(&columns[att]->outputdet[i].outputFn,
+											 columns[att]->outputdet[i].typioversion,
 											 bvalues->bv_values[i]);
 					appendStringInfoString(&s, val);
 					pfree(val);

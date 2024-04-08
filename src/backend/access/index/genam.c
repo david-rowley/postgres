@@ -246,6 +246,7 @@ BuildIndexValueDescription(Relation indexRelation,
 		{
 			Oid			foutoid;
 			bool		typisvarlena;
+			char		typIOVersion;
 
 			/*
 			 * The provided data is not necessarily of the type stored in the
@@ -258,8 +259,10 @@ BuildIndexValueDescription(Relation indexRelation,
 			 * okay, but we might have to try harder in future.
 			 */
 			getTypeOutputInfo(indexRelation->rd_opcintype[i],
-							  &foutoid, &typisvarlena);
-			val = OidOutputFunctionCall(foutoid, values[i]);
+							  &foutoid,
+							  &typisvarlena,
+							  &typIOVersion);
+			val = OidOutputFunctionCall(foutoid, typIOVersion, values[i]);
 		}
 
 		if (i > 0)

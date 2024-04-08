@@ -11109,6 +11109,7 @@ get_const_expr(Const *constval, deparse_context *context, int showtype)
 	StringInfo	buf = context->buf;
 	Oid			typoutput;
 	bool		typIsVarlena;
+	char		typIOVersion;
 	char	   *extval;
 	bool		needlabel = false;
 
@@ -11130,7 +11131,9 @@ get_const_expr(Const *constval, deparse_context *context, int showtype)
 	}
 
 	getTypeOutputInfo(constval->consttype,
-					  &typoutput, &typIsVarlena);
+					  &typoutput,
+					  &typIsVarlena,
+					  &typIOVersion);
 
 	extval = OidOutputFunctionCall(typoutput, constval->constvalue);
 

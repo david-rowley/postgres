@@ -2568,9 +2568,13 @@ ri_ReportViolation(const RI_ConstraintInfo *riinfo,
 			{
 				Oid			foutoid;
 				bool		typisvarlena;
+				char		typIOVersion;
 
-				getTypeOutputInfo(att->atttypid, &foutoid, &typisvarlena);
-				val = OidOutputFunctionCall(foutoid, datum);
+				getTypeOutputInfo(att->atttypid,
+								  &foutoid,
+								  &typisvarlena,
+								  &typIOVersion);
+				val = OidOutputFunctionCall(foutoid, typIOVersion, datum);
 			}
 			else
 				val = "null";

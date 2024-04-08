@@ -117,6 +117,7 @@ typedef struct plperl_proc_desc
 	Oid			result_oid;		/* Oid of result type */
 	FmgrInfo	result_in_func; /* I/O function and arg for result type */
 	Oid			result_typioparam;
+	char		result_typioversion;
 	/* Per-argument info for function's argument types: */
 	int			nargs;
 	FmgrInfo   *arg_out_func;	/* output fns for arg types */
@@ -1448,6 +1449,7 @@ plperl_sv_to_literal(SV *sv, char *fqtypename)
 	Datum		datum;
 	bool		typisvarlena,
 				isnull;
+	char		typIOVersion;
 
 	check_spi_usage_allowed();
 
@@ -1465,10 +1467,9 @@ plperl_sv_to_literal(SV *sv, char *fqtypename)
 	if (isnull)
 		return NULL;
 
-	getTypeOutputInfo(typid,
-					  &typoutput, &typisvarlena);
+	getTypeOutputInfo(typid, &typoutput, &typisvarlena, &typIOVersion);
 
-	return OidOutputFunctionCall(typoutput, datum);
+	return OidOutputFunctionCall(typoutput, typIOVersion, datum);
 }
 
 /*
@@ -1485,7 +1486,8 @@ plperl_ref_from_pg_array(Datum arg, Oid typid)
 	int16		typlen;
 	bool		typbyval;
 	char		typalign,
-				typdelim;
+				typdelim,
+				typioversion;
 	Oid			typioparam;
 	Oid			typoutputfunc;
 	Oid			transform_funcid;
@@ -1505,7 +1507,7 @@ plperl_ref_from_pg_array(Datum arg, Oid typid)
 	/* get element type information, including output conversion function */
 	get_type_io_data(elementtype, IOFunc_output,
 					 &typlen, &typbyval, &typalign,
-					 &typdelim, &typioparam, &typoutputfunc);
+					 &typdelim, &typioversion, &typioparam, &typoutputfunc);
 
 	/* Check for a transform function */
 	transform_funcid = get_transform_fromsql(elementtype,
@@ -2222,6 +2224,7 @@ plperl_call_perl_func(plperl_proc_desc *desc, FunctionCallInfo fcinfo)
 				char	   *tmp;
 
 				tmp = OutputFunctionCall(&(desc->arg_out_func[i]),
+										 desc->result_typioversion,
 										 fcinfo->args[i].value);
 				sv = cstr2sv(tmp);
 				pfree(tmp);
@@ -2877,6 +2880,7 @@ compile_plperl_function(Oid fn_oid, bool is_trigger, bool is_event_trigger)
 						  &(prodesc->result_in_func),
 						  proc_cxt);
 			prodesc->result_typioparam = getTypeIOParam(typeTup);
+			prodesc->result_typioversion = typeStruct->typioversion;
 
 			ReleaseSysCache(typeTup);
 		}
@@ -3040,6 +3044,7 @@ plperl_hash_from_tuple(HeapTuple tuple, TupleDesc tupdesc, bool include_generate
 		Datum		attr;
 		bool		isnull,
 					typisvarlena;
+		char		typIOVersion;
 		char	   *attname;
 		Oid			typoutput;
 		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
@@ -3088,7 +3093,10 @@ plperl_hash_from_tuple(HeapTuple tuple, TupleDesc tupdesc, bool include_generate
 				char	   *outputstr;
 
 				/* XXX should have a way to cache these lookups */
-				getTypeOutputInfo(att->atttypid, &typoutput, &typisvarlena);
+				getTypeOutputInfo(att->atttypid,
+								  &typoutput,
+								  &typisvarlena,
+								  &typIOVersion);
 
 				outputstr = OidOutputFunctionCall(typoutput, attr);
 				sv = cstr2sv(outputstr);

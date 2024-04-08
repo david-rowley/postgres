@@ -1221,6 +1221,7 @@ SPI_getvalue(HeapTuple tuple, TupleDesc tupdesc, int fnumber)
 	Oid			typoid,
 				foutoid;
 	bool		typisvarlena;
+	char		typIOVersion;
 
 	SPI_result = 0;
 
@@ -1240,9 +1241,9 @@ SPI_getvalue(HeapTuple tuple, TupleDesc tupdesc, int fnumber)
 	else
 		typoid = (SystemAttributeDefinition(fnumber))->atttypid;
 
-	getTypeOutputInfo(typoid, &foutoid, &typisvarlena);
+	getTypeOutputInfo(typoid, &foutoid, &typisvarlena, &typIOVersion);
 
-	return OidOutputFunctionCall(foutoid, val);
+	return OidOutputFunctionCall(foutoid, typIOVersion, val);
 }
 
 Datum

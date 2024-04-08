@@ -1677,12 +1677,69 @@ DirectInputFunctionCallSafe(PGFunction func, char *str,
  *
  * Do not call this on NULL datums.
  *
- * This is currently little more than window dressing for FunctionCall1.
+ * We support both the old and new output function signatures.  Old versions
+ * just passed the Datum and returned a char *.  The new version, which have
+ * two arguments pass a OutputFunctionData pointer to the output function to
+ * have it fill in the cstring length.  This is useful for
+ * OutputFunctionCallWithLen.
  */
 char *
-OutputFunctionCall(FmgrInfo *flinfo, Datum val)
+OutputFunctionCall(FmgrInfo *flinfo, char ioversion, Datum val)
 {
-	return DatumGetCString(FunctionCall1(flinfo, val));
+	if (ioversion == TYPIOVERSION_STANDARD)
+	{
+		/* no need to call strlen as the caller does not need it */
+		return DatumGetCString(FunctionCall1(flinfo, val));
+	}
+	else
+	{
+		StringInfoData buf;
+
+		Assert(ioversion == TYPIOVERSION_EXTENDED);
+
+		/* this will allocate more bytes than most output functions need */
+		initStringInfo(&buf);
+
+		FunctionCall2(flinfo, PointerGetDatum(&buf), val);
+		return DatumGetCString(buf.data);
+	}
+}
+
+/*
+ * Call a previously-looked-up datatype output function.
+ *
+ * Do not call this on NULL datums.
+ *
+ * Return the output function's return value and set *len to the
+ * strlen of that cstring.
+ */
+char *
+OutputFunctionCallWithLen(FmgrInfo *flinfo, Datum val, size_t *len)
+{
+	char	   *str;
+
+	if (flinfo->fn_nargs == 1)
+	{
+		str = DatumGetCString(FunctionCall1(flinfo, val));
+		*len = strlen(str);
+
+		return str;
+	}
+	else
+	{
+		OutputFunctionData output;
+
+		Assert(flinfo->fn_nargs == 2);
+
+		str = DatumGetCString(FunctionCall2(flinfo,
+											PointerGetDatum(&output),
+											val));
+		*len = output.output_len;
+
+		Assert(strlen(str) == output.output_len);
+
+		return str;
+	}
 }
 
 /*
@@ -1760,12 +1817,12 @@ OidInputFunctionCall(Oid functionId, char *str, Oid typioparam, int32 typmod)
 }
 
 char *
-OidOutputFunctionCall(Oid functionId, Datum val)
+OidOutputFunctionCall(Oid functionId, char ioversion, Datum val)
 {
 	FmgrInfo	flinfo;
 
 	fmgr_info(functionId, &flinfo);
-	return OutputFunctionCall(&flinfo, val);
+	return OutputFunctionCall(&flinfo, ioversion, val);
 }
 
 Datum

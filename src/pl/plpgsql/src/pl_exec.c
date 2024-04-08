@@ -7698,10 +7698,11 @@ convert_value_to_string(PLpgSQL_execstate *estate, Datum value, Oid valtype)
 	MemoryContext oldcontext;
 	Oid			typoutput;
 	bool		typIsVarlena;
+	char		typIOVersion;
 
 	oldcontext = MemoryContextSwitchTo(get_eval_mcontext(estate));
-	getTypeOutputInfo(valtype, &typoutput, &typIsVarlena);
-	result = OidOutputFunctionCall(typoutput, value);
+	getTypeOutputInfo(valtype, &typoutput, &typIsVarlena, &typIOVersion);
+	result = OidOutputFunctionCall(typoutput, typIOVersion, value);
 	MemoryContextSwitchTo(oldcontext);
 
 	return result;

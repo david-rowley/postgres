@@ -153,6 +153,7 @@ typedef struct PgFdwScanState
 	bool		cursor_exists;	/* have we created the cursor? */
 	int			numParams;		/* number of parameters passed to query */
 	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
+	char	   *param_ioversion;
 	List	   *param_exprs;	/* executable expressions for param values */
 	const char **param_values;	/* textual values of query parameters */
 
@@ -232,6 +233,7 @@ typedef struct PgFdwDirectModifyState
 	PgFdwConnState *conn_state; /* extra per-connection state */
 	int			numParams;		/* number of parameters passed to query */
 	FmgrInfo   *param_flinfo;	/* output conversion functions for them */
+	char	  **param_ioversions;
 	List	   *param_exprs;	/* executable expressions for param values */
 	const char **param_values;	/* textual values of query parameters */
 
@@ -494,10 +496,12 @@ static void prepare_query_params(PlanState *node,
 								 List *fdw_exprs,
 								 int numParams,
 								 FmgrInfo **param_flinfo,
+								 char **param_ioversions,
 								 List **param_exprs,
 								 const char ***param_values);
 static void process_query_params(ExprContext *econtext,
 								 FmgrInfo *param_flinfo,
+								 char *param_ioversions,
 								 List *param_exprs,
 								 const char **param_values);
 static int	postgresAcquireSampleRowsFunc(Relation relation, int elevel,
@@ -1587,6 +1591,7 @@ postgresBeginForeignScan(ForeignScanState *node, int eflags)
 							 fsplan->fdw_exprs,
 							 numParams,
 							 &fsstate->param_flinfo,
+							 &fsstate->param_ioversion,
 							 &fsstate->param_exprs,
 							 &fsstate->param_values);
 
@@ -2754,6 +2759,7 @@ postgresBeginDirectModify(ForeignScanState *node, int eflags)
 							 fsplan->fdw_exprs,
 							 numParams,
 							 &dmstate->param_flinfo,
+							 &dmstate->param_ioversions,
 							 &dmstate->param_exprs,
 							 &dmstate->param_values);
 }
@@ -3755,6 +3761,7 @@ create_cursor(ForeignScanState *node)
 
 		process_query_params(econtext,
 							 fsstate->param_flinfo,
+							 fsstate->param_ioversion,
 							 fsstate->param_exprs,
 							 values);
 
@@ -3996,6 +4003,7 @@ create_foreign_modify(EState *estate,
 	AttrNumber	n_params;
 	Oid			typefnoid;
 	bool		isvarlena;
+	char		typIOVersion;
 	ListCell   *lc;
 
 	/* Begin constructing PgFdwModifyState. */
@@ -4050,7 +4058,7 @@ create_foreign_modify(EState *estate,
 			elog(ERROR, "could not find junk ctid column");
 
 		/* First transmittable parameter will be ctid */
-		getTypeOutputInfo(TIDOID, &typefnoid, &isvarlena);
+		getTypeOutputInfo(TIDOID, &typefnoid, &isvarlena, &typIOVersion);
 		fmgr_info(typefnoid, &fmstate->p_flinfo[fmstate->p_nums]);
 		fmstate->p_nums++;
 	}
@@ -4068,7 +4076,10 @@ create_foreign_modify(EState *estate,
 			/* Ignore generated columns; they are set to DEFAULT */
 			if (attr->attgenerated)
 				continue;
-			getTypeOutputInfo(attr->atttypid, &typefnoid, &isvarlena);
+			getTypeOutputInfo(attr->atttypid,
+							  &typefnoid,
+							  &isvarlena,
+							  &typIOVersion);
 			fmgr_info(typefnoid, &fmstate->p_flinfo[fmstate->p_nums]);
 			fmstate->p_nums++;
 		}
@@ -4574,6 +4585,7 @@ execute_dml_stmt(ForeignScanState *node)
 	if (numParams > 0)
 		process_query_params(econtext,
 							 dmstate->param_flinfo,
+							 dmstate->param_ioversions,
 							 dmstate->param_exprs,
 							 values);
 
@@ -4860,6 +4872,7 @@ prepare_query_params(PlanState *node,
 					 List *fdw_exprs,
 					 int numParams,
 					 FmgrInfo **param_flinfo,
+					 char **param_ioversions,
 					 List **param_exprs,
 					 const char ***param_values)
 {
@@ -4870,6 +4883,7 @@ prepare_query_params(PlanState *node,
 
 	/* Prepare for output conversion of parameters used in remote query. */
 	*param_flinfo = (FmgrInfo *) palloc0(sizeof(FmgrInfo) * numParams);
+	*param_ioversions = (char *) palloc0(sizeof(char) * numParams);
 
 	i = 0;
 	foreach(lc, fdw_exprs)
@@ -4877,9 +4891,14 @@ prepare_query_params(PlanState *node,
 		Node	   *param_expr = (Node *) lfirst(lc);
 		Oid			typefnoid;
 		bool		isvarlena;
+		char		typIOVersion;
 
-		getTypeOutputInfo(exprType(param_expr), &typefnoid, &isvarlena);
+		getTypeOutputInfo(exprType(param_expr),
+						  &typefnoid,
+						  &isvarlena,
+						  &typIOVersion);
 		fmgr_info(typefnoid, &(*param_flinfo)[i]);
+		*param_ioversions[i] = typIOVersion;
 		i++;
 	}
 
@@ -4903,6 +4922,7 @@ prepare_query_params(PlanState *node,
 static void
 process_query_params(ExprContext *econtext,
 					 FmgrInfo *param_flinfo,
+					 char *param_ioversions,
 					 List *param_exprs,
 					 const char **param_values)
 {
@@ -4929,7 +4949,7 @@ process_query_params(ExprContext *econtext,
 		if (isNull)
 			param_values[i] = NULL;
 		else
-			param_values[i] = OutputFunctionCall(&param_flinfo[i], expr_value);
+			param_values[i] = OutputFunctionCall(&param_flinfo[i], param_ioversions[i], expr_value);
 
 		i++;
 	}

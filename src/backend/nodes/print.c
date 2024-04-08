@@ -365,6 +365,7 @@ print_expr(const Node *expr, const List *rtable)
 		const Const *c = (const Const *) expr;
 		Oid			typoutput;
 		bool		typIsVarlena;
+		char		typIOVersion;
 		char	   *outputstr;
 
 		if (c->constisnull)
@@ -374,7 +375,9 @@ print_expr(const Node *expr, const List *rtable)
 		}
 
 		getTypeOutputInfo(c->consttype,
-						  &typoutput, &typIsVarlena);
+						  &typoutput,
+						  &typIsVarlena,
+						  &typIOVersion);
 
 		outputstr = OidOutputFunctionCall(typoutput, c->constvalue);
 		printf("%s", outputstr);

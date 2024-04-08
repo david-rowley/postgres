@@ -151,6 +151,7 @@ plsample_func_handler(PG_FUNCTION_ARGS)
 	for (int i = 0; i < numargs; i++)
 	{
 		Oid			argtype = pl_struct->proargtypes.values[i];
+		char		typioversion;
 		char	   *value;
 
 		type_tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(argtype));
@@ -158,10 +159,13 @@ plsample_func_handler(PG_FUNCTION_ARGS)
 			elog(ERROR, "cache lookup failed for type %u", argtype);
 
 		type_struct = (Form_pg_type) GETSTRUCT(type_tuple);
+		typioversion = type_struct->typioversion;
 		fmgr_info_cxt(type_struct->typoutput, &(arg_out_func[i]), proc_cxt);
 		ReleaseSysCache(type_tuple);
 
-		value = OutputFunctionCall(&arg_out_func[i], fcinfo->args[i].value);
+		value = OutputFunctionCall(&arg_out_func[i],
+								   typioversion,
+								   fcinfo->args[i].value);
 		ereport(NOTICE,
 				(errmsg("argument: %d; name: %s; value: %s",
 						i, argnames[i], value)));

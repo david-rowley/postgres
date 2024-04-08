@@ -90,6 +90,7 @@ typedef struct CopyToStateData
 	MemoryContext copycontext;	/* per-copy execution context */
 
 	FmgrInfo   *out_functions;	/* lookup info for output functions */
+	char		*out_ioversions;
 	MemoryContext rowcontext;	/* per-row evaluation context */
 	uint64		bytes_processed;	/* number of bytes processed so far */
 } CopyToStateData;
@@ -764,11 +765,13 @@ DoCopyTo(CopyToState cstate)
 
 	/* Get info about the columns we need to process. */
 	cstate->out_functions = (FmgrInfo *) palloc(num_phys_attrs * sizeof(FmgrInfo));
+	cstate->out_ioversions = (char *) palloc(num_phys_attrs * sizeof(char));
 	foreach(cur, cstate->attnumlist)
 	{
 		int			attnum = lfirst_int(cur);
 		Oid			out_func_oid;
 		bool		isvarlena;
+		char		typIOVersion;
 		Form_pg_attribute attr = TupleDescAttr(tupDesc, attnum - 1);
 
 		if (cstate->opts.binary)
@@ -778,8 +781,10 @@ DoCopyTo(CopyToState cstate)
 		else
 			getTypeOutputInfo(attr->atttypid,
 							  &out_func_oid,
-							  &isvarlena);
+							  &isvarlena,
+							  &typIOVersion);
 		fmgr_info(out_func_oid, &cstate->out_functions[attnum - 1]);
+		cstate->out_ioversions[attnum - 1] = typIOVersion;
 	}
 
 	/*
@@ -903,6 +908,7 @@ static void
 CopyOneRowTo(CopyToState cstate, TupleTableSlot *slot)
 {
 	FmgrInfo   *out_functions = cstate->out_functions;
+	char	   *out_ioversions = cstate->out_ioversions;
 	MemoryContext oldcontext;
 
 	MemoryContextReset(cstate->rowcontext);
@@ -936,6 +942,7 @@ CopyOneRowTo(CopyToState cstate, TupleTableSlot *slot)
 			else
 			{
 				string = OutputFunctionCall(&out_functions[attnum - 1],
+											out_ioversions[attnum - 1],
 											value);
 				if (cstate->opts.csv_mode)
 					CopyAttributeOutCSV(cstate, string,

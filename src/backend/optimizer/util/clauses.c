@@ -2957,13 +2957,11 @@ eval_const_expressions_mutator(Node *node,
 				List	   *args;
 				Oid			outfunc;
 				bool		outtypisvarlena;
+				char		typIOVersion;
 				Oid			infunc;
 				Oid			intypioparam;
 				Expr	   *simple;
 				CoerceViaIO *newexpr;
-
-				/* Make a List so we can use simplify_function */
-				args = list_make1(expr->arg);
 
 				/*
 				 * CoerceViaIO represents calling the source type's output
@@ -2975,9 +2973,17 @@ eval_const_expressions_mutator(Node *node,
 				 * about input collation, so we just pass InvalidOid for that.
 				 */
 				getTypeOutputInfo(exprType((Node *) expr->arg),
-								  &outfunc, &outtypisvarlena);
+								  &outfunc,
+								  &outtypisvarlena,
+								  &typIOVersion);
 				getTypeInputInfo(expr->resulttype,
 								 &infunc, &intypioparam);
+
+				/* Make a List so we can use simplify_function */
+				if (outputArgs == 1)
+					args = list_make1(expr->arg);
+				else
+					args = list_make2(NULL, expr->arg);
 
 				simple = simplify_function(outfunc,
 										   CSTRINGOID, -1,
@@ -4205,7 +4211,7 @@ expand_function_arguments(List *args, bool include_out_arguments,
 	{
 		Node	   *arg = (Node *) lfirst(lc);
 
-		if (IsA(arg, NamedArgExpr))
+		if (arg && IsA(arg, NamedArgExpr))
 		{
 			has_named_args = true;
 			break;
@@ -4446,7 +4452,7 @@ evaluate_function(Oid funcid, Oid result_type, int32 result_typmod,
 	 */
 	foreach(arg, args)
 	{
-		if (IsA(lfirst(arg), Const))
+		if (lfirst(arg) != NULL && IsA(lfirst(arg), Const))
 			has_null_input |= ((Const *) lfirst(arg))->constisnull;
 		else
 			has_nonconst_input = true;

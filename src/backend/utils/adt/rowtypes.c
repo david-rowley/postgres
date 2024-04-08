@@ -37,6 +37,7 @@ typedef struct ColumnIOData
 	Oid			typiofunc;
 	Oid			typioparam;
 	bool		typisvarlena;
+	char		typioversion;
 	FmgrInfo	proc;
 } ColumnIOData;
 
@@ -425,14 +426,15 @@ record_out(PG_FUNCTION_ARGS)
 		{
 			getTypeOutputInfo(column_type,
 							  &column_info->typiofunc,
-							  &column_info->typisvarlena);
+							  &column_info->typisvarlena,
+							  &column_info->typioversion);
 			fmgr_info_cxt(column_info->typiofunc, &column_info->proc,
 						  fcinfo->flinfo->fn_mcxt);
 			column_info->column_type = column_type;
 		}
 
 		attr = values[i];
-		value = OutputFunctionCall(&column_info->proc, attr);
+		value = OutputFunctionCall(&column_info->proc, column_info->typioversion, attr);
 
 		/* Detect whether we need double quotes for this value */
 		nq = (value[0] == '\0');	/* force quotes for empty string */

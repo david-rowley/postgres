@@ -1660,10 +1660,13 @@ ExecBuildSlotPartitionKeyDescription(Relation rel,
 		{
 			Oid			foutoid;
 			bool		typisvarlena;
+			char		typIOVersion;
 
 			getTypeOutputInfo(get_partition_col_typid(key, i),
-							  &foutoid, &typisvarlena);
-			val = OidOutputFunctionCall(foutoid, values[i]);
+							  &foutoid,
+							  &typisvarlena,
+							  &typIOVersion);
+			val = OidOutputFunctionCall(foutoid, typIOVersion, values[i]);
 		}
 
 		if (i > 0)

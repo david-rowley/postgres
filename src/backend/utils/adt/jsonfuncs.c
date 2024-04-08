@@ -5977,6 +5977,7 @@ json_categorize_type(Oid typoid, bool is_jsonb,
 					 JsonTypeCategory *tcategory, Oid *outfuncoid)
 {
 	bool		typisvarlena;
+	char		typIOVersion;
 
 	/* Look through any domain */
 	typoid = getBaseType(typoid);
@@ -5996,7 +5997,7 @@ json_categorize_type(Oid typoid, bool is_jsonb,
 		case FLOAT4OID:
 		case FLOAT8OID:
 		case NUMERICOID:
-			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena);
+			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena, &typIOVersion);
 			*tcategory = JSONTYPE_NUMERIC;
 			break;
 
@@ -6016,12 +6017,12 @@ json_categorize_type(Oid typoid, bool is_jsonb,
 			break;
 
 		case JSONOID:
-			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena);
+			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena, &typIOVersion);
 			*tcategory = JSONTYPE_JSON;
 			break;
 
 		case JSONBOID:
-			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena);
+			getTypeOutputInfo(typoid, outfuncoid, &typisvarlena, &typIOVersion);
 			*tcategory = is_jsonb ? JSONTYPE_JSONB : JSONTYPE_JSON;
 			break;
 
@@ -6062,13 +6063,19 @@ json_categorize_type(Oid typoid, bool is_jsonb,
 					else
 					{
 						/* non builtin type with no cast */
-						getTypeOutputInfo(typoid, outfuncoid, &typisvarlena);
+						getTypeOutputInfo(typoid,
+										  outfuncoid,
+										  &typisvarlena,
+										  &typIOVersion);
 					}
 				}
 				else
 				{
 					/* any other builtin type */
-					getTypeOutputInfo(typoid, outfuncoid, &typisvarlena);
+					getTypeOutputInfo(typoid,
+									  outfuncoid,
+									  &typisvarlena,
+									  &typIOVersion);
 				}
 			}
 			break;

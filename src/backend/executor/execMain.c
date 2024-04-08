@@ -2296,10 +2296,15 @@ ExecBuildSlotValueDescription(Oid reloid,
 			{
 				Oid			foutoid;
 				bool		typisvarlena;
+				char		typIOVersion;
 
 				getTypeOutputInfo(att->atttypid,
-								  &foutoid, &typisvarlena);
-				val = OidOutputFunctionCall(foutoid, slot->tts_values[i]);
+								  &foutoid,
+								  &typisvarlena,
+								  &typIOVersion);
+				val = OidOutputFunctionCall(foutoid,
+											typIOVersion,
+											slot->tts_values[i]);
 			}
 
 			if (write_comma)

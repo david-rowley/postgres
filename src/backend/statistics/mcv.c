@@ -1413,13 +1413,17 @@ pg_stats_ext_mcvlist_items(PG_FUNCTION_ARGS)
 			if (!item->isnull[i])
 			{
 				bool		isvarlena;
+				char		typIOVersion;
 				Oid			outfunc;
 				FmgrInfo	fmgrinfo;
 				Datum		val;
 				text	   *txt;
 
 				/* lookup output func for the type */
-				getTypeOutputInfo(mcvlist->types[i], &outfunc, &isvarlena);
+				getTypeOutputInfo(mcvlist->types[i],
+								  &outfunc,
+								  &isvarlena,
+								  &typIOVersion);
 				fmgr_info(outfunc, &fmgrinfo);
 
 				val = FunctionCall1(&fmgrinfo, item->values[i]);

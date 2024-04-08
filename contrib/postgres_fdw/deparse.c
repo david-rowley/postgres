@@ -3022,6 +3022,7 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 	StringInfo	buf = context->buf;
 	Oid			typoutput;
 	bool		typIsVarlena;
+	char		typIOVersion;
 	char	   *extval;
 	bool		isfloat = false;
 	bool		isstring = false;
@@ -3037,8 +3038,7 @@ deparseConst(Const *node, deparse_expr_cxt *context, int showtype)
 		return;
 	}
 
-	getTypeOutputInfo(node->consttype,
-					  &typoutput, &typIsVarlena);
+	getTypeOutputInfo(node->consttype, &typoutput, &typIsVarlena, &typIOVersion);
 	extval = OidOutputFunctionCall(typoutput, node->constvalue);
 
 	switch (node->consttype)

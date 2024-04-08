@@ -813,6 +813,7 @@ typedef struct ColumnIOData
 	Oid			column_type;
 	Oid			typiofunc;
 	Oid			typioparam;
+	char		typioversion;
 	FmgrInfo	proc;
 } ColumnIOData;
 
@@ -957,16 +958,19 @@ hstore_from_record(PG_FUNCTION_ARGS)
 		if (column_info->column_type != column_type)
 		{
 			bool		typIsVarlena;
+			char		typIOVersion;
 
 			getTypeOutputInfo(column_type,
 							  &column_info->typiofunc,
-							  &typIsVarlena);
+							  &typIsVarlena,
+							  &column_info->typioversion);
 			fmgr_info_cxt(column_info->typiofunc, &column_info->proc,
 						  fcinfo->flinfo->fn_mcxt);
 			column_info->column_type = column_type;
 		}
 
-		value = OutputFunctionCall(&column_info->proc, values[i]);
+		value = OutputFunctionCall(&column_info->proc,
+								   column_info->typioversion, values[i]);
 
 		pairs[j].val = value;
 		pairs[j].vallen = hstoreCheckValLen(strlen(value));

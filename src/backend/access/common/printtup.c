@@ -47,6 +47,7 @@ typedef struct
 	Oid			typoutput;		/* Oid for the type's text output fn */
 	Oid			typsend;		/* Oid for the type's binary output fn */
 	bool		typisvarlena;	/* is it varlena (ie possibly toastable)? */
+	char		typioversion;	/* pg_type.typioversion */
 	int16		format;			/* format code for this column */
 	FmgrInfo	finfo;			/* Precomputed call info for output fn */
 } PrinttupAttrInfo;
@@ -276,7 +277,8 @@ printtup_prepare_info(DR_printtup *myState, TupleDesc typeinfo, int numAttrs)
 		{
 			getTypeOutputInfo(attr->atttypid,
 							  &thisState->typoutput,
-							  &thisState->typisvarlena);
+							  &thisState->typisvarlena,
+							  &thisState->typioversion);
 			fmgr_info(thisState->typoutput, &thisState->finfo);
 		}
 		else if (format == 1)
@@ -356,9 +358,10 @@ printtup(TupleTableSlot *slot, DestReceiver *self)
 		{
 			/* Text output */
 			char	   *outputstr;
+			size_t		len;
 
-			outputstr = OutputFunctionCall(&thisState->finfo, attr);
-			pq_sendcountedtext(buf, outputstr, strlen(outputstr));
+			outputstr = OutputFunctionCallWithLen(&thisState->finfo, attr, &len);
+			pq_sendcountedtext(buf, outputstr, len);
 		}
 		else
 		{
@@ -469,6 +472,7 @@ debugtup(TupleTableSlot *slot, DestReceiver *self)
 	bool		isnull;
 	Oid			typoutput;
 	bool		typisvarlena;
+	char		typIOVersion;
 
 	for (i = 0; i < natts; ++i)
 	{
@@ -476,9 +480,11 @@ debugtup(TupleTableSlot *slot, DestReceiver *self)
 		if (isnull)
 			continue;
 		getTypeOutputInfo(TupleDescAttr(typeinfo, i)->atttypid,
-						  &typoutput, &typisvarlena);
+						  &typoutput,
+						  &typisvarlena,
+						  &typIOVersion);
 
-		value = OidOutputFunctionCall(typoutput, attr);
+		value = OidOutputFunctionCall(typoutput, typIOVersion, attr);
 
 		printatt((unsigned) i + 1, TupleDescAttr(typeinfo, i), value);
 	}

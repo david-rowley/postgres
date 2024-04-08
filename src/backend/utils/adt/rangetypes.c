@@ -52,6 +52,7 @@ typedef struct RangeIOData
 	TypeCacheEntry *typcache;	/* range type's typcache entry */
 	FmgrInfo	typioproc;		/* element type's I/O function */
 	Oid			typioparam;		/* element type's I/O parameter */
+	char		typioversion;
 } RangeIOData;
 
 
@@ -156,9 +157,9 @@ range_out(PG_FUNCTION_ARGS)
 
 	/* call element type's output function */
 	if (RANGE_HAS_LBOUND(flags))
-		lbound_str = OutputFunctionCall(&cache->typioproc, lower.val);
+		lbound_str = OutputFunctionCall(&cache->typioproc, cache->typioversion, lower.val);
 	if (RANGE_HAS_UBOUND(flags))
-		ubound_str = OutputFunctionCall(&cache->typioproc, upper.val);
+		ubound_str = OutputFunctionCall(&cache->typioproc, cache->typioversion, upper.val);
 
 	/* construct result string */
 	output_str = range_deparse(flags, lbound_str, ubound_str);
@@ -324,6 +325,7 @@ get_range_io_data(FunctionCallInfo fcinfo, Oid rngtypid, IOFuncSelector func)
 		bool		typbyval;
 		char		typalign;
 		char		typdelim;
+		char		typioversion;
 		Oid			typiofunc;
 
 		cache = (RangeIOData *) MemoryContextAlloc(fcinfo->flinfo->fn_mcxt,
@@ -339,6 +341,7 @@ get_range_io_data(FunctionCallInfo fcinfo, Oid rngtypid, IOFuncSelector func)
 						 &typbyval,
 						 &typalign,
 						 &typdelim,
+						 &cache->typioversion,
 						 &cache->typioparam,
 						 &typiofunc);
 

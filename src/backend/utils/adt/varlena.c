@@ -232,6 +232,38 @@ text_to_cstring(const text *t)
 }
 
 /*
+ * text_to_cstring_with_len
+ *
+ * Create a palloc'd, null-terminated C string from a text value.
+ *
+ * We support being passed a compressed or toasted text value.
+ * This is a bit bogus since such values shouldn't really be referred to as
+ * "text *", but it seems useful for robustness.  If we didn't handle that
+ * case here, we'd need another routine that did, anyway.
+ *
+ * TODO make one common inline function to use for text_to_cstring and this?
+ */
+char *
+text_to_cstring_with_len(const text *t, int *length)
+{
+	/* must cast away the const, unfortunately */
+	text *tunpacked = pg_detoast_datum_packed(unconstify(text *, t));
+	int len = VARSIZE_ANY_EXHDR(tunpacked);
+	char *result;
+
+	result = (char *) palloc(len + 1);
+	memcpy(result, VARDATA_ANY(tunpacked), len);
+	result[len] = '\0';
+
+	if (tunpacked != t)
+		pfree(tunpacked);
+
+	*length = len;
+
+	return result;
+}
+
+/*
  * text_to_cstring_buffer
  *
  * Copy a text value into a caller-supplied buffer of size dst_len.
@@ -589,9 +621,12 @@ textin(PG_FUNCTION_ARGS)
 Datum
 textout(PG_FUNCTION_ARGS)
 {
-	Datum		txt = PG_GETARG_DATUM(0);
+	StringInfo *buff = (StringInfo) PG_GETARG_POINTER(0);
+	text	   *txt = PG_GETARG_TEXT_PP(1);
 
-	PG_RETURN_CSTRING(TextDatumGetCString(txt));
+	appendStringInfoText(buff, txt);
+
+	PG_RETURN_VOID();
 }
 
 /*
@@ -4837,6 +4872,7 @@ array_to_text_internal(FunctionCallInfo fcinfo, ArrayType *v,
 		get_type_io_data(element_type, IOFunc_output,
 						 &my_extra->typlen, &my_extra->typbyval,
 						 &my_extra->typalign, &my_extra->typdelim,
+						 &my_extra->typioversion,
 						 &my_extra->typioparam, &my_extra->typiofunc);
 		fmgr_info_cxt(my_extra->typiofunc, &my_extra->proc,
 					  fcinfo->flinfo->fn_mcxt);
@@ -4872,7 +4908,7 @@ array_to_text_internal(FunctionCallInfo fcinfo, ArrayType *v,
 		{
 			itemvalue = fetch_att(p, typbyval, typlen);
 
-			value = OutputFunctionCall(&my_extra->proc, itemvalue);
+			value = OutputFunctionCall(&my_extra->proc, my_extra->typioversion, itemvalue);
 
 			if (printed)
 				appendStringInfo(&buf, "%s%s", fldsep, value);
@@ -5375,12 +5411,13 @@ build_concat_foutcache(FunctionCallInfo fcinfo, int argidx)
 		Oid			valtype;
 		Oid			typOutput;
 		bool		typIsVarlena;
+		char		typIOVersion;
 
 		valtype = get_fn_expr_argtype(fcinfo->flinfo, i);
 		if (!OidIsValid(valtype))
 			elog(ERROR, "could not determine data type of concat() input");
 
-		getTypeOutputInfo(valtype, &typOutput, &typIsVarlena);
+		getTypeOutputInfo(valtype, &typOutput, &typIsVarlena, &typIOVersion);
 		fmgr_info_cxt(typOutput, &foutcache[i], fcinfo->flinfo->fn_mcxt);
 	}
 
@@ -5633,6 +5670,7 @@ text_format(PG_FUNCTION_ARGS)
 	Oid			prev_width_type = InvalidOid;
 	FmgrInfo	typoutputfinfo;
 	FmgrInfo	typoutputinfo_width;
+	char		typIOVersion;
 
 	/* When format string is null, immediately return null */
 	if (PG_ARGISNULL(0))
@@ -5790,12 +5828,15 @@ text_format(PG_FUNCTION_ARGS)
 					Oid			typoutputfunc;
 					bool		typIsVarlena;
 
-					getTypeOutputInfo(typid, &typoutputfunc, &typIsVarlena);
+					getTypeOutputInfo(typid,
+									  &typoutputfunc,
+									  &typIsVarlena,
+									  &typIOVersion);
 					fmgr_info(typoutputfunc, &typoutputinfo_width);
 					prev_width_type = typid;
 				}
 
-				str = OutputFunctionCall(&typoutputinfo_width, value);
+				str = OutputFunctionCall(&typoutputinfo_width, typIOVersion, value);
 
 				/* pg_strtoint32 will complain about bad data or overflow */
 				width = pg_strtoint32(str);
@@ -5840,7 +5881,10 @@ text_format(PG_FUNCTION_ARGS)
 			Oid			typoutputfunc;
 			bool		typIsVarlena;
 
-			getTypeOutputInfo(typid, &typoutputfunc, &typIsVarlena);
+			getTypeOutputInfo(typid,
+							  &typoutputfunc,
+							  &typIsVarlena,
+							  &typIOVersion);
 			fmgr_info(typoutputfunc, &typoutputfinfo);
 			prev_type = typid;
 		}
@@ -5853,7 +5897,7 @@ text_format(PG_FUNCTION_ARGS)
 			case 's':
 			case 'I':
 			case 'L':
-				text_format_string_conversion(&str, *cp, &typoutputfinfo,
+				text_format_string_conversion(&str, *cp, &typoutputfinfo, typIOVersion,
 											  value, isNull,
 											  flags, width);
 				break;
@@ -6020,6 +6064,7 @@ text_format_parse_format(const char *start_ptr, const char *end_ptr,
 static void
 text_format_string_conversion(StringInfo buf, char conversion,
 							  FmgrInfo *typOutputInfo,
+							  char typIOVersion,
 							  Datum value, bool isNull,
 							  int flags, int width)
 {

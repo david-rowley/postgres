@@ -532,6 +532,7 @@ tuple_to_stringinfo(StringInfo s, TupleDesc tupdesc, HeapTuple tuple, bool skip_
 		Oid			typid;		/* type of current attribute */
 		Oid			typoutput;	/* output function */
 		bool		typisvarlena;
+		char		typIOVersion;
 		Datum		origval;	/* possibly toasted Datum */
 		bool		isnull;		/* column is null? */
 
@@ -569,8 +570,7 @@ tuple_to_stringinfo(StringInfo s, TupleDesc tupdesc, HeapTuple tuple, bool skip_
 		appendStringInfoChar(s, ']');
 
 		/* query output function */
-		getTypeOutputInfo(typid,
-						  &typoutput, &typisvarlena);
+		getTypeOutputInfo(typid, &typoutput, &typisvarlena, &typIOVersion);
 
 		/* print separator */
 		appendStringInfoChar(s, ':');
@@ -588,7 +588,7 @@ tuple_to_stringinfo(StringInfo s, TupleDesc tupdesc, HeapTuple tuple, bool skip_
 			Datum		val;	/* definitely detoasted Datum */
 
 			val = PointerGetDatum(PG_DETOAST_DATUM(origval));
-			print_literal(s, typid, OidOutputFunctionCall(typoutput, val));
+			print_literal(s, typid, OidOutputFunctionCall(typoutput, typIOVersion, val));
 		}
 	}
 }

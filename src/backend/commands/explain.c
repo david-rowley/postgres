@@ -5438,13 +5438,15 @@ serialize_prepare_info(SerializeDestReceiver *receiver,
 		Oid			typoutput;
 		Oid			typsend;
 		bool		typisvarlena;
+		char		typIOVersion;
 
 		if (receiver->format == 0)
 		{
 			/* wire protocol format text */
 			getTypeOutputInfo(attr->atttypid,
 							  &typoutput,
-							  &typisvarlena);
+							  &typisvarlena,
+							  &typIOVersion);
 			fmgr_info(typoutput, finfo);
 		}
 		else if (receiver->format == 1)

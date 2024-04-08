@@ -116,8 +116,9 @@ set_limit(PG_FUNCTION_ARGS)
 	char	   *nlimit_str;
 	Oid			func_out_oid;
 	bool		is_varlena;
+	char		typIOVersion;
 
-	getTypeOutputInfo(FLOAT4OID, &func_out_oid, &is_varlena);
+	getTypeOutputInfo(FLOAT4OID, &func_out_oid, &is_varlena, &typIOVersion);
 
 	nlimit_str = OidOutputFunctionCall(func_out_oid, Float4GetDatum(nlimit));
 
