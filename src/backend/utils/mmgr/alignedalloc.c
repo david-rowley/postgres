@@ -114,6 +114,32 @@ AlignedAllocRealloc(void *pointer, Size size, int flags)
 }
 
 /*
+ * AlignedAllocGetChunkInfo
+ *		Populate output fields with owning context and size information for
+ *		'pointer'.
+ */
+void
+AlignedAllocGetChunkInfo(void *pointer, MemoryContext *context,
+						 Size *chunk_size)
+{
+	MemoryChunk *redirchunk = PointerGetMemoryChunk(pointer);
+	void *unaligned;
+	Size space;
+
+	VALGRIND_MAKE_MEM_DEFINED(redirchunk, sizeof(MemoryChunk));
+
+	unaligned = MemoryChunkGetBlock(redirchunk);
+
+	if (context != NULL)
+		*context = GetMemoryChunkContext(MemoryChunkGetBlock(redirchunk));
+
+	if (chunk_size)
+		*chunk_size = GetMemoryChunkSpace(unaligned);
+
+	VALGRIND_MAKE_MEM_NOACCESS(redirchunk, sizeof(MemoryChunk));
+}
+
+/*
  * AlignedAllocGetChunkContext
  *		Return the MemoryContext that 'pointer' belongs to.
  */

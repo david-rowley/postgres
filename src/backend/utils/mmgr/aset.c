@@ -1426,6 +1426,59 @@ AllocSetRealloc(void *pointer, Size size, int flags)
 }
 
 /*
+ * AllocSetGetChunkInfo
+ *		Populate output fields with owning context and size information for
+ *		'pointer'.
+ */
+void
+AllocSetGetChunkInfo(void *pointer, MemoryContext *context, Size *chunk_size)
+{
+	MemoryChunk *chunk = PointerGetMemoryChunk(pointer);
+	int			fidx;
+
+	/* Allow access to the chunk header. */
+	VALGRIND_MAKE_MEM_DEFINED(chunk, ALLOC_CHUNKHDRSZ);
+
+	if (MemoryChunkIsExternal(chunk))
+	{
+		AllocBlock	block = ExternalChunkGetBlock(chunk);
+
+		/* Disallow access to the chunk header. */
+		VALGRIND_MAKE_MEM_NOACCESS(chunk, ALLOC_CHUNKHDRSZ);
+
+		Assert(AllocBlockIsValid(block));
+
+		if (context != NULL)
+			*context = &block->aset->header;
+
+		if (chunk_size != NULL)
+		  *chunk_size = block->endptr - (char *) chunk;
+	}
+	else
+	{
+		if (context != NULL)
+		{
+		  AllocBlock block = (AllocBlock) MemoryChunkGetBlock(chunk);
+
+		  *context = &block->aset->header;
+		}
+
+		if (chunk_size != NULL)
+		{
+		  int fidx = MemoryChunkGetValue(chunk);
+
+		  Assert(FreeListIdxIsValid(fidx));
+
+		  *chunk_size = GetChunkSizeFromFreeListIdx(fidx) + ALLOC_CHUNKHDRSZ;
+		}
+	}
+
+
+	/* Disallow access to the chunk header. */
+	VALGRIND_MAKE_MEM_NOACCESS(chunk, ALLOC_CHUNKHDRSZ);
+}
+
+/*
  * AllocSetGetChunkContext
  *		Return the MemoryContext that 'pointer' belongs to.
  */

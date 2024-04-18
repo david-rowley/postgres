@@ -856,6 +856,36 @@ SlabRealloc(void *pointer, Size size, int flags)
 }
 
 /*
+ * SlabGetChunkInfo
+ *		Populate output fields with owning context and size information for
+ *		'pointer'.
+ */
+void
+SlabGetChunkInfo(void *pointer, MemoryContext *context, Size *chunk_size)
+{
+	MemoryChunk *chunk = PointerGetMemoryChunk(pointer);
+	SlabBlock  *block;
+	SlabContext *slab;
+
+	/* Allow access to the chunk header. */
+	VALGRIND_MAKE_MEM_DEFINED(chunk, Slab_CHUNKHDRSZ);
+
+	block = MemoryChunkGetBlock(chunk);
+
+	/* Disallow access to the chunk header. */
+	VALGRIND_MAKE_MEM_NOACCESS(chunk, Slab_CHUNKHDRSZ);
+
+	Assert(SlabBlockIsValid(block));
+
+	slab = block->slab;
+
+	if (context != NULL)
+		*context = &slab->header;
+
+	if (chunk_size != NULL)
+	 *chunk_size = slab->fullChunkSize;
+}
+		/*
  * SlabGetChunkContext
  *		Return the MemoryContext that 'pointer' belongs to.
  */

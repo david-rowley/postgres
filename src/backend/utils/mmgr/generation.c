@@ -935,6 +935,51 @@ GenerationRealloc(void *pointer, Size size, int flags)
 }
 
 /*
+ * GenerationGetChunkInfo
+ *		Populate output fields with owning context and size information for
+ *		'pointer'.
+ */
+void
+GenerationGetChunkInfo(void *pointer, MemoryContext *context,
+					   Size *chunk_size)
+{
+	MemoryChunk *chunk = PointerGetMemoryChunk(pointer);
+
+	/* Allow access to the chunk header. */
+	VALGRIND_MAKE_MEM_DEFINED(chunk, Generation_CHUNKHDRSZ);
+
+	if (MemoryChunkIsExternal(chunk))
+	{
+		GenerationBlock *block = ExternalChunkGetBlock(chunk);
+
+		Assert(GenerationBlockIsValid(block));
+
+		if (context != NULL)
+			*context = &block->context->header;
+
+		if (chunk_size != NULL)
+			*chunk_size = block->endptr - (char *) pointer;
+	}
+	else
+	{
+		if (context != NULL)
+		{
+			GenerationBlock *block;
+
+			block = (GenerationBlock *) MemoryChunkGetBlock(chunk);
+
+			*context = &block->context->header;
+		}
+
+		if (chunk_size != NULL)
+			*chunk_size = MemoryChunkGetValue(chunk) + Generation_CHUNKHDRSZ;
+	}
+
+	/* Disallow access to the chunk header. */
+	VALGRIND_MAKE_MEM_NOACCESS(chunk, Generation_CHUNKHDRSZ);
+}
+
+/*
  * GenerationGetChunkContext
  *		Return the MemoryContext that 'pointer' belongs to.
  */

@@ -631,6 +631,19 @@ BumpRealloc(void *pointer, Size size, int flags)
 }
 
 /*
+ * BumpGetChunkInfo
+ *		Unsupported.
+ */
+void
+BumpGetChunkInfo(void* pointer, MemoryContext* context, Size* chunk_size)
+{
+	if (context != NULL)
+		elog(ERROR, "%s is not supported by the bump memory allocator", "GetMemoryChunkContext");
+	else
+		elog(ERROR, "%s is not supported by the bump memory allocator", "GetMemoryChunkSpace");
+}
+
+/*
  * BumpGetChunkContext
  *		Unsupported.
  */
