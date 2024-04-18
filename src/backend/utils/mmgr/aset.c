@@ -1478,68 +1478,6 @@ AllocSetGetChunkInfo(void *pointer, MemoryContext *context, Size *chunk_size)
 	VALGRIND_MAKE_MEM_NOACCESS(chunk, ALLOC_CHUNKHDRSZ);
 }
 
-/*
- * AllocSetGetChunkContext
- *		Return the MemoryContext that 'pointer' belongs to.
- */
-MemoryContext
-AllocSetGetChunkContext(void *pointer)
-{
-	MemoryChunk *chunk = PointerGetMemoryChunk(pointer);
-	AllocBlock	block;
-	AllocSet	set;
-
-	/* Allow access to the chunk header. */
-	VALGRIND_MAKE_MEM_DEFINED(chunk, ALLOC_CHUNKHDRSZ);
-
-	if (MemoryChunkIsExternal(chunk))
-		block = ExternalChunkGetBlock(chunk);
-	else
-		block = (AllocBlock) MemoryChunkGetBlock(chunk);
-
-	/* Disallow access to the chunk header. */
-	VALGRIND_MAKE_MEM_NOACCESS(chunk, ALLOC_CHUNKHDRSZ);
-
-	Assert(AllocBlockIsValid(block));
-	set = block->aset;
-
-	return &set->header;
-}
-
-/*
- * AllocSetGetChunkSpace
- *		Given a currently-allocated chunk, determine the total space
- *		it occupies (including all memory-allocation overhead).
- */
-Size
-AllocSetGetChunkSpace(void *pointer)
-{
-	MemoryChunk *chunk = PointerGetMemoryChunk(pointer);
-	int			fidx;
-
-	/* Allow access to the chunk header. */
-	VALGRIND_MAKE_MEM_DEFINED(chunk, ALLOC_CHUNKHDRSZ);
-
-	if (MemoryChunkIsExternal(chunk))
-	{
-		AllocBlock	block = ExternalChunkGetBlock(chunk);
-
-		/* Disallow access to the chunk header. */
-		VALGRIND_MAKE_MEM_NOACCESS(chunk, ALLOC_CHUNKHDRSZ);
-
-		Assert(AllocBlockIsValid(block));
-
-		return block->endptr - (char *) chunk;
-	}
-
-	fidx = MemoryChunkGetValue(chunk);
-	Assert(FreeListIdxIsValid(fidx));
-
-	/* Disallow access to the chunk header. */
-	VALGRIND_MAKE_MEM_NOACCESS(chunk, ALLOC_CHUNKHDRSZ);
-
-	return GetChunkSizeFromFreeListIdx(fidx) + ALLOC_CHUNKHDRSZ;
-}
 
 /*
  * AllocSetIsEmpty

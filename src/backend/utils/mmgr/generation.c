@@ -980,61 +980,6 @@ GenerationGetChunkInfo(void *pointer, MemoryContext *context,
 }
 
 /*
- * GenerationGetChunkContext
- *		Return the MemoryContext that 'pointer' belongs to.
- */
-MemoryContext
-GenerationGetChunkContext(void *pointer)
-{
-	MemoryChunk *chunk = PointerGetMemoryChunk(pointer);
-	GenerationBlock *block;
-
-	/* Allow access to the chunk header. */
-	VALGRIND_MAKE_MEM_DEFINED(chunk, Generation_CHUNKHDRSZ);
-
-	if (MemoryChunkIsExternal(chunk))
-		block = ExternalChunkGetBlock(chunk);
-	else
-		block = (GenerationBlock *) MemoryChunkGetBlock(chunk);
-
-	/* Disallow access to the chunk header. */
-	VALGRIND_MAKE_MEM_NOACCESS(chunk, Generation_CHUNKHDRSZ);
-
-	Assert(GenerationBlockIsValid(block));
-	return &block->context->header;
-}
-
-/*
- * GenerationGetChunkSpace
- *		Given a currently-allocated chunk, determine the total space
- *		it occupies (including all memory-allocation overhead).
- */
-Size
-GenerationGetChunkSpace(void *pointer)
-{
-	MemoryChunk *chunk = PointerGetMemoryChunk(pointer);
-	Size		chunksize;
-
-	/* Allow access to the chunk header. */
-	VALGRIND_MAKE_MEM_DEFINED(chunk, Generation_CHUNKHDRSZ);
-
-	if (MemoryChunkIsExternal(chunk))
-	{
-		GenerationBlock *block = ExternalChunkGetBlock(chunk);
-
-		Assert(GenerationBlockIsValid(block));
-		chunksize = block->endptr - (char *) pointer;
-	}
-	else
-		chunksize = MemoryChunkGetValue(chunk);
-
-	/* Disallow access to the chunk header. */
-	VALGRIND_MAKE_MEM_NOACCESS(chunk, Generation_CHUNKHDRSZ);
-
-	return Generation_CHUNKHDRSZ + chunksize;
-}
-
-/*
  * GenerationIsEmpty
  *		Is a GenerationContext empty of any allocated space?
  */

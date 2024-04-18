@@ -100,15 +100,6 @@ typedef struct MemoryContextMethods
 	void (*get_chunk_info) (void *pointer, MemoryContext *context,
 							Size *chunk_size);
 
-	/* Return the MemoryContext that the given pointer belongs to. */
-	MemoryContext (*get_chunk_context) (void *pointer);
-
-	/*
-	 * Return the number of bytes consumed by the given pointer within its
-	 * memory context, including the overhead of alignment and chunk headers.
-	 */
-	Size		(*get_chunk_space) (void *pointer);
-
 	/*
 	 * Return true if the given MemoryContext has not had any allocations
 	 * since it was created or last reset.

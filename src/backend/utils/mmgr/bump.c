@@ -644,28 +644,6 @@ BumpGetChunkInfo(void* pointer, MemoryContext* context, Size* chunk_size)
 }
 
 /*
- * BumpGetChunkContext
- *		Unsupported.
- */
-MemoryContext
-BumpGetChunkContext(void *pointer)
-{
-	elog(ERROR, "%s is not supported by the bump memory allocator", "GetMemoryChunkContext");
-	return NULL;				/* keep compiler quiet */
-}
-
-/*
- * BumpGetChunkSpace
- *		Unsupported.
- */
-Size
-BumpGetChunkSpace(void *pointer)
-{
-	elog(ERROR, "%s is not supported by the bump memory allocator", "GetMemoryChunkSpace");
-	return 0;					/* keep compiler quiet */
-}
-
-/*
  * BumpIsEmpty
  *		Is a BumpContext empty of any allocated space?
  */

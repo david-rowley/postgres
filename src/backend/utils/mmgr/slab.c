@@ -885,54 +885,6 @@ SlabGetChunkInfo(void *pointer, MemoryContext *context, Size *chunk_size)
 	if (chunk_size != NULL)
 	 *chunk_size = slab->fullChunkSize;
 }
-		/*
- * SlabGetChunkContext
- *		Return the MemoryContext that 'pointer' belongs to.
- */
-MemoryContext
-SlabGetChunkContext(void *pointer)
-{
-	MemoryChunk *chunk = PointerGetMemoryChunk(pointer);
-	SlabBlock  *block;
-
-	/* Allow access to the chunk header. */
-	VALGRIND_MAKE_MEM_DEFINED(chunk, Slab_CHUNKHDRSZ);
-
-	block = MemoryChunkGetBlock(chunk);
-
-	/* Disallow access to the chunk header. */
-	VALGRIND_MAKE_MEM_NOACCESS(chunk, Slab_CHUNKHDRSZ);
-
-	Assert(SlabBlockIsValid(block));
-
-	return &block->slab->header;
-}
-
-/*
- * SlabGetChunkSpace
- *		Given a currently-allocated chunk, determine the total space
- *		it occupies (including all memory-allocation overhead).
- */
-Size
-SlabGetChunkSpace(void *pointer)
-{
-	MemoryChunk *chunk = PointerGetMemoryChunk(pointer);
-	SlabBlock  *block;
-	SlabContext *slab;
-
-	/* Allow access to the chunk header. */
-	VALGRIND_MAKE_MEM_DEFINED(chunk, Slab_CHUNKHDRSZ);
-
-	block = MemoryChunkGetBlock(chunk);
-
-	/* Disallow access to the chunk header. */
-	VALGRIND_MAKE_MEM_NOACCESS(chunk, Slab_CHUNKHDRSZ);
-
-	Assert(SlabBlockIsValid(block));
-	slab = block->slab;
-
-	return slab->fullChunkSize;
-}
 
 /*
  * SlabIsEmpty

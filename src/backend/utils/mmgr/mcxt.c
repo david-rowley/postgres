@@ -42,9 +42,7 @@ static Size BogusGetChunkSpace(void *pointer);
 #define BOGUS_MCTX(id) \
 	[id].free_p = BogusFree, \
 	[id].realloc = BogusRealloc, \
-	[id].get_chunk_info = BogusGetChunkInfo, \
-	[id].get_chunk_context = BogusGetChunkContext, \
-	[id].get_chunk_space = BogusGetChunkSpace
+	[id].get_chunk_info = BogusGetChunkInfo
 
 static const MemoryContextMethods mcxt_methods[] = {
 	/* aset.c */
@@ -54,8 +52,6 @@ static const MemoryContextMethods mcxt_methods[] = {
 	[MCTX_ASET_ID].reset = AllocSetReset,
 	[MCTX_ASET_ID].delete_context = AllocSetDelete,
 	[MCTX_ASET_ID].get_chunk_info = AllocSetGetChunkInfo,
-	[MCTX_ASET_ID].get_chunk_context = AllocSetGetChunkContext,
-	[MCTX_ASET_ID].get_chunk_space = AllocSetGetChunkSpace,
 	[MCTX_ASET_ID].is_empty = AllocSetIsEmpty,
 	[MCTX_ASET_ID].stats = AllocSetStats,
 #ifdef MEMORY_CONTEXT_CHECKING
@@ -69,8 +65,6 @@ static const MemoryContextMethods mcxt_methods[] = {
 	[MCTX_GENERATION_ID].reset = GenerationReset,
 	[MCTX_GENERATION_ID].delete_context = GenerationDelete,
 	[MCTX_GENERATION_ID].get_chunk_info = GenerationGetChunkInfo,
-	[MCTX_GENERATION_ID].get_chunk_context = GenerationGetChunkContext,
-	[MCTX_GENERATION_ID].get_chunk_space = GenerationGetChunkSpace,
 	[MCTX_GENERATION_ID].is_empty = GenerationIsEmpty,
 	[MCTX_GENERATION_ID].stats = GenerationStats,
 #ifdef MEMORY_CONTEXT_CHECKING
@@ -84,8 +78,6 @@ static const MemoryContextMethods mcxt_methods[] = {
 	[MCTX_SLAB_ID].reset = SlabReset,
 	[MCTX_SLAB_ID].delete_context = SlabDelete,
 	[MCTX_SLAB_ID].get_chunk_info = SlabGetChunkInfo,
-	[MCTX_SLAB_ID].get_chunk_context = SlabGetChunkContext,
-	[MCTX_SLAB_ID].get_chunk_space = SlabGetChunkSpace,
 	[MCTX_SLAB_ID].is_empty = SlabIsEmpty,
 	[MCTX_SLAB_ID].stats = SlabStats,
 #ifdef MEMORY_CONTEXT_CHECKING
@@ -99,8 +91,6 @@ static const MemoryContextMethods mcxt_methods[] = {
 	[MCTX_ALIGNED_REDIRECT_ID].reset = NULL,	/* not required */
 	[MCTX_ALIGNED_REDIRECT_ID].delete_context = NULL,	/* not required */
 	[MCTX_ALIGNED_REDIRECT_ID].get_chunk_info = AlignedAllocGetChunkInfo,
-	[MCTX_ALIGNED_REDIRECT_ID].get_chunk_context = AlignedAllocGetChunkContext,
-	[MCTX_ALIGNED_REDIRECT_ID].get_chunk_space = AlignedAllocGetChunkSpace,
 	[MCTX_ALIGNED_REDIRECT_ID].is_empty = NULL, /* not required */
 	[MCTX_ALIGNED_REDIRECT_ID].stats = NULL,	/* not required */
 #ifdef MEMORY_CONTEXT_CHECKING
@@ -114,8 +104,6 @@ static const MemoryContextMethods mcxt_methods[] = {
 	[MCTX_BUMP_ID].reset = BumpReset,
 	[MCTX_BUMP_ID].delete_context = BumpDelete,
 	[MCTX_BUMP_ID].get_chunk_info = BumpGetChunkInfo,
-	[MCTX_BUMP_ID].get_chunk_context = BumpGetChunkContext,
-	[MCTX_BUMP_ID].get_chunk_space = BumpGetChunkSpace,
 	[MCTX_BUMP_ID].is_empty = BumpIsEmpty,
 	[MCTX_BUMP_ID].stats = BumpStats,
 #ifdef MEMORY_CONTEXT_CHECKING
