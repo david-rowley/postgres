@@ -48,6 +48,8 @@
 
 static void BogusFree(void *pointer);
 static void *BogusRealloc(void *pointer, Size size, int flags);
+static void BogusGetChunkInfo(void *pointer, MemoryContext *context,
+							  Size *chunk_size);
 static MemoryContext BogusGetChunkContext(void *pointer);
 static Size BogusGetChunkSpace(void *pointer);
 
@@ -57,6 +59,7 @@ static Size BogusGetChunkSpace(void *pointer);
 #define BOGUS_MCTX(id) \
 	[id].free_p = BogusFree, \
 	[id].realloc = BogusRealloc, \
+	[id].get_chunk_info = BogusGetChunkInfo, \
 	[id].get_chunk_context = BogusGetChunkContext, \
 	[id].get_chunk_space = BogusGetChunkSpace
 
@@ -67,6 +70,7 @@ static const MemoryContextMethods mcxt_methods[] = {
 	[MCTX_ASET_ID].realloc = AllocSetRealloc,
 	[MCTX_ASET_ID].reset = AllocSetReset,
 	[MCTX_ASET_ID].delete_context = AllocSetDelete,
+	[MCTX_ASET_ID].get_chunk_info = AllocSetGetChunkInfo,
 	[MCTX_ASET_ID].get_chunk_context = AllocSetGetChunkContext,
 	[MCTX_ASET_ID].get_chunk_space = AllocSetGetChunkSpace,
 	[MCTX_ASET_ID].is_empty = AllocSetIsEmpty,
@@ -81,6 +85,7 @@ static const MemoryContextMethods mcxt_methods[] = {
 	[MCTX_GENERATION_ID].realloc = GenerationRealloc,
 	[MCTX_GENERATION_ID].reset = GenerationReset,
 	[MCTX_GENERATION_ID].delete_context = GenerationDelete,
+	[MCTX_GENERATION_ID].get_chunk_info = GenerationGetChunkInfo,
 	[MCTX_GENERATION_ID].get_chunk_context = GenerationGetChunkContext,
 	[MCTX_GENERATION_ID].get_chunk_space = GenerationGetChunkSpace,
 	[MCTX_GENERATION_ID].is_empty = GenerationIsEmpty,
@@ -95,6 +100,7 @@ static const MemoryContextMethods mcxt_methods[] = {
 	[MCTX_SLAB_ID].realloc = SlabRealloc,
 	[MCTX_SLAB_ID].reset = SlabReset,
 	[MCTX_SLAB_ID].delete_context = SlabDelete,
+	[MCTX_SLAB_ID].get_chunk_info = SlabGetChunkInfo,
 	[MCTX_SLAB_ID].get_chunk_context = SlabGetChunkContext,
 	[MCTX_SLAB_ID].get_chunk_space = SlabGetChunkSpace,
 	[MCTX_SLAB_ID].is_empty = SlabIsEmpty,
@@ -109,6 +115,7 @@ static const MemoryContextMethods mcxt_methods[] = {
 	[MCTX_ALIGNED_REDIRECT_ID].realloc = AlignedAllocRealloc,
 	[MCTX_ALIGNED_REDIRECT_ID].reset = NULL,	/* not required */
 	[MCTX_ALIGNED_REDIRECT_ID].delete_context = NULL,	/* not required */
+	[MCTX_ALIGNED_REDIRECT_ID].get_chunk_info = AlignedAllocGetChunkInfo,
 	[MCTX_ALIGNED_REDIRECT_ID].get_chunk_context = AlignedAllocGetChunkContext,
 	[MCTX_ALIGNED_REDIRECT_ID].get_chunk_space = AlignedAllocGetChunkSpace,
 	[MCTX_ALIGNED_REDIRECT_ID].is_empty = NULL, /* not required */
@@ -123,6 +130,7 @@ static const MemoryContextMethods mcxt_methods[] = {
 	[MCTX_BUMP_ID].realloc = BumpRealloc,
 	[MCTX_BUMP_ID].reset = BumpReset,
 	[MCTX_BUMP_ID].delete_context = BumpDelete,
+	[MCTX_BUMP_ID].get_chunk_info = BumpGetChunkInfo,
 	[MCTX_BUMP_ID].get_chunk_context = BumpGetChunkContext,
 	[MCTX_BUMP_ID].get_chunk_space = BumpGetChunkSpace,
 	[MCTX_BUMP_ID].is_empty = BumpIsEmpty,
@@ -312,6 +320,21 @@ BogusRealloc(void *pointer, Size size, int flags)
 	elog(ERROR, "repalloc called with invalid pointer %p (header 0x%016" PRIx64 ")",
 		 pointer, GetMemoryChunkHeader(pointer));
 	return NULL;				/* keep compiler quiet */
+}
+
+static void
+BogusGetChunkInfo(void *pointer, MemoryContext *context, Size *chunk_size)
+{
+	if (context != NULL)
+		elog(ERROR,
+			 "GetMemoryChunkContext called with invalid pointer %p (header 0x%016llx)",
+			 pointer,
+			 (unsigned long long) GetMemoryChunkHeader(pointer));
+	else
+		elog(ERROR,
+			 "GetMemoryChunkSpace called with invalid pointer %p (header 0x%016llx)",
+			 pointer,
+			 (unsigned long long) GetMemoryChunkHeader(pointer));
 }
 
 static MemoryContext
@@ -752,7 +775,11 @@ MemoryContextAllowInCriticalSection(MemoryContext context, bool allow)
 MemoryContext
 GetMemoryChunkContext(void *pointer)
 {
-	return MCXT_METHOD(pointer, get_chunk_context) (pointer);
+	MemoryContext context;
+
+	MCXT_METHOD(pointer, get_chunk_info) (pointer, &context, NULL);
+
+	return context;
 }
 
 /*
@@ -766,7 +793,11 @@ GetMemoryChunkContext(void *pointer)
 Size
 GetMemoryChunkSpace(void *pointer)
 {
-	return MCXT_METHOD(pointer, get_chunk_space) (pointer);
+	Size chunk_size;
+
+	MCXT_METHOD(pointer, get_chunk_info) (pointer, NULL, &chunk_size);
+
+	return chunk_size;
 }
 
 /*

@@ -24,6 +24,8 @@ extern void AllocSetFree(void *pointer);
 extern void *AllocSetRealloc(void *pointer, Size size, int flags);
 extern void AllocSetReset(MemoryContext context);
 extern void AllocSetDelete(MemoryContext context);
+extern void AllocSetGetChunkInfo(void *pointer, MemoryContext *context,
+								 Size *chunk_size);
 extern MemoryContext AllocSetGetChunkContext(void *pointer);
 extern Size AllocSetGetChunkSpace(void *pointer);
 extern bool AllocSetIsEmpty(MemoryContext context);
@@ -41,6 +43,8 @@ extern void GenerationFree(void *pointer);
 extern void *GenerationRealloc(void *pointer, Size size, int flags);
 extern void GenerationReset(MemoryContext context);
 extern void GenerationDelete(MemoryContext context);
+extern void GenerationGetChunkInfo(void *pointer, MemoryContext *context,
+								   Size *chunk_size);
 extern MemoryContext GenerationGetChunkContext(void *pointer);
 extern Size GenerationGetChunkSpace(void *pointer);
 extern bool GenerationIsEmpty(MemoryContext context);
@@ -59,6 +63,8 @@ extern void SlabFree(void *pointer);
 extern void *SlabRealloc(void *pointer, Size size, int flags);
 extern void SlabReset(MemoryContext context);
 extern void SlabDelete(MemoryContext context);
+extern void SlabGetChunkInfo(void *pointer, MemoryContext *context,
+							 Size *chunk_size);
 extern MemoryContext SlabGetChunkContext(void *pointer);
 extern Size SlabGetChunkSpace(void *pointer);
 extern bool SlabIsEmpty(MemoryContext context);
@@ -76,6 +82,8 @@ extern void SlabCheck(MemoryContext context);
  */
 extern void AlignedAllocFree(void *pointer);
 extern void *AlignedAllocRealloc(void *pointer, Size size, int flags);
+extern void AlignedAllocGetChunkInfo(void *pointer, MemoryContext *context,
+									 Size *chunk_size);
 extern MemoryContext AlignedAllocGetChunkContext(void *pointer);
 extern Size AlignedAllocGetChunkSpace(void *pointer);
 
@@ -85,6 +93,8 @@ extern void BumpFree(void *pointer);
 extern void *BumpRealloc(void *pointer, Size size, int flags);
 extern void BumpReset(MemoryContext context);
 extern void BumpDelete(MemoryContext context);
+extern void BumpGetChunkInfo(void *pointer, MemoryContext *context,
+							 Size *chunk_size);
 extern MemoryContext BumpGetChunkContext(void *pointer);
 extern Size BumpGetChunkSpace(void *pointer);
 extern bool BumpIsEmpty(MemoryContext context);

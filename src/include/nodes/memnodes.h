@@ -85,6 +85,21 @@ typedef struct MemoryContextMethods
 	/* Free all memory consumed by the given MemoryContext. */
 	void		(*delete_context) (MemoryContext context);
 
+	/*
+	 * Set output parameters with requested information about the pointer.
+	 *
+	 * pointer: input parameter of palloc'd chunk to get information about.
+	 *
+	 * context: output parameter which will get set to the MemoryContext that
+	 * 'pointer' belongs to.  Can be passed as NULL.
+	 *
+	 * chunk_size: output parameter which will get set to the number of bytes
+	 * consumed by the given pointer within its memory context, including the
+	 * overhead of alignment and chunk headers.
+	 */
+	void (*get_chunk_info) (void *pointer, MemoryContext *context,
+							Size *chunk_size);
+
 	/* Return the MemoryContext that the given pointer belongs to. */
 	MemoryContext (*get_chunk_context) (void *pointer);
 
