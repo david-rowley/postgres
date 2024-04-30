@@ -88,8 +88,8 @@ typedef struct GenerationContext
  */
 struct GenerationBlock
 {
-	dlist_node	node;			/* doubly-linked list of blocks */
 	GenerationContext *context; /* pointer back to the owning context */
+	dlist_node	node;			/* doubly-linked list of blocks */
 	int			nchunks;		/* number of chunks in the block */
 	int			nfree;			/* number of free chunks */
 	char	   *freeptr;		/* start of free space in this block */
