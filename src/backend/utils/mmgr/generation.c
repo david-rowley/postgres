@@ -88,7 +88,6 @@ struct GenerationBlock
 {
 	dlist_node	node;			/* doubly-linked list of blocks */
 	GenerationContext *context; /* pointer back to the owning context */
-	Size		blksize;		/* allocated size of this block */
 	int			nchunks;		/* number of chunks in the block */
 	int			nfree;			/* number of free chunks */
 	char	   *freeptr;		/* start of free space in this block */
@@ -108,6 +107,12 @@ struct GenerationBlock
  */
 #define GenerationBlockIsValid(block) \
 	(PointerIsValid(block) && GenerationIsValid((block)->context))
+
+/*
+ * GenerationBlockSize
+ *		Returns the size of the block in bytes
+ */
+#define GenerationBlockSize(block) ((block)->endptr - (char *) (block))
 
 /*
  * GenerationBlockIsEmpty
@@ -369,7 +374,6 @@ GenerationAllocLarge(MemoryContext context, Size size, int flags)
 
 	/* block with a single (used) chunk */
 	block->context = set;
-	block->blksize = blksize;
 	block->nchunks = 1;
 	block->nfree = 0;
 
@@ -610,7 +614,6 @@ GenerationBlockInit(GenerationContext *context, GenerationBlock *block,
 					Size blksize)
 {
 	block->context = context;
-	block->blksize = blksize;
 	block->nchunks = 0;
 	block->nfree = 0;
 
@@ -671,10 +674,10 @@ GenerationBlockFree(GenerationContext *set, GenerationBlock *block)
 	/* release the block from the list of blocks */
 	dlist_delete(&block->node);
 
-	((MemoryContext) set)->mem_allocated -= block->blksize;
+	((MemoryContext)set)->mem_allocated -= GenerationBlockSize(block);
 
 #ifdef CLOBBER_FREED_MEMORY
-	wipe_mem(block, block->blksize);
+	wipe_mem(block, GenerationBlockSize(block));
 #endif
 
 	free(block);
@@ -1049,7 +1052,7 @@ GenerationStats(MemoryContext context,
 		nblocks++;
 		nchunks += block->nchunks;
 		nfreechunks += block->nfree;
-		totalspace += block->blksize;
+		totalspace += GenerationBlockSize(block);
 		freespace += (block->endptr - block->freeptr);
 	}
 
@@ -1101,7 +1104,7 @@ GenerationCheck(MemoryContext context)
 		char	   *ptr;
 		bool		has_external_chunk = false;
 
-		total_allocated += block->blksize;
+		total_allocated += GenerationBlockSize(block);
 
 		/*
 		 * nfree > nchunks is surely wrong.  Equality is allowed as the block
