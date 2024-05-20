@@ -711,7 +711,7 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 	List	   *tlist_list;
 	List	   *trivial_tlist_list;
 	List	   *tlist;
-	List	   *groupList = NIL;
+	List	   *groupList;
 	Path	   *apath;
 	Path	   *gpath = NULL;
 	bool		try_sorted;
@@ -743,11 +743,11 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 	/* For for UNIONs (not UNION ALL), try sorting, if sorting is possible */
 	try_sorted = !op->all && grouping_is_sortable(op->groupClauses);
 
+	/* Identify the grouping semantics */
+	groupList = generate_setop_grouplist(op, tlist);
+
 	if (try_sorted)
 	{
-		/* Identify the grouping semantics */
-		groupList = generate_setop_grouplist(op, tlist);
-
 		/* Determine the pathkeys for sorting by the whole target list */
 		union_pathkeys = make_pathkeys_for_sortclauses(root, groupList, tlist);
 
