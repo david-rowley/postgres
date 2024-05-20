@@ -49,6 +49,7 @@ typedef struct SpecialJoinInfo SpecialJoinInfo;
 struct PlannedStmt;
 struct ParamListInfoData;
 struct HeapTupleData;
+struct EstimationInfo;
 
 
 /* in path/clausesel.c: */
@@ -57,23 +58,27 @@ extern Selectivity clause_selectivity(PlannerInfo *root,
 									  Node *clause,
 									  int varRelid,
 									  JoinType jointype,
-									  SpecialJoinInfo *sjinfo);
+									  SpecialJoinInfo *sjinfo,
+									  struct EstimationInfo *estinfo);
 extern Selectivity clause_selectivity_ext(PlannerInfo *root,
 										  Node *clause,
 										  int varRelid,
 										  JoinType jointype,
 										  SpecialJoinInfo *sjinfo,
+										  struct EstimationInfo *estinfo,
 										  bool use_extended_stats);
 extern Selectivity clauselist_selectivity(PlannerInfo *root,
 										  List *clauses,
 										  int varRelid,
 										  JoinType jointype,
-										  SpecialJoinInfo *sjinfo);
+										  SpecialJoinInfo *sjinfo,
+										  struct EstimationInfo *estinfo);
 extern Selectivity clauselist_selectivity_ext(PlannerInfo *root,
 											  List *clauses,
 											  int varRelid,
 											  JoinType jointype,
 											  SpecialJoinInfo *sjinfo,
+											  struct EstimationInfo *estinfo,
 											  bool use_extended_stats);
 
 /* in path/costsize.c: */

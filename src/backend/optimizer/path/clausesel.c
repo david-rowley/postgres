@@ -47,6 +47,7 @@ static Selectivity clauselist_selectivity_or(PlannerInfo *root,
 											 int varRelid,
 											 JoinType jointype,
 											 SpecialJoinInfo *sjinfo,
+											 EstimationInfo *estinfo,
 											 bool use_extended_stats);
 
 /****************************************************************************
@@ -95,16 +96,21 @@ static Selectivity clauselist_selectivity_or(PlannerInfo *root,
  *
  * Of course this is all very dependent on the behavior of the inequality
  * selectivity functions; perhaps some day we can generalize the approach.
+ *
+ * 'estinfo' can be specified to provide the caller with more information
+ * about the selectivity estimation.  This can be passed as NULL when not
+ * needed.
  */
 Selectivity
 clauselist_selectivity(PlannerInfo *root,
 					   List *clauses,
 					   int varRelid,
 					   JoinType jointype,
-					   SpecialJoinInfo *sjinfo)
+					   SpecialJoinInfo *sjinfo,
+					   EstimationInfo *estinfo)
 {
 	return clauselist_selectivity_ext(root, clauses, varRelid,
-									  jointype, sjinfo, true);
+									  jointype, sjinfo, estinfo, true);
 }
 
 /*
@@ -119,6 +125,7 @@ clauselist_selectivity_ext(PlannerInfo *root,
 						   int varRelid,
 						   JoinType jointype,
 						   SpecialJoinInfo *sjinfo,
+						   EstimationInfo *estinfo,
 						   bool use_extended_stats)
 {
 	Selectivity s1 = 1.0;
@@ -134,7 +141,7 @@ clauselist_selectivity_ext(PlannerInfo *root,
 	 */
 	if (list_length(clauses) == 1)
 		return clause_selectivity_ext(root, (Node *) linitial(clauses),
-									  varRelid, jointype, sjinfo,
+									  varRelid, jointype, sjinfo, estinfo,
 									  use_extended_stats);
 
 	/*
@@ -181,7 +188,7 @@ clauselist_selectivity_ext(PlannerInfo *root,
 
 		/* Compute the selectivity of this clause in isolation */
 		s2 = clause_selectivity_ext(root, clause, varRelid, jointype, sjinfo,
-									use_extended_stats);
+									estinfo, use_extended_stats);
 
 		/*
 		 * Check for being passed a RestrictInfo.
@@ -361,6 +368,7 @@ clauselist_selectivity_or(PlannerInfo *root,
 						  int varRelid,
 						  JoinType jointype,
 						  SpecialJoinInfo *sjinfo,
+						  EstimationInfo *estinfo,
 						  bool use_extended_stats)
 {
 	Selectivity s1 = 0.0;
@@ -410,7 +418,7 @@ clauselist_selectivity_or(PlannerInfo *root,
 			continue;
 
 		s2 = clause_selectivity_ext(root, (Node *) lfirst(lc), varRelid,
-									jointype, sjinfo, use_extended_stats);
+									jointype, sjinfo, estinfo, use_extended_stats);
 
 		s1 = s1 + s2 - s1 * s2;
 	}
@@ -668,10 +676,11 @@ clause_selectivity(PlannerInfo *root,
 				   Node *clause,
 				   int varRelid,
 				   JoinType jointype,
-				   SpecialJoinInfo *sjinfo)
+				   SpecialJoinInfo *sjinfo,
+				   EstimationInfo *estinfo)
 {
 	return clause_selectivity_ext(root, clause, varRelid,
-								  jointype, sjinfo, true);
+								  jointype, sjinfo, estinfo, true);
 }
 
 /*
@@ -686,6 +695,7 @@ clause_selectivity_ext(PlannerInfo *root,
 					   int varRelid,
 					   JoinType jointype,
 					   SpecialJoinInfo *sjinfo,
+					   EstimationInfo *estinfo,
 					   bool use_extended_stats)
 {
 	Selectivity s1 = 0.5;		/* default for any unhandled clause type */
@@ -803,6 +813,7 @@ clause_selectivity_ext(PlannerInfo *root,
 										  varRelid,
 										  jointype,
 										  sjinfo,
+										  estinfo,
 										  use_extended_stats);
 	}
 	else if (is_andclause(clause))
@@ -813,6 +824,7 @@ clause_selectivity_ext(PlannerInfo *root,
 										varRelid,
 										jointype,
 										sjinfo,
+										estinfo,
 										use_extended_stats);
 	}
 	else if (is_orclause(clause))
@@ -826,6 +838,7 @@ clause_selectivity_ext(PlannerInfo *root,
 									   varRelid,
 									   jointype,
 									   sjinfo,
+									   estinfo,
 									   use_extended_stats);
 	}
 	else if (is_opclause(clause) || IsA(clause, DistinctExpr))
@@ -932,6 +945,7 @@ clause_selectivity_ext(PlannerInfo *root,
 									varRelid,
 									jointype,
 									sjinfo,
+									estinfo,
 									use_extended_stats);
 	}
 	else if (IsA(clause, CoerceToDomain))
@@ -942,6 +956,7 @@ clause_selectivity_ext(PlannerInfo *root,
 									varRelid,
 									jointype,
 									sjinfo,
+									estinfo,
 									use_extended_stats);
 	}
 	else

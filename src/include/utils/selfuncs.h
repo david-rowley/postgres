@@ -76,11 +76,15 @@
 #define SELFLAG_USED_DEFAULT		(1 << 0)	/* Estimation fell back on one
 												 * of the DEFAULTs as defined
 												 * above. */
+#define SELFLAG_SEEN_UNIQUE_EQ		(1 << 1)	/* Found equality qual which
+												 * matches to <= 1 row */
 
 typedef struct EstimationInfo
 {
 	uint32		flags;			/* Flags, as defined above to mark special
 								 * properties of the estimation. */
+	uint32		n_stats_used;	/* Number of individual statistics used to
+								 * provide selectivity estimate. */
 } EstimationInfo;
 
 /* Return data from examine_variable and friends */
