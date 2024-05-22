@@ -19,6 +19,7 @@
 #include "funcapi.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
+#include "port/simd.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
 #include "utils/date.h"
@@ -1597,11 +1598,78 @@ escape_json_cstring(StringInfo buf, const char *str)
 void
 escape_json(StringInfo buf, const char *str, int len)
 {
+	int i = 0;
+	int copypos = 0;
+
+	Assert(len >= 0);
+
 	appendStringInfoCharMacro(buf, '"');
 
-	for (int i = 0; i < len; i++)
-		escape_json_char(buf, str[i]);
+	for (;;)
+	{
+		Vector8 chunk;
+		int		vlen;
 
+		/*
+		 * Figure out how many bytes to process using SIMD.  Round 'len' down
+		 * to the previous multiple of sizeof(Vector8), assuming that's a
+		 * power-of-2.
+		 */
+		vlen = len & (int) (~(sizeof(Vector8) - 1));
+
+		/*
+		 * To speed this up try searching sizeof(Vector8) bytes at once for
+		 * special characters that we need to escape.  When we find one, we
+		 * fall out of this first loop and copy the parts we've vector
+		 * searched before processing the special-char vector byte-by-byte.
+		 * Once we're done with that, come back and try doing vector searching
+		 * again.  We'll also process the tail end of the string byte-by-byte.
+		 */
+		for (; i < vlen; i += sizeof(Vector8))
+		{
+			vector8_load(&chunk, (const uint8 *) &str[i]);
+
+			/*
+			 * Break on anything less than ' ' or if we find a '"' or '\\'.
+			 * Those need special handling.  That's done in the per-byte loop.
+			 */
+			if (vector8_has_le(chunk, (unsigned char) 0x1F) ||
+				vector8_has(chunk, (unsigned char) '"') ||
+				vector8_has(chunk, (unsigned char) '\\'))
+				break;
+		}
+
+		/*
+		 * Write to the destination up to the point of that we've vector
+		 * searched so far.  Do this only when switching into per-byte mode
+		 * rather than once every sizeof(Vector8) bytes.
+		 */
+		if (copypos < i)
+		{
+			appendBinaryStringInfo(buf, &str[copypos], i - copypos);
+			copypos = i;
+		}
+
+		/*
+		 * Per-byte loop for Vector8s containing special chars and for
+		 * processing the tail of the string.
+		 */
+		for (int b = 0; b < sizeof(Vector8); b++)
+		{
+			/* check if we've finished */
+			if (i == len)
+				goto done;
+
+			Assert(i < len);
+
+			escape_json_char(buf, str[i++]);
+		}
+
+		copypos = i;
+		/* We're not done yet.  Try the SIMD search again */
+	}
+
+done:
 	appendStringInfoCharMacro(buf, '"');
 }
 
