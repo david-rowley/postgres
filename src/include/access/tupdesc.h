@@ -45,6 +45,21 @@ typedef struct TupleConstr
 	bool		has_generated_stored;
 } TupleConstr;
 
+typedef struct TupleDescAttr
+{
+	Oid		atttypid;
+	Oid		attcollation;
+	Oid		atttypmod;
+	int16	attlen;
+	int16	attnum;
+	bool	attnotnull;
+	bool	attbyval;
+	char	attalign;
+	bool	attisdropped;
+	bool	atthasmissing;
+	int32	attcacheoff;
+} TupleDescAttr;
+
 /*
  * This struct is passed around within the backend to describe the structure
  * of tuples.  For tuples coming from on-disk relations, the information is
@@ -84,7 +99,7 @@ typedef struct TupleDescData
 	int			tdrefcount;		/* reference count, or -1 if not counting */
 	TupleConstr *constr;		/* constraints, or NULL if none */
 	/* attrs[N] is the description of Attribute Number N+1 */
-	FormData_pg_attribute attrs[FLEXIBLE_ARRAY_MEMBER];
+	TupleDescAttr attrs[FLEXIBLE_ARRAY_MEMBER];
 }			TupleDescData;
 typedef struct TupleDescData *TupleDesc;
 

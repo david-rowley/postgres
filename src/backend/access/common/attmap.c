@@ -96,7 +96,7 @@ build_attrmap_by_position(TupleDesc indesc,
 	same = true;
 	for (i = 0; i < n; i++)
 	{
-		Form_pg_attribute att = TupleDescAttr(outdesc, i);
+		TupleDescAttr *att = TupleDescAttr(outdesc, i);
 		Oid			atttypid;
 		int32		atttypmod;
 
@@ -190,7 +190,7 @@ build_attrmap_by_name(TupleDesc indesc,
 	attrMap = make_attrmap(outnatts);
 	for (i = 0; i < outnatts; i++)
 	{
-		Form_pg_attribute outatt = TupleDescAttr(outdesc, i);
+		TupleDescAttr *outatt = TupleDescAttr(outdesc, i);
 		char	   *attname;
 		Oid			atttypid;
 		int32		atttypmod;

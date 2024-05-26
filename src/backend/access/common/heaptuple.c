@@ -147,7 +147,7 @@ Datum
 getmissingattr(TupleDesc tupleDesc,
 			   int attnum, bool *isnull)
 {
-	Form_pg_attribute att;
+	TupleDescAttr *att;
 
 	Assert(attnum <= tupleDesc->natts);
 	Assert(attnum > 0);
@@ -570,7 +570,7 @@ nocachegetattr(HeapTuple tup,
 
 	if (!slow)
 	{
-		Form_pg_attribute att;
+		TupleDescAttr *att;
 
 		/*
 		 * If we get here, there are no nulls up to and including the target
@@ -625,7 +625,7 @@ nocachegetattr(HeapTuple tup,
 
 		for (; j < natts; j++)
 		{
-			Form_pg_attribute att = TupleDescAttr(tupleDesc, j);
+			TupleDescAttr *att = TupleDescAttr(tupleDesc, j);
 
 			if (att->attlen <= 0)
 				break;
@@ -892,7 +892,7 @@ expand_tuple(HeapTuple *targetHeapTuple,
 		{
 			if (attrmiss[attnum].am_present)
 			{
-				Form_pg_attribute att = TupleDescAttr(tupleDesc, attnum);
+				TupleDescAttr *att = TupleDescAttr(tupleDesc, attnum);
 
 				targetDataLen = att_align_datum(targetDataLen,
 												att->attalign,
@@ -1021,7 +1021,7 @@ expand_tuple(HeapTuple *targetHeapTuple,
 	for (attnum = sourceNatts; attnum < natts; attnum++)
 	{
 
-		Form_pg_attribute attr = TupleDescAttr(tupleDesc, attnum);
+		TupleDescAttr *attr = TupleDescAttr(tupleDesc, attnum);
 
 		if (attrmiss && attrmiss[attnum].am_present)
 		{
@@ -1370,7 +1370,7 @@ heap_deform_tuple(HeapTuple tuple, TupleDesc tupleDesc,
 
 	for (attnum = 0; attnum < natts; attnum++)
 	{
-		Form_pg_attribute thisatt = TupleDescAttr(tupleDesc, attnum);
+		TupleDescAttr *thisatt = TupleDescAttr(tupleDesc, attnum);
 
 		if (hasnulls && att_isnull(attnum, bp))
 		{
