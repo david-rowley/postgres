@@ -67,6 +67,7 @@ index_form_tuple_context(TupleDesc tupleDescriptor,
 						 const bool *isnull,
 						 MemoryContext context)
 {
+	TupleDescExtra *extra = tupleDescriptor->extra;
 	char	   *tp;				/* tuple pointer */
 	IndexTuple	tuple;			/* return tuple */
 	Size		size,
@@ -92,7 +93,8 @@ index_form_tuple_context(TupleDesc tupleDescriptor,
 #ifdef TOAST_INDEX_HACK
 	for (i = 0; i < numberOfAttributes; i++)
 	{
-		Form_pg_attribute att = TupleDescAttr(tupleDescriptor, i);
+		TupleDescAttr *att = TupleDescAttr(tupleDescriptor, i);
+		TupleDescAttrExtra *attEx;
 
 		untoasted_values[i] = values[i];
 		untoasted_free[i] = false;
@@ -113,19 +115,21 @@ index_form_tuple_context(TupleDesc tupleDescriptor,
 			untoasted_free[i] = true;
 		}
 
+		attEx = TupleDescExtraAttr(extra, i);
+
 		/*
 		 * If value is above size target, and is of a compressible datatype,
 		 * try to compress it in-line.
 		 */
 		if (!VARATT_IS_EXTENDED(DatumGetPointer(untoasted_values[i])) &&
 			VARSIZE(DatumGetPointer(untoasted_values[i])) > TOAST_INDEX_TARGET &&
-			(att->attstorage == TYPSTORAGE_EXTENDED ||
-			 att->attstorage == TYPSTORAGE_MAIN))
+			(attEx->attstorage == TYPSTORAGE_EXTENDED ||
+			 attEx->attstorage == TYPSTORAGE_MAIN))
 		{
 			Datum		cvalue;
 
 			cvalue = toast_compress_datum(untoasted_values[i],
-										  att->attcompression);
+										  attEx->attcompression);
 
 			if (DatumGetPointer(cvalue) != NULL)
 			{
@@ -303,7 +307,7 @@ nocache_index_getattr(IndexTuple tup,
 
 	if (!slow)
 	{
-		Form_pg_attribute att;
+		TupleDescAttr *att;
 
 		/*
 		 * If we get here, there are no nulls up to and including the target
@@ -358,7 +362,7 @@ nocache_index_getattr(IndexTuple tup,
 
 		for (; j < natts; j++)
 		{
-			Form_pg_attribute att = TupleDescAttr(tupleDesc, j);
+			TupleDescAttr *att = TupleDescAttr(tupleDesc, j);
 
 			if (att->attlen <= 0)
 				break;
@@ -392,7 +396,7 @@ nocache_index_getattr(IndexTuple tup,
 		off = 0;
 		for (i = 0;; i++)		/* loop exit is at "break" */
 		{
-			Form_pg_attribute att = TupleDescAttr(tupleDesc, i);
+			TupleDescAttr *att = TupleDescAttr(tupleDesc, i);
 
 			if (IndexTupleHasNulls(tup) && att_isnull(i, bp))
 			{
@@ -490,7 +494,7 @@ index_deform_tuple_internal(TupleDesc tupleDescriptor,
 
 	for (attnum = 0; attnum < natts; attnum++)
 	{
-		Form_pg_attribute thisatt = TupleDescAttr(tupleDescriptor, attnum);
+		TupleDescAttr *thisatt = TupleDescAttr(tupleDescriptor, attnum);
 
 		if (hasnulls && att_isnull(attnum, bp))
 		{

@@ -30,6 +30,7 @@
 void
 printsimple_startup(DestReceiver *self, int operation, TupleDesc tupdesc)
 {
+	TupleDescExtra *extra = tupdesc->extra;
 	StringInfoData buf;
 	int			i;
 
@@ -38,14 +39,15 @@ printsimple_startup(DestReceiver *self, int operation, TupleDesc tupdesc)
 
 	for (i = 0; i < tupdesc->natts; ++i)
 	{
-		Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+		TupleDescAttr *attr = TupleDescAttr(tupdesc, i);
+		TupleDescAttrExtra *attrEx = TupleDescExtraAttr(extra, i);
 
-		pq_sendstring(&buf, NameStr(attr->attname));
+		pq_sendstring(&buf, NameStr(attrEx->attname));
 		pq_sendint32(&buf, 0);	/* table oid */
 		pq_sendint16(&buf, 0);	/* attnum */
-		pq_sendint32(&buf, (int) attr->atttypid);
+		pq_sendint32(&buf, (int) attrEx->atttypid);
 		pq_sendint16(&buf, attr->attlen);
-		pq_sendint32(&buf, attr->atttypmod);
+		pq_sendint32(&buf, attrEx->atttypmod);
 		pq_sendint16(&buf, 0);	/* format code */
 	}
 
@@ -59,6 +61,7 @@ bool
 printsimple(TupleTableSlot *slot, DestReceiver *self)
 {
 	TupleDesc	tupdesc = slot->tts_tupleDescriptor;
+	TupleDescExtra *extra = tupdesc->extra;
 	StringInfoData buf;
 	int			i;
 
@@ -71,7 +74,7 @@ printsimple(TupleTableSlot *slot, DestReceiver *self)
 
 	for (i = 0; i < tupdesc->natts; ++i)
 	{
-		Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+		TupleDescAttrExtra *attrEx = TupleDescExtraAttr(extra, i);
 		Datum		value;
 
 		if (slot->tts_isnull[i])
@@ -87,7 +90,7 @@ printsimple(TupleTableSlot *slot, DestReceiver *self)
 		 * might not have catalog access.  Instead, we must hard-wire
 		 * knowledge of the required types.
 		 */
-		switch (attr->atttypid)
+		switch (attrEx->atttypid)
 		{
 			case TEXTOID:
 				{
@@ -133,7 +136,7 @@ printsimple(TupleTableSlot *slot, DestReceiver *self)
 				break;
 
 			default:
-				elog(ERROR, "unsupported type OID: %u", attr->atttypid);
+				elog(ERROR, "unsupported type OID: %u", attrEx->atttypid);
 		}
 	}
 

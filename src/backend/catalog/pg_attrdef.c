@@ -105,7 +105,8 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 	attgenerated = attStruct->attgenerated;
 	if (!attStruct->atthasdef)
 	{
-		Form_pg_attribute defAttStruct;
+		TupleDescAttr *defAttStruct;
+		TupleDescAttrExtra *defAttStructEx;
 
 		ExprState  *exprState;
 		Expr	   *expr2 = (Expr *) expr;
@@ -134,6 +135,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 			FreeExecutorState(estate);
 
 			defAttStruct = TupleDescAttr(rel->rd_att, attnum - 1);
+			defAttStructEx = TupleDescExtraAttr(rel->rd_att->extra, attnum - 1);
 
 			if (missingIsNull)
 			{
@@ -145,7 +147,7 @@ StoreAttrDefault(Relation rel, AttrNumber attnum,
 				/* otherwise make a one-element array of the value */
 				missingval = PointerGetDatum(construct_array(&missingval,
 															 1,
-															 defAttStruct->atttypid,
+															 defAttStructEx->atttypid,
 															 defAttStruct->attlen,
 															 defAttStruct->attbyval,
 															 defAttStruct->attalign));

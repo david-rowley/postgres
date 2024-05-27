@@ -365,6 +365,7 @@ ExecBuildProjectionInfo(List *targetList,
 						TupleDesc inputDesc)
 {
 	ProjectionInfo *projInfo = makeNode(ProjectionInfo);
+	TupleDescExtra *extra = inputDesc->extra;
 	ExprState  *state;
 	ExprEvalStep scratch = {0};
 	ListCell   *lc;
@@ -410,14 +411,14 @@ ExecBuildProjectionInfo(List *targetList,
 				isSafeVar = true;	/* can't check, just assume OK */
 			else if (attnum <= inputDesc->natts)
 			{
-				Form_pg_attribute attr = TupleDescAttr(inputDesc, attnum - 1);
+				TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, attnum - 1);
 
 				/*
 				 * If user attribute is dropped or has a type mismatch, don't
 				 * use ASSIGN_*_VAR.  Instead let the normal expression
 				 * machinery handle it (which'll possibly error out).
 				 */
-				if (!attr->attisdropped && variable->vartype == attr->atttypid)
+				if (!attEx->attisdropped && variable->vartype == attEx->atttypid)
 				{
 					isSafeVar = true;
 				}
@@ -594,9 +595,9 @@ ExecBuildUpdateProjection(List *targetList,
 	 */
 	for (int attnum = relDesc->natts; attnum > 0; attnum--)
 	{
-		Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(relDesc->extra, attnum - 1);
 
-		if (attr->attisdropped)
+		if (attEx->attisdropped)
 			continue;
 		if (bms_is_member(attnum, assignedCols))
 			continue;
@@ -628,7 +629,7 @@ ExecBuildUpdateProjection(List *targetList,
 	{
 		TargetEntry *tle = lfirst_node(TargetEntry, lc);
 		AttrNumber	targetattnum = lfirst_int(lc2);
-		Form_pg_attribute attr;
+		TupleDescAttrExtra *attEx;
 
 		Assert(!tle->resjunk);
 
@@ -640,20 +641,20 @@ ExecBuildUpdateProjection(List *targetList,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("table row type and query-specified row type do not match"),
 					 errdetail("Query has too many columns.")));
-		attr = TupleDescAttr(relDesc, targetattnum - 1);
+		attEx = TupleDescExtraAttr(relDesc->extra, targetattnum - 1);
 
-		if (attr->attisdropped)
+		if (attEx->attisdropped)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("table row type and query-specified row type do not match"),
 					 errdetail("Query provides a value for a dropped column at ordinal position %d.",
 							   targetattnum)));
-		if (exprType((Node *) tle->expr) != attr->atttypid)
+		if (exprType((Node *) tle->expr) != attEx->atttypid)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("table row type and query-specified row type do not match"),
 					 errdetail("Table has type %s at ordinal position %d, but query expects %s.",
-							   format_type_be(attr->atttypid),
+							   format_type_be(attEx->atttypid),
 							   targetattnum,
 							   format_type_be(exprType((Node *) tle->expr)))));
 
@@ -690,9 +691,9 @@ ExecBuildUpdateProjection(List *targetList,
 	 */
 	for (int attnum = 1; attnum <= relDesc->natts; attnum++)
 	{
-		Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(relDesc->extra, attnum - 1);
 
-		if (attr->attisdropped)
+		if (attEx->attisdropped)
 		{
 			/* Put a null into the ExprState's resvalue/resnull ... */
 			scratch.opcode = EEOP_CONST;
@@ -1963,10 +1964,10 @@ ExecInitExprRec(Expr *node, ExprState *state,
 				i = 0;
 				foreach(l, rowexpr->args)
 				{
-					Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+					TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupdesc->extra, i);
 					Expr	   *e = (Expr *) lfirst(l);
 
-					if (!att->attisdropped)
+					if (!attEx->attisdropped)
 					{
 						/*
 						 * Guard against ALTER COLUMN TYPE on rowtype since
@@ -1974,12 +1975,12 @@ ExecInitExprRec(Expr *node, ExprState *state,
 						 * typmod too?	Not sure we can be sure it'll be the
 						 * same.
 						 */
-						if (exprType((Node *) e) != att->atttypid)
+						if (exprType((Node *) e) != attEx->atttypid)
 							ereport(ERROR,
 									(errcode(ERRCODE_DATATYPE_MISMATCH),
 									 errmsg("ROW() column has type %s instead of type %s",
 											format_type_be(exprType((Node *) e)),
-											format_type_be(att->atttypid))));
+											format_type_be(attEx->atttypid))));
 					}
 					else
 					{
@@ -4005,8 +4006,8 @@ ExecBuildGroupingEqual(TupleDesc ldesc, TupleDesc rdesc,
 	for (int natt = numCols; --natt >= 0;)
 	{
 		int			attno = keyColIdx[natt];
-		Form_pg_attribute latt = TupleDescAttr(ldesc, attno - 1);
-		Form_pg_attribute ratt = TupleDescAttr(rdesc, attno - 1);
+		TupleDescAttrExtra *lattEx = TupleDescExtraAttr(ldesc->extra, attno - 1);
+		TupleDescAttrExtra *rattEx = TupleDescExtraAttr(rdesc->extra, attno - 1);
 		Oid			foid = eqfunctions[natt];
 		Oid			collid = collations[natt];
 		FmgrInfo   *finfo;
@@ -4031,7 +4032,7 @@ ExecBuildGroupingEqual(TupleDesc ldesc, TupleDesc rdesc,
 		/* left arg */
 		scratch.opcode = EEOP_INNER_VAR;
 		scratch.d.var.attnum = attno - 1;
-		scratch.d.var.vartype = latt->atttypid;
+		scratch.d.var.vartype = lattEx->atttypid;
 		scratch.resvalue = &fcinfo->args[0].value;
 		scratch.resnull = &fcinfo->args[0].isnull;
 		ExprEvalPushStep(state, &scratch);
@@ -4039,7 +4040,7 @@ ExecBuildGroupingEqual(TupleDesc ldesc, TupleDesc rdesc,
 		/* right arg */
 		scratch.opcode = EEOP_OUTER_VAR;
 		scratch.d.var.attnum = attno - 1;
-		scratch.d.var.vartype = ratt->atttypid;
+		scratch.d.var.vartype = rattEx->atttypid;
 		scratch.resvalue = &fcinfo->args[1].value;
 		scratch.resnull = &fcinfo->args[1].isnull;
 		ExprEvalPushStep(state, &scratch);
@@ -4140,7 +4141,7 @@ ExecBuildParamSetEqual(TupleDesc desc,
 
 	for (int attno = 0; attno < maxatt; attno++)
 	{
-		Form_pg_attribute att = TupleDescAttr(desc, attno);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(desc->extra, attno);
 		Oid			foid = eqfunctions[attno];
 		Oid			collid = collations[attno];
 		FmgrInfo   *finfo;
@@ -4165,7 +4166,7 @@ ExecBuildParamSetEqual(TupleDesc desc,
 		/* left arg */
 		scratch.opcode = EEOP_INNER_VAR;
 		scratch.d.var.attnum = attno;
-		scratch.d.var.vartype = att->atttypid;
+		scratch.d.var.vartype = attEx->atttypid;
 		scratch.resvalue = &fcinfo->args[0].value;
 		scratch.resnull = &fcinfo->args[0].isnull;
 		ExprEvalPushStep(state, &scratch);
@@ -4173,7 +4174,7 @@ ExecBuildParamSetEqual(TupleDesc desc,
 		/* right arg */
 		scratch.opcode = EEOP_OUTER_VAR;
 		scratch.d.var.attnum = attno;
-		scratch.d.var.vartype = att->atttypid;
+		scratch.d.var.vartype = attEx->atttypid;
 		scratch.resvalue = &fcinfo->args[1].value;
 		scratch.resnull = &fcinfo->args[1].isnull;
 		ExprEvalPushStep(state, &scratch);

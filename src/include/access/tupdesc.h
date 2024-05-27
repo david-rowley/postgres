@@ -33,8 +33,46 @@ typedef struct ConstrCheck
 	bool		ccnoinherit;	/* this is a non-inheritable constraint */
 } ConstrCheck;
 
-/* This structure contains constraints of a tuple */
-typedef struct TupleConstr
+/*
+ * Performance critical per-attribute data for tuple deformation.
+ */
+typedef struct TupleDescAttr
+{
+	int32	attcacheoff;
+	int16	attlen;
+	bool	attbyval;
+	char	attalign;
+} TupleDescAttr;
+
+/*
+ * Additional per-attribute fields required during query execution.
+ */
+typedef struct TupleDescAttrExtra
+{
+	Oid		attrelid;
+	NameData attname; /* name of attribute */
+	Oid		atttypid;
+	int16	attnum;
+	int16	attndims;
+	Oid		atttypmod;
+	char	attstorage;
+	char	attcompression;
+	bool	attnotnull;
+	bool	atthasdef;
+	bool	atthasmissing;
+	char	attidentity;
+	char	attgenerated;
+	bool	attisdropped;
+	bool	attislocal;
+	int16	attinhcount;
+	Oid		attcollation;
+} TupleDescAttrExtra;
+
+/*
+ * This structure contains additional TupleDesc data out of line for fields
+ * which are less performance critical.
+ */
+typedef struct TupleDescExtra
 {
 	AttrDefault *defval;		/* array */
 	ConstrCheck *check;			/* array */
@@ -43,22 +81,10 @@ typedef struct TupleConstr
 	uint16		num_check;
 	bool		has_not_null;
 	bool		has_generated_stored;
-} TupleConstr;
+	/* attrs[N] is the description of Attribute Number N+1 */
+	TupleDescAttrExtra attrs[FLEXIBLE_ARRAY_MEMBER];
+} TupleDescExtra;
 
-typedef struct TupleDescAttr
-{
-	Oid		atttypid;
-	Oid		attcollation;
-	Oid		atttypmod;
-	int16	attlen;
-	int16	attnum;
-	bool	attnotnull;
-	bool	attbyval;
-	char	attalign;
-	bool	attisdropped;
-	bool	atthasmissing;
-	int32	attcacheoff;
-} TupleDescAttr;
 
 /*
  * This struct is passed around within the backend to describe the structure
@@ -97,7 +123,7 @@ typedef struct TupleDescData
 	Oid			tdtypeid;		/* composite type ID for tuple type */
 	int32		tdtypmod;		/* typmod for tuple type */
 	int			tdrefcount;		/* reference count, or -1 if not counting */
-	TupleConstr *constr;		/* constraints, or NULL if none */
+	TupleDescExtra *extra;		/* Additional out-of-line TupleDesc fields */
 	/* attrs[N] is the description of Attribute Number N+1 */
 	TupleDescAttr attrs[FLEXIBLE_ARRAY_MEMBER];
 }			TupleDescData;
@@ -105,6 +131,9 @@ typedef struct TupleDescData *TupleDesc;
 
 /* Accessor for the i'th attribute of tupdesc. */
 #define TupleDescAttr(tupdesc, i) (&(tupdesc)->attrs[(i)])
+
+/* Accessor for the i'th attribute of tupdescextra. */
+#define TupleDescExtraAttr(tupdescextra, i) (&(tupdescextra)->attrs[(i)])
 
 extern TupleDesc CreateTemplateTupleDesc(int natts);
 
@@ -116,7 +145,7 @@ extern TupleDesc CreateTupleDescCopyConstr(TupleDesc tupdesc);
 
 #define TupleDescSize(src) \
 	(offsetof(struct TupleDescData, attrs) + \
-	 (src)->natts * sizeof(FormData_pg_attribute))
+	 (src)->natts * sizeof(TupleDescAttr))
 
 extern void TupleDescCopy(TupleDesc dst, TupleDesc src);
 

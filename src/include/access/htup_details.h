@@ -758,7 +758,7 @@ fastgetattr(HeapTuple tup, int attnum, TupleDesc tupleDesc, bool *isnull)
 	*isnull = false;
 	if (HeapTupleNoNulls(tup))
 	{
-		Form_pg_attribute att;
+		TupleDescAttr *att;
 
 		att = TupleDescAttr(tupleDesc, attnum - 1);
 		if (att->attcacheoff >= 0)

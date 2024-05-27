@@ -1017,8 +1017,8 @@ transformTableLikeClause(CreateStmtContext *cxt, TableLikeClause *table_like_cla
 	for (parent_attno = 1; parent_attno <= tupleDesc->natts;
 		 parent_attno++)
 	{
-		Form_pg_attribute attribute = TupleDescAttr(tupleDesc,
-													parent_attno - 1);
+		TupleDescAttrExtra *attribute = TupleDescAttr(tupleDesc->extra,
+													  parent_attno - 1);
 		ColumnDef  *def;
 
 		/*
@@ -1149,7 +1149,7 @@ expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
 	Relation	relation;
 	Relation	childrel;
 	TupleDesc	tupleDesc;
-	TupleConstr *constr;
+	TupleDescExtra *extra;
 	AttrMap    *attmap;
 	char	   *comment;
 
@@ -1166,7 +1166,7 @@ expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
 	relation = relation_open(table_like_clause->relationOid, NoLock);
 
 	tupleDesc = RelationGetDescr(relation);
-	constr = tupleDesc->constr;
+	extra = tupleDesc->extra;
 
 	/*
 	 * Open the newly-created child relation; we have lock on that too.
@@ -1186,14 +1186,13 @@ expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
 	 * Process defaults, if required.
 	 */
 	if ((table_like_clause->options &
-		 (CREATE_TABLE_LIKE_DEFAULTS | CREATE_TABLE_LIKE_GENERATED)) &&
-		constr != NULL)
+		 (CREATE_TABLE_LIKE_DEFAULTS | CREATE_TABLE_LIKE_GENERATED)))
 	{
 		for (parent_attno = 1; parent_attno <= tupleDesc->natts;
 			 parent_attno++)
 		{
-			Form_pg_attribute attribute = TupleDescAttr(tupleDesc,
-														parent_attno - 1);
+			TupleDescAttrExtra *attribute = TupleDescExtraAttr(tupleDesc->extra,
+															   parent_attno - 1);
 
 			/*
 			 * Ignore dropped columns in the parent.
@@ -1251,16 +1250,15 @@ expandTableLikeClause(RangeVar *heapRel, TableLikeClause *table_like_clause)
 	 * Copy CHECK constraints if requested, being careful to adjust attribute
 	 * numbers so they match the child.
 	 */
-	if ((table_like_clause->options & CREATE_TABLE_LIKE_CONSTRAINTS) &&
-		constr != NULL)
+	if ((table_like_clause->options & CREATE_TABLE_LIKE_CONSTRAINTS))
 	{
 		int			ccnum;
 
-		for (ccnum = 0; ccnum < constr->num_check; ccnum++)
+		for (ccnum = 0; ccnum < extra->num_check; ccnum++)
 		{
-			char	   *ccname = constr->check[ccnum].ccname;
-			char	   *ccbin = constr->check[ccnum].ccbin;
-			bool		ccnoinherit = constr->check[ccnum].ccnoinherit;
+			char	   *ccname = extra->check[ccnum].ccname;
+			char	   *ccbin = extra->check[ccnum].ccbin;
+			bool		ccnoinherit = extra->check[ccnum].ccnoinherit;
 			Node	   *ccbin_node;
 			bool		found_whole_row;
 			Constraint *n;
@@ -1450,7 +1448,7 @@ transformOfType(CreateStmtContext *cxt, TypeName *ofTypename)
 	tupdesc = lookup_rowtype_tupdesc(ofTypeId, -1);
 	for (i = 0; i < tupdesc->natts; i++)
 	{
-		Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+		TupleDescAttrExtra *attr = TupleDescExtraAttr(tupdesc->extra, i);
 		ColumnDef  *n;
 
 		if (attr->attisdropped)
@@ -1669,8 +1667,8 @@ generateClonedIndexStmt(RangeVar *heapRel, Relation source_idx,
 	{
 		IndexElem  *iparam;
 		AttrNumber	attnum = idxrec->indkey.values[keyno];
-		Form_pg_attribute attr = TupleDescAttr(RelationGetDescr(source_idx),
-											   keyno);
+		TupleDescAttrExtra *attr = TupleDescExtraAttr(RelationGetDescr(source_idx)->extra,
+													  keyno);
 		int16		opt = source_idx->rd_indoption[keyno];
 
 		iparam = makeNode(IndexElem);
@@ -1761,8 +1759,8 @@ generateClonedIndexStmt(RangeVar *heapRel, Relation source_idx,
 	{
 		IndexElem  *iparam;
 		AttrNumber	attnum = idxrec->indkey.values[keyno];
-		Form_pg_attribute attr = TupleDescAttr(RelationGetDescr(source_idx),
-											   keyno);
+		TupleDescAttrExtra *attr = TupleDescExtraAttr(RelationGetDescr(source_idx)->extra,
+													  keyno);
 
 		iparam = makeNode(IndexElem);
 
@@ -2307,7 +2305,7 @@ transformIndexConstraint(Constraint *constraint, CreateStmtContext *cxt)
 		for (i = 0; i < index_form->indnatts; i++)
 		{
 			int16		attnum = index_form->indkey.values[i];
-			const FormData_pg_attribute *attform;
+			const TupleDescAttrExtra *attform;
 			char	   *attname;
 			Oid			defopclass;
 

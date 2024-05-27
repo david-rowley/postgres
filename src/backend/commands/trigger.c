@@ -640,8 +640,7 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 								 parser_errposition(pstate, var->location)));
 					if (TRIGGER_FOR_BEFORE(tgtype) &&
 						var->varattno == 0 &&
-						RelationGetDescr(rel)->constr &&
-						RelationGetDescr(rel)->constr->has_generated_stored)
+						RelationGetDescr(rel)->extra->has_generated_stored)
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 								 errmsg("BEFORE trigger's WHEN condition cannot reference NEW generated columns"),
@@ -649,12 +648,12 @@ CreateTriggerFiringOn(CreateTrigStmt *stmt, const char *queryString,
 								 parser_errposition(pstate, var->location)));
 					if (TRIGGER_FOR_BEFORE(tgtype) &&
 						var->varattno > 0 &&
-						TupleDescAttr(RelationGetDescr(rel), var->varattno - 1)->attgenerated)
+						TupleDescExtraAttr(RelationGetDescr(rel)->extra, var->varattno - 1)->attgenerated)
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 								 errmsg("BEFORE trigger's WHEN condition cannot reference NEW generated columns"),
 								 errdetail("Column \"%s\" is a generated column.",
-										   NameStr(TupleDescAttr(RelationGetDescr(rel), var->varattno - 1)->attname)),
+										   NameStr(TupleDescExtraAttr(RelationGetDescr(rel)->extra, var->varattno - 1)->attname)),
 								 parser_errposition(pstate, var->location)));
 					break;
 				default:

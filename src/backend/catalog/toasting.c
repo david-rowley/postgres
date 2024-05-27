@@ -219,14 +219,14 @@ create_toast_table(Relation rel, Oid toastOid, Oid toastIndexOid,
 	 * toast :-(.  This is essential for chunk_data because type bytea is
 	 * toastable; hit the other two just to be sure.
 	 */
-	TupleDescAttr(tupdesc, 0)->attstorage = TYPSTORAGE_PLAIN;
-	TupleDescAttr(tupdesc, 1)->attstorage = TYPSTORAGE_PLAIN;
-	TupleDescAttr(tupdesc, 2)->attstorage = TYPSTORAGE_PLAIN;
+	TupleDescExtraAttr(tupdesc->extra, 0)->attstorage = TYPSTORAGE_PLAIN;
+	TupleDescExtraAttr(tupdesc->extra, 1)->attstorage = TYPSTORAGE_PLAIN;
+	TupleDescExtraAttr(tupdesc->extra, 2)->attstorage = TYPSTORAGE_PLAIN;
 
 	/* Toast field should not be compressed */
-	TupleDescAttr(tupdesc, 0)->attcompression = InvalidCompressionMethod;
-	TupleDescAttr(tupdesc, 1)->attcompression = InvalidCompressionMethod;
-	TupleDescAttr(tupdesc, 2)->attcompression = InvalidCompressionMethod;
+	TupleDescExtraAttr(tupdesc->extra, 0)->attcompression = InvalidCompressionMethod;
+	TupleDescExtraAttr(tupdesc->extra, 1)->attcompression = InvalidCompressionMethod;
+	TupleDescExtraAttr(tupdesc->extra, 2)->attcompression = InvalidCompressionMethod;
 
 	/*
 	 * Toast tables for regular relations go in pg_toast; those for temp

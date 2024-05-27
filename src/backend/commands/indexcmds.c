@@ -293,7 +293,7 @@ CheckIndexCompatible(Oid oldId,
 	for (i = 0; i < old_natts; i++)
 	{
 		if (IsPolymorphicType(get_opclass_input_type(opclassIds[i])) &&
-			TupleDescAttr(irel->rd_att, i)->atttypid != typeIds[i])
+			TupleDescExtraAttr(irel->rd_att->extra, i)->atttypid != typeIds[i])
 		{
 			ret = false;
 			break;
@@ -334,7 +334,7 @@ CheckIndexCompatible(Oid oldId,
 
 				op_input_types(indexInfo->ii_ExclusionOps[i], &left, &right);
 				if ((IsPolymorphicType(left) || IsPolymorphicType(right)) &&
-					TupleDescAttr(irel->rd_att, i)->atttypid != typeIds[i])
+					TupleDescExtraAttr(irel->rd_att->extra, i)->atttypid != typeIds[i])
 				{
 					ret = false;
 					break;
@@ -1053,12 +1053,12 @@ DefineIndex(Oid tableId,
 							 * error message about a missing column, fail now
 							 * and explain that the operator is wrong.
 							 */
-							Form_pg_attribute att = TupleDescAttr(RelationGetDescr(rel), key->partattrs[i] - 1);
+							TupleDescAttrExtra *attEx = TupleDescAttr(RelationGetDescr(rel)->extra, key->partattrs[i] - 1);
 
 							ereport(ERROR,
 									(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 									 errmsg("cannot match partition key to index on column \"%s\" using non-equal operator \"%s\"",
-											NameStr(att->attname),
+											NameStr(attEx->attname),
 											get_opname(indexInfo->ii_ExclusionOps[j]))));
 						}
 					}
@@ -1067,16 +1067,16 @@ DefineIndex(Oid tableId,
 
 			if (!found)
 			{
-				Form_pg_attribute att;
+				TupleDescAttrExtra *attEx;
 
-				att = TupleDescAttr(RelationGetDescr(rel),
-									key->partattrs[i] - 1);
+				attEx = TupleDescAttr(RelationGetDescr(rel)->extra,
+									  key->partattrs[i] - 1);
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("unique constraint on partitioned table must include all partitioning columns"),
 						 errdetail("%s constraint on table \"%s\" lacks column \"%s\" which is part of the partition key.",
 								   constraint_type, RelationGetRelationName(rel),
-								   NameStr(att->attname))));
+								   NameStr(attEx->attname))));
 			}
 		}
 	}

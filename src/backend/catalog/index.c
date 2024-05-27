@@ -312,24 +312,26 @@ ConstructTupleDescriptor(Relation heapRelation,
 	for (i = 0; i < numatts; i++)
 	{
 		AttrNumber	atnum = indexInfo->ii_IndexAttrNumbers[i];
-		Form_pg_attribute to = TupleDescAttr(indexTupDesc, i);
+		TupleDescAttr *to = TupleDescAttr(indexTupDesc, i);
+		TupleDescAttrExtra *toEx = TupleDescAttr(indexTupDesc->extra, i);
 		HeapTuple	tuple;
 		Form_pg_type typeTup;
 		Form_pg_opclass opclassTup;
 		Oid			keyType;
 
-		MemSet(to, 0, ATTRIBUTE_FIXED_PART_SIZE);
-		to->attnum = i + 1;
+		MemSet(to, 0, sizeof(TupleDescAttr));
+		MemSet(toEx, 0, sizeof(TupleDescAttrExtra));
+		toEx->attnum = i + 1;
 		to->attcacheoff = -1;
-		to->attislocal = true;
-		to->attcollation = (i < numkeyatts) ? collationIds[i] : InvalidOid;
+		toEx->attislocal = true;
+		toEx->attcollation = (i < numkeyatts) ? collationIds[i] : InvalidOid;
 
 		/*
 		 * Set the attribute name as specified by caller.
 		 */
 		if (colnames_item == NULL)	/* shouldn't happen */
 			elog(ERROR, "too few entries in colnames list");
-		namestrcpy(&to->attname, (const char *) lfirst(colnames_item));
+		namestrcpy(&toEx->attname, (const char *) lfirst(colnames_item));
 		colnames_item = lnext(indexColNames, colnames_item);
 
 		/*
@@ -340,7 +342,8 @@ ConstructTupleDescriptor(Relation heapRelation,
 		if (atnum != 0)
 		{
 			/* Simple index column */
-			const FormData_pg_attribute *from;
+			const TupleDescAttr *from;
+			const TupleDescAttrExtra *fromEx;
 
 			Assert(atnum > 0);	/* should've been caught above */
 
@@ -348,15 +351,18 @@ ConstructTupleDescriptor(Relation heapRelation,
 				elog(ERROR, "invalid column number %d", atnum);
 			from = TupleDescAttr(heapTupDesc,
 								 AttrNumberGetAttrOffset(atnum));
+			fromEx = TupleDescExtraAttr(heapTupDesc->extra,
+										AttrNumberGetAttrOffset(atnum));
 
-			to->atttypid = from->atttypid;
+
+			toEx->atttypid = fromEx->atttypid;
 			to->attlen = from->attlen;
-			to->attndims = from->attndims;
-			to->atttypmod = from->atttypmod;
+			toEx->attndims = fromEx->attndims;
+			toEx->atttypmod = fromEx->atttypmod;
 			to->attbyval = from->attbyval;
 			to->attalign = from->attalign;
-			to->attstorage = from->attstorage;
-			to->attcompression = from->attcompression;
+			toEx->attstorage = fromEx->attstorage;
+			toEx->attcompression = fromEx->attcompression;
 		}
 		else
 		{
@@ -380,12 +386,12 @@ ConstructTupleDescriptor(Relation heapRelation,
 			/*
 			 * Assign some of the attributes values. Leave the rest.
 			 */
-			to->atttypid = keyType;
+			toEx->atttypid = keyType;
 			to->attlen = typeTup->typlen;
-			to->atttypmod = exprTypmod(indexkey);
+			toEx->atttypmod = exprTypmod(indexkey);
 			to->attbyval = typeTup->typbyval;
 			to->attalign = typeTup->typalign;
-			to->attstorage = typeTup->typstorage;
+			toEx->attstorage = typeTup->typstorage;
 
 			/*
 			 * For expression columns, set attcompression invalid, since
@@ -394,7 +400,7 @@ ConstructTupleDescriptor(Relation heapRelation,
 			 * current value of default_toast_compression is at that point in
 			 * time.
 			 */
-			to->attcompression = InvalidCompressionMethod;
+			toEx->attcompression = InvalidCompressionMethod;
 
 			ReleaseSysCache(tuple);
 
@@ -407,8 +413,8 @@ ConstructTupleDescriptor(Relation heapRelation,
 			 * whether a table column is of a safe type (which is why we
 			 * needn't check for the non-expression case).
 			 */
-			CheckAttributeType(NameStr(to->attname),
-							   to->atttypid, to->attcollation,
+			CheckAttributeType(NameStr(toEx->attname),
+							   toEx->atttypid, toEx->attcollation,
 							   NIL, 0);
 		}
 
@@ -417,7 +423,7 @@ ConstructTupleDescriptor(Relation heapRelation,
 		 * set it invalid for now.  InitializeAttributeOids() will fix it
 		 * later.
 		 */
-		to->attrelid = InvalidOid;
+		toEx->attrelid = InvalidOid;
 
 		/*
 		 * Check the opclass and index AM to see if either provides a keytype
@@ -446,10 +452,10 @@ ConstructTupleDescriptor(Relation heapRelation,
 			 */
 			if (keyType == ANYELEMENTOID && opclassTup->opcintype == ANYARRAYOID)
 			{
-				keyType = get_base_element_type(to->atttypid);
+				keyType = get_base_element_type(toEx->atttypid);
 				if (!OidIsValid(keyType))
 					elog(ERROR, "could not get element type of array type %u",
-						 to->atttypid);
+						 toEx->atttypid);
 			}
 
 			ReleaseSysCache(tuple);
@@ -459,21 +465,21 @@ ConstructTupleDescriptor(Relation heapRelation,
 		 * If a key type different from the heap value is specified, update
 		 * the type-related fields in the index tupdesc.
 		 */
-		if (OidIsValid(keyType) && keyType != to->atttypid)
+		if (OidIsValid(keyType) && keyType != toEx->atttypid)
 		{
 			tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(keyType));
 			if (!HeapTupleIsValid(tuple))
 				elog(ERROR, "cache lookup failed for type %u", keyType);
 			typeTup = (Form_pg_type) GETSTRUCT(tuple);
 
-			to->atttypid = keyType;
-			to->atttypmod = -1;
+			toEx->atttypid = keyType;
+			toEx->atttypmod = -1;
 			to->attlen = typeTup->typlen;
 			to->attbyval = typeTup->typbyval;
 			to->attalign = typeTup->typalign;
-			to->attstorage = typeTup->typstorage;
+			toEx->attstorage = typeTup->typstorage;
 			/* As above, use the default compression method in this case */
-			to->attcompression = InvalidCompressionMethod;
+			toEx->attcompression = InvalidCompressionMethod;
 
 			ReleaseSysCache(tuple);
 		}
@@ -494,12 +500,14 @@ InitializeAttributeOids(Relation indexRelation,
 						Oid indexoid)
 {
 	TupleDesc	tupleDescriptor;
+	TupleDescExtra *extra; 
 	int			i;
 
 	tupleDescriptor = RelationGetDescr(indexRelation);
+	extra = tupleDescriptor->extra;
 
 	for (i = 0; i < numatts; i += 1)
-		TupleDescAttr(tupleDescriptor, i)->attrelid = indexoid;
+		TupleDescExtraAttr(extra, i)->attrelid = indexoid;
 }
 
 /* ----------------------------------------------------------------
@@ -1403,9 +1411,9 @@ index_concurrently_create_copy(Relation heapRelation, Oid oldIndexId,
 	for (int i = 0; i < oldInfo->ii_NumIndexAttrs; i++)
 	{
 		TupleDesc	indexTupDesc = RelationGetDescr(indexRelation);
-		Form_pg_attribute att = TupleDescAttr(indexTupDesc, i);
+		TupleDescAttrExtra *attEx = TupleDescAttr(indexTupDesc->extra, i);
 
-		indexColNames = lappend(indexColNames, NameStr(att->attname));
+		indexColNames = lappend(indexColNames, NameStr(attEx->attname));
 		newInfo->ii_IndexAttrNumbers[i] = oldInfo->ii_IndexAttrNumbers[i];
 	}
 

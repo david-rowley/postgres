@@ -993,7 +993,7 @@ compute_index_stats(Relation onerel, double totalrows,
 static VacAttrStats *
 examine_attribute(Relation onerel, int attnum, Node *index_expr)
 {
-	Form_pg_attribute attr = TupleDescAttr(onerel->rd_att, attnum - 1);
+	TupleDescAttrExtra *attrEx = TupleDescExtraAttr(onerel->rd_att->extra, attnum - 1);
 	int			attstattarget;
 	HeapTuple	atttuple;
 	Datum		dat;
@@ -1004,7 +1004,7 @@ examine_attribute(Relation onerel, int attnum, Node *index_expr)
 	bool		ok;
 
 	/* Never analyze dropped columns */
-	if (attr->attisdropped)
+	if (attrEx->attisdropped)
 		return NULL;
 
 	/*
@@ -1056,9 +1056,9 @@ examine_attribute(Relation onerel, int attnum, Node *index_expr)
 	}
 	else
 	{
-		stats->attrtypid = attr->atttypid;
-		stats->attrtypmod = attr->atttypmod;
-		stats->attrcollid = attr->attcollation;
+		stats->attrtypid = attrEx->atttypid;
+		stats->attrtypmod = attrEx->atttypmod;
+		stats->attrcollid = attrEx->attcollation;
 	}
 
 	typtuple = SearchSysCacheCopy1(TYPEOID,

@@ -275,8 +275,8 @@ checkViewColumns(TupleDesc newdesc, TupleDesc olddesc)
 
 	for (i = 0; i < olddesc->natts; i++)
 	{
-		Form_pg_attribute newattr = TupleDescAttr(newdesc, i);
-		Form_pg_attribute oldattr = TupleDescAttr(olddesc, i);
+		TupleDescAttrExtra *newattr = TupleDescExtraAttr(newdesc->extra, i);
+		TupleDescAttrExtra *oldattr = TupleDescExtraAttr(olddesc->extra, i);
 
 		/* XXX msg not right, but we don't support DROP COL on view anyway */
 		if (newattr->attisdropped != oldattr->attisdropped)

@@ -146,7 +146,7 @@ brin_inclusion_add_value(PG_FUNCTION_ARGS)
 	Datum		result;
 	bool		new = false;
 	AttrNumber	attno;
-	Form_pg_attribute attr;
+	TupleDescAttr *attr;
 
 	Assert(!isnull);
 
@@ -479,7 +479,7 @@ brin_inclusion_union(PG_FUNCTION_ARGS)
 	BrinValues *col_b = (BrinValues *) PG_GETARG_POINTER(2);
 	Oid			colloid = PG_GET_COLLATION();
 	AttrNumber	attno;
-	Form_pg_attribute attr;
+	TupleDescAttr *attr;
 	FmgrInfo   *finfo;
 	Datum		result;
 
@@ -626,21 +626,21 @@ inclusion_get_strategy_procinfo(BrinDesc *bdesc, uint16 attno, Oid subtype,
 
 	if (opaque->strategy_procinfos[strategynum - 1].fn_oid == InvalidOid)
 	{
-		Form_pg_attribute attr;
+		TupleDescAttrExtra *attrEx;
 		HeapTuple	tuple;
 		Oid			opfamily,
 					oprid;
 
 		opfamily = bdesc->bd_index->rd_opfamily[attno - 1];
-		attr = TupleDescAttr(bdesc->bd_tupdesc, attno - 1);
+		attrEx = TupleDescExtraAttr(bdesc->bd_tupdesc->extra, attno - 1);
 		tuple = SearchSysCache4(AMOPSTRATEGY, ObjectIdGetDatum(opfamily),
-								ObjectIdGetDatum(attr->atttypid),
+								ObjectIdGetDatum(attrEx->atttypid),
 								ObjectIdGetDatum(subtype),
 								Int16GetDatum(strategynum));
 
 		if (!HeapTupleIsValid(tuple))
 			elog(ERROR, "missing operator %d(%u,%u) in opfamily %u",
-				 strategynum, attr->atttypid, subtype, opfamily);
+				 strategynum, attrEx->atttypid, subtype, opfamily);
 
 		oprid = DatumGetObjectId(SysCacheGetAttrNotNull(AMOPSTRATEGY, tuple,
 														Anum_pg_amop_amopopr));

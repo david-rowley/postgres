@@ -222,7 +222,7 @@ spgGetCache(Relation index)
 		if (!OidIsValid(cache->config.leafType))
 		{
 			cache->config.leafType =
-				TupleDescAttr(RelationGetDescr(index), spgKeyColumn)->atttypid;
+				TupleDescAttr(RelationGetDescr(index)->extra, spgKeyColumn)->atttypid;
 
 			/*
 			 * If index column type is binary-coercible to atttype (for
@@ -309,25 +309,28 @@ TupleDesc
 getSpGistTupleDesc(Relation index, SpGistTypeDesc *keyType)
 {
 	TupleDesc	outTupDesc;
-	Form_pg_attribute att;
 
 	if (keyType->type ==
-		TupleDescAttr(RelationGetDescr(index), spgKeyColumn)->atttypid)
+		TupleDescExtraAttr(RelationGetDescr(index)->extra, spgKeyColumn)->atttypid)
 		outTupDesc = RelationGetDescr(index);
 	else
 	{
+		TupleDescAttr *att;
+		TupleDescAttrExtra *attEx;
+
 		outTupDesc = CreateTupleDescCopy(RelationGetDescr(index));
 		att = TupleDescAttr(outTupDesc, spgKeyColumn);
+		attEx = TupleDescExtraAttr(outTupDesc->extra, spgKeyColumn);
 		/* It's sufficient to update the type-dependent fields of the column */
-		att->atttypid = keyType->type;
-		att->atttypmod = -1;
+		attEx->atttypid = keyType->type;
+		attEx->atttypmod = -1;
 		att->attlen = keyType->attlen;
 		att->attbyval = keyType->attbyval;
 		att->attalign = keyType->attalign;
-		att->attstorage = keyType->attstorage;
+		attEx->attstorage = keyType->attstorage;
 		/* We shouldn't need to bother with making these valid: */
-		att->attcompression = InvalidCompressionMethod;
-		att->attcollation = InvalidOid;
+		attEx->attcompression = InvalidCompressionMethod;
+		attEx->attcollation = InvalidOid;
 		/* In case we changed typlen, we'd better reset following offsets */
 		for (int i = spgFirstIncludeColumn; i < outTupDesc->natts; i++)
 			TupleDescAttr(outTupDesc, i)->attcacheoff = -1;

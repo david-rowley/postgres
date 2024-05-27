@@ -1184,8 +1184,7 @@ CopyFrom(CopyFromState cstate)
 			else
 			{
 				/* Compute stored generated columns */
-				if (resultRelInfo->ri_RelationDesc->rd_att->constr &&
-					resultRelInfo->ri_RelationDesc->rd_att->constr->has_generated_stored)
+				if (resultRelInfo->ri_RelationDesc->rd_att->extra->has_generated_stored)
 					ExecComputeStoredGenerated(resultRelInfo, estate, myslot,
 											   CMD_INSERT);
 
@@ -1193,8 +1192,7 @@ CopyFrom(CopyFromState cstate)
 				 * If the target is a plain table, check the constraints of
 				 * the tuple.
 				 */
-				if (resultRelInfo->ri_FdwRoutine == NULL &&
-					resultRelInfo->ri_RelationDesc->rd_att->constr)
+				if (resultRelInfo->ri_FdwRoutine == NULL)
 					ExecConstraints(resultRelInfo, myslot, estate);
 
 				/*
@@ -1439,13 +1437,13 @@ BeginCopyFrom(ParseState *pstate,
 		foreach(cur, attnums)
 		{
 			int			attnum = lfirst_int(cur);
-			Form_pg_attribute attr = TupleDescAttr(tupDesc, attnum - 1);
+			TupleDescAttrExtra *attrEx = TupleDescAttr(tupDesc->extra, attnum - 1);
 
 			if (!list_member_int(cstate->attnumlist, attnum))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
 						 errmsg("FORCE_NOT_NULL column \"%s\" not referenced by COPY",
-								NameStr(attr->attname))));
+								NameStr(attrEx->attname))));
 			cstate->opts.force_notnull_flags[attnum - 1] = true;
 		}
 	}
@@ -1481,13 +1479,13 @@ BeginCopyFrom(ParseState *pstate,
 		foreach(cur, attnums)
 		{
 			int			attnum = lfirst_int(cur);
-			Form_pg_attribute attr = TupleDescAttr(tupDesc, attnum - 1);
+			TupleDescAttrExtra *attrEx = TupleDescExtraAttr(tupDesc->extra, attnum - 1);
 
 			if (!list_member_int(cstate->attnumlist, attnum))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
 						 errmsg("FORCE_NULL column \"%s\" not referenced by COPY",
-								NameStr(attr->attname))));
+								NameStr(attrEx->attname))));
 			cstate->opts.force_null_flags[attnum - 1] = true;
 		}
 	}
@@ -1505,13 +1503,13 @@ BeginCopyFrom(ParseState *pstate,
 		foreach(cur, attnums)
 		{
 			int			attnum = lfirst_int(cur);
-			Form_pg_attribute attr = TupleDescAttr(tupDesc, attnum - 1);
+			TupleDescAttrExtra *attrEx = TupleDescExtraAttr(tupDesc->extra, attnum - 1);
 
 			if (!list_member_int(cstate->attnumlist, attnum))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
 						 errmsg_internal("selected column \"%s\" not referenced by COPY",
-										 NameStr(attr->attname))));
+										 NameStr(attrEx->attname))));
 			cstate->convert_select_flags[attnum - 1] = true;
 		}
 	}
@@ -1610,18 +1608,18 @@ BeginCopyFrom(ParseState *pstate,
 
 	for (int attnum = 1; attnum <= num_phys_attrs; attnum++)
 	{
-		Form_pg_attribute att = TupleDescAttr(tupDesc, attnum - 1);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupDesc->extra, attnum - 1);
 
 		/* We don't need info for dropped attributes */
-		if (att->attisdropped)
+		if (attEx->attisdropped)
 			continue;
 
 		/* Fetch the input function and typioparam info */
 		if (cstate->opts.binary)
-			getTypeBinaryInputInfo(att->atttypid,
+			getTypeBinaryInputInfo(attEx->atttypid,
 								   &in_func_oid, &typioparams[attnum - 1]);
 		else
-			getTypeInputInfo(att->atttypid,
+			getTypeInputInfo(attEx->atttypid,
 							 &in_func_oid, &typioparams[attnum - 1]);
 		fmgr_info(in_func_oid, &in_functions[attnum - 1]);
 
@@ -1635,7 +1633,7 @@ BeginCopyFrom(ParseState *pstate,
 		 */
 		if ((cstate->opts.default_print != NULL ||
 			 !list_member_int(cstate->attnumlist, attnum)) &&
-			!att->attgenerated)
+			!attEx->attgenerated)
 		{
 			Expr	   *defexpr = (Expr *) build_column_default(cstate->rel,
 																attnum);

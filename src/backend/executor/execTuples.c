@@ -187,7 +187,7 @@ tts_virtual_materialize(TupleTableSlot *slot)
 	/* compute size of memory required */
 	for (int natt = 0; natt < desc->natts; natt++)
 	{
-		Form_pg_attribute att = TupleDescAttr(desc, natt);
+		TupleDescAttr *att = TupleDescAttr(desc, natt);
 		Datum		val;
 
 		if (att->attbyval || slot->tts_isnull[natt])
@@ -223,7 +223,7 @@ tts_virtual_materialize(TupleTableSlot *slot)
 	/* and copy all attributes into the pre-allocated space */
 	for (int natt = 0; natt < desc->natts; natt++)
 	{
-		Form_pg_attribute att = TupleDescAttr(desc, natt);
+		TupleDescAttr *att = TupleDescAttr(desc, natt);
 		Datum		val;
 
 		if (att->attbyval || slot->tts_isnull[natt])
@@ -1044,7 +1044,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 
 	for (; attnum < natts; attnum++)
 	{
-		Form_pg_attribute thisatt = TupleDescAttr(tupleDesc, attnum);
+		TupleDescAttr *thisatt = TupleDescAttr(tupleDesc, attnum);
 
 		if (hasnulls && att_isnull(attnum, bp))
 		{
@@ -1954,11 +1954,8 @@ ExecInitNullTupleSlot(EState *estate, TupleDesc tupType,
 void
 slot_getmissingattrs(TupleTableSlot *slot, int startAttNum, int lastAttNum)
 {
-	AttrMissing *attrmiss = NULL;
-
-	if (slot->tts_tupleDescriptor->constr)
-		attrmiss = slot->tts_tupleDescriptor->constr->missing;
-
+	AttrMissing *attrmiss = slot->tts_tupleDescriptor->extra->missing;
+	
 	if (!attrmiss)
 	{
 		/* no missing values array at all, so just fill everything in as NULL */
@@ -2116,6 +2113,7 @@ ExecTypeFromExprList(List *exprList)
 void
 ExecTypeSetColNames(TupleDesc typeInfo, List *namesList)
 {
+	TupleDescExtra *extra = typeInfo->extra;
 	int			colno = 0;
 	ListCell   *lc;
 
@@ -2126,23 +2124,23 @@ ExecTypeSetColNames(TupleDesc typeInfo, List *namesList)
 	foreach(lc, namesList)
 	{
 		char	   *cname = strVal(lfirst(lc));
-		Form_pg_attribute attr;
+		TupleDescAttrExtra *attEx;
 
 		/* Guard against too-long names list (probably can't happen) */
 		if (colno >= typeInfo->natts)
 			break;
-		attr = TupleDescAttr(typeInfo, colno);
+		attEx = TupleDescExtraAttr(extra, colno);
 		colno++;
 
 		/*
 		 * Do nothing for empty aliases or dropped columns (these cases
 		 * probably can't arise in RECORD types, either)
 		 */
-		if (cname[0] == '\0' || attr->attisdropped)
+		if (cname[0] == '\0' || attEx->attisdropped)
 			continue;
 
 		/* OK, assign the column name */
-		namestrcpy(&(attr->attname), cname);
+		namestrcpy(&(attEx->attname), cname);
 	}
 }
 
@@ -2172,6 +2170,7 @@ BlessTupleDesc(TupleDesc tupdesc)
 AttInMetadata *
 TupleDescGetAttInMetadata(TupleDesc tupdesc)
 {
+	TupleDescExtra *extra = tupdesc->extra;
 	int			natts = tupdesc->natts;
 	int			i;
 	Oid			atttypeid;
@@ -2195,15 +2194,15 @@ TupleDescGetAttInMetadata(TupleDesc tupdesc)
 
 	for (i = 0; i < natts; i++)
 	{
-		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
 
 		/* Ignore dropped attributes */
-		if (!att->attisdropped)
+		if (!attEx->attisdropped)
 		{
-			atttypeid = att->atttypid;
+			atttypeid = attEx->atttypid;
 			getTypeInputInfo(atttypeid, &attinfuncid, &attioparams[i]);
 			fmgr_info(attinfuncid, &attinfuncinfo[i]);
-			atttypmods[i] = att->atttypmod;
+			atttypmods[i] = attEx->atttypmod;
 		}
 	}
 	attinmeta->attinfuncs = attinfuncinfo;
@@ -2222,6 +2221,7 @@ HeapTuple
 BuildTupleFromCStrings(AttInMetadata *attinmeta, char **values)
 {
 	TupleDesc	tupdesc = attinmeta->tupdesc;
+	TupleDescExtra *extra = tupdesc->extra;
 	int			natts = tupdesc->natts;
 	Datum	   *dvalues;
 	bool	   *nulls;
@@ -2237,7 +2237,7 @@ BuildTupleFromCStrings(AttInMetadata *attinmeta, char **values)
 	 */
 	for (i = 0; i < natts; i++)
 	{
-		if (!TupleDescAttr(tupdesc, i)->attisdropped)
+		if (!TupleDescExtraAttr(extra, i)->attisdropped)
 		{
 			/* Non-dropped attributes */
 			dvalues[i] = InputFunctionCall(&attinmeta->attinfuncs[i],

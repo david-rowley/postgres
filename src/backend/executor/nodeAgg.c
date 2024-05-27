@@ -598,7 +598,7 @@ initialize_aggregate(AggState *aggstate, AggStatePerTrans pertrans,
 		 */
 		if (pertrans->numInputs == 1)
 		{
-			Form_pg_attribute attr = TupleDescAttr(pertrans->sortdesc, 0);
+			TupleDescAttrExtra *attr = TupleDescExtraAttr(pertrans->sortdesc->extra, 0);
 
 			pertrans->sortstates[aggstate->current_set] =
 				tuplesort_begin_datum(attr->atttypid,

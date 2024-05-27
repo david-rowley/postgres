@@ -638,7 +638,7 @@ InsertOneValue(char *value, int i)
 
 	elog(DEBUG4, "inserting column %d value \"%s\"", i, value);
 
-	typoid = TupleDescAttr(boot_reldesc->rd_att, i)->atttypid;
+	typoid = TupleDescAttr(boot_reldesc->rd_att->extra, i)->atttypid;
 
 	boot_get_type_io_data(typoid,
 						  &typlen, &typbyval, &typalign,
@@ -665,10 +665,10 @@ InsertOneNull(int i)
 {
 	elog(DEBUG4, "inserting column %d NULL", i);
 	Assert(i >= 0 && i < MAXATTR);
-	if (TupleDescAttr(boot_reldesc->rd_att, i)->attnotnull)
+	if (TupleDescAttr(boot_reldesc->rd_att->extra, i)->attnotnull)
 		elog(ERROR,
 			 "NULL value specified for not-null column \"%s\" of relation \"%s\"",
-			 NameStr(TupleDescAttr(boot_reldesc->rd_att, i)->attname),
+			 NameStr(TupleDescAttr(boot_reldesc->rd_att->extra, i)->attname),
 			 RelationGetRelationName(boot_reldesc));
 	values[i] = PointerGetDatum(NULL);
 	Nulls[i] = true;

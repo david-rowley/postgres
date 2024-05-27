@@ -1176,10 +1176,10 @@ SPI_fnumber(TupleDesc tupdesc, const char *fname)
 
 	for (res = 0; res < tupdesc->natts; res++)
 	{
-		Form_pg_attribute attr = TupleDescAttr(tupdesc, res);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupdesc->extra, res);
 
-		if (namestrcmp(&attr->attname, fname) == 0 &&
-			!attr->attisdropped)
+		if (namestrcmp(&attEx->attname, fname) == 0 &&
+			!attEx->attisdropped)
 			return res + 1;
 	}
 
@@ -1206,11 +1206,9 @@ SPI_fname(TupleDesc tupdesc, int fnumber)
 	}
 
 	if (fnumber > 0)
-		att = TupleDescAttr(tupdesc, fnumber - 1);
+		return pstrdup(NameStr(TupleDescExtraAttr(tupdesc->extra, fnumber - 1)->attname));
 	else
-		att = SystemAttributeDefinition(fnumber);
-
-	return pstrdup(NameStr(att->attname));
+		return pstrdup(NameStr(SystemAttributeDefinition(fnumber)->attname));
 }
 
 char *
@@ -1236,7 +1234,7 @@ SPI_getvalue(HeapTuple tuple, TupleDesc tupdesc, int fnumber)
 		return NULL;
 
 	if (fnumber > 0)
-		typoid = TupleDescAttr(tupdesc, fnumber - 1)->atttypid;
+		typoid = TupleDescExtraAttr(tupdesc->extra, fnumber - 1)->atttypid;
 	else
 		typoid = (SystemAttributeDefinition(fnumber))->atttypid;
 
@@ -1278,7 +1276,7 @@ SPI_gettype(TupleDesc tupdesc, int fnumber)
 	}
 
 	if (fnumber > 0)
-		typoid = TupleDescAttr(tupdesc, fnumber - 1)->atttypid;
+		typoid = TupleDescExtraAttr(tupdesc->extra, fnumber - 1)->atttypid;
 	else
 		typoid = (SystemAttributeDefinition(fnumber))->atttypid;
 
@@ -1314,7 +1312,7 @@ SPI_gettypeid(TupleDesc tupdesc, int fnumber)
 	}
 
 	if (fnumber > 0)
-		return TupleDescAttr(tupdesc, fnumber - 1)->atttypid;
+		return TupleDescExtraAttr(tupdesc->extra, fnumber - 1)->atttypid;
 	else
 		return (SystemAttributeDefinition(fnumber))->atttypid;
 }

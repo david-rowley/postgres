@@ -71,13 +71,15 @@ brin_minmax_add_value(PG_FUNCTION_ARGS)
 	FmgrInfo   *cmpFn;
 	Datum		compar;
 	bool		updated = false;
-	Form_pg_attribute attr;
+	TupleDescAttr *attr;
+	TupleDescAttrExtra *attrEx;
 	AttrNumber	attno;
 
 	Assert(!isnull);
 
 	attno = column->bv_attno;
 	attr = TupleDescAttr(bdesc->bd_tupdesc, attno - 1);
+	attrEx = TupleDescExtraAttr(bdesc->bd_tupdesc->extra, attno - 1);
 
 	/*
 	 * If the recorded value is null, store the new value (which we know to be
@@ -96,7 +98,7 @@ brin_minmax_add_value(PG_FUNCTION_ARGS)
 	 * and update them accordingly.  First check if it's less than the
 	 * existing minimum.
 	 */
-	cmpFn = minmax_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+	cmpFn = minmax_get_strategy_procinfo(bdesc, attno, attrEx->atttypid,
 										 BTLessStrategyNumber);
 	compar = FunctionCall2Coll(cmpFn, colloid, newval, column->bv_values[0]);
 	if (DatumGetBool(compar))
@@ -110,7 +112,7 @@ brin_minmax_add_value(PG_FUNCTION_ARGS)
 	/*
 	 * And now compare it to the existing maximum.
 	 */
-	cmpFn = minmax_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+	cmpFn = minmax_get_strategy_procinfo(bdesc, attno, attrEx->atttypid,
 										 BTGreaterStrategyNumber);
 	compar = FunctionCall2Coll(cmpFn, colloid, newval, column->bv_values[1]);
 	if (DatumGetBool(compar))
@@ -212,7 +214,8 @@ brin_minmax_union(PG_FUNCTION_ARGS)
 	BrinValues *col_b = (BrinValues *) PG_GETARG_POINTER(2);
 	Oid			colloid = PG_GET_COLLATION();
 	AttrNumber	attno;
-	Form_pg_attribute attr;
+	TupleDescAttr *attr;
+	TupleDescAttrExtra *attrEx;
 	FmgrInfo   *finfo;
 	bool		needsadj;
 
@@ -221,9 +224,10 @@ brin_minmax_union(PG_FUNCTION_ARGS)
 
 	attno = col_a->bv_attno;
 	attr = TupleDescAttr(bdesc->bd_tupdesc, attno - 1);
+	attrEx = TupleDescExtraAttr(bdesc->bd_tupdesc->extra, attno - 1);
 
 	/* Adjust minimum, if B's min is less than A's min */
-	finfo = minmax_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+	finfo = minmax_get_strategy_procinfo(bdesc, attno, attrEx->atttypid,
 										 BTLessStrategyNumber);
 	needsadj = FunctionCall2Coll(finfo, colloid, col_b->bv_values[0],
 								 col_a->bv_values[0]);
@@ -236,7 +240,7 @@ brin_minmax_union(PG_FUNCTION_ARGS)
 	}
 
 	/* Adjust maximum, if B's max is greater than A's max */
-	finfo = minmax_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+	finfo = minmax_get_strategy_procinfo(bdesc, attno, attrEx->atttypid,
 										 BTGreaterStrategyNumber);
 	needsadj = FunctionCall2Coll(finfo, colloid, col_b->bv_values[1],
 								 col_a->bv_values[1]);
@@ -284,21 +288,21 @@ minmax_get_strategy_procinfo(BrinDesc *bdesc, uint16 attno, Oid subtype,
 
 	if (opaque->strategy_procinfos[strategynum - 1].fn_oid == InvalidOid)
 	{
-		Form_pg_attribute attr;
+		TupleDescAttrExtra *attrEx;
 		HeapTuple	tuple;
 		Oid			opfamily,
 					oprid;
 
 		opfamily = bdesc->bd_index->rd_opfamily[attno - 1];
-		attr = TupleDescAttr(bdesc->bd_tupdesc, attno - 1);
+		attrEx = TupleDescAttr(bdesc->bd_tupdesc->extra, attno - 1);
 		tuple = SearchSysCache4(AMOPSTRATEGY, ObjectIdGetDatum(opfamily),
-								ObjectIdGetDatum(attr->atttypid),
+								ObjectIdGetDatum(attrEx->atttypid),
 								ObjectIdGetDatum(subtype),
 								Int16GetDatum(strategynum));
 
 		if (!HeapTupleIsValid(tuple))
 			elog(ERROR, "missing operator %d(%u,%u) in opfamily %u",
-				 strategynum, attr->atttypid, subtype, opfamily);
+				 strategynum, attrEx->atttypid, subtype, opfamily);
 
 		oprid = DatumGetObjectId(SysCacheGetAttrNotNull(AMOPSTRATEGY, tuple,
 														Anum_pg_amop_amopopr));

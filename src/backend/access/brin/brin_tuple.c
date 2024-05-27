@@ -223,8 +223,8 @@ brin_form_tuple(BrinDesc *brdesc, BlockNumber blkno, BrinMemTuple *tuple,
 			{
 				Datum		cvalue;
 				char		compression;
-				Form_pg_attribute att = TupleDescAttr(brdesc->bd_tupdesc,
-													  keyno);
+				TupleDescAttrExtra *attEx = TupleDescExtraAttr(brdesc->bd_tupdesc->extra,
+															   keyno);
 
 				/*
 				 * If the BRIN summary and indexed attribute use the same data
@@ -232,8 +232,8 @@ brin_form_tuple(BrinDesc *brdesc, BlockNumber blkno, BrinMemTuple *tuple,
 				 * same compression method. Otherwise we have to use the
 				 * default method.
 				 */
-				if (att->atttypid == atttype->type_id)
-					compression = att->attcompression;
+				if (attEx->atttypid == atttype->type_id)
+					compression = attEx->attcompression;
 				else
 					compression = InvalidCompressionMethod;
 
@@ -699,7 +699,7 @@ brin_deconstruct_tuple(BrinDesc *brdesc,
 			 datumno < brdesc->bd_info[attnum]->oi_nstored;
 			 datumno++)
 		{
-			Form_pg_attribute thisatt = TupleDescAttr(diskdsc, stored);
+			TupleDescAttr *thisatt = TupleDescAttr(diskdsc, stored);
 
 			if (thisatt->attlen == -1)
 			{

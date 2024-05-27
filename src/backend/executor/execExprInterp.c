@@ -1993,27 +1993,27 @@ CheckVarSlotCompatibility(TupleTableSlot *slot, int attnum, Oid vartype)
 	if (attnum > 0)
 	{
 		TupleDesc	slot_tupdesc = slot->tts_tupleDescriptor;
-		Form_pg_attribute attr;
+		TupleDescAttrExtra *attEx;
 
 		if (attnum > slot_tupdesc->natts)	/* should never happen */
 			elog(ERROR, "attribute number %d exceeds number of columns %d",
 				 attnum, slot_tupdesc->natts);
 
-		attr = TupleDescAttr(slot_tupdesc, attnum - 1);
+		attEx = TupleDescExtraAttr(slot_tupdesc->extra, attnum - 1);
 
-		if (attr->attisdropped)
+		if (attEx->attisdropped)
 			ereport(ERROR,
 					(errcode(ERRCODE_UNDEFINED_COLUMN),
 					 errmsg("attribute %d of type %s has been dropped",
 							attnum, format_type_be(slot_tupdesc->tdtypeid))));
 
-		if (vartype != attr->atttypid)
+		if (vartype != attEx->atttypid)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("attribute %d of type %s has wrong type",
 							attnum, format_type_be(slot_tupdesc->tdtypeid)),
 					 errdetail("Table has type %s, but query expects %s.",
-							   format_type_be(attr->atttypid),
+							   format_type_be(attEx->atttypid),
 							   format_type_be(vartype))));
 	}
 }
@@ -2753,6 +2753,7 @@ ExecEvalRowNullInt(ExprState *state, ExprEvalStep *op,
 	Oid			tupType;
 	int32		tupTypmod;
 	TupleDesc	tupDesc;
+	TupleDescExtra *extra;
 	HeapTupleData tmptup;
 
 	*op->resnull = false;
@@ -2788,6 +2789,7 @@ ExecEvalRowNullInt(ExprState *state, ExprEvalStep *op,
 	/* Lookup tupdesc if first time through or if type changes */
 	tupDesc = get_cached_rowtype(tupType, tupTypmod,
 								 &op->d.nulltest_row.rowcache, NULL);
+	extra = tupDesc->extra;
 
 	/*
 	 * heap_attisnull needs a HeapTuple not a bare HeapTupleHeader.
@@ -2798,7 +2800,7 @@ ExecEvalRowNullInt(ExprState *state, ExprEvalStep *op,
 	for (int att = 1; att <= tupDesc->natts; att++)
 	{
 		/* ignore dropped columns */
-		if (TupleDescAttr(tupDesc, att - 1)->attisdropped)
+		if (TupleDescExtraAttr(extra, att - 1)->attisdropped)
 			continue;
 		if (heap_attisnull(&tmptup, att, tupDesc))
 		{
@@ -3166,7 +3168,7 @@ ExecEvalFieldSelect(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 	Oid			tupType;
 	int32		tupTypmod;
 	TupleDesc	tupDesc;
-	Form_pg_attribute attr;
+	TupleDescAttrExtra *attEx;
 	HeapTupleData tmptup;
 
 	/* NULL record -> NULL result */
@@ -3196,10 +3198,10 @@ ExecEvalFieldSelect(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 		if (fieldnum > tupDesc->natts)	/* should never happen */
 			elog(ERROR, "attribute number %d exceeds number of columns %d",
 				 fieldnum, tupDesc->natts);
-		attr = TupleDescAttr(tupDesc, fieldnum - 1);
+		attEx = TupleDescExtraAttr(tupDesc->extra, fieldnum - 1);
 
 		/* Check for dropped column, and force a NULL result if so */
-		if (attr->attisdropped)
+		if (attEx->attisdropped)
 		{
 			*op->resnull = true;
 			return;
@@ -3207,12 +3209,12 @@ ExecEvalFieldSelect(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 
 		/* Check for type mismatch --- possible after ALTER COLUMN TYPE? */
 		/* As in CheckVarSlotCompatibility, we should but can't check typmod */
-		if (op->d.fieldselect.resulttype != attr->atttypid)
+		if (op->d.fieldselect.resulttype != attEx->atttypid)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("attribute %d has wrong type", fieldnum),
 					 errdetail("Table has type %s, but query expects %s.",
-							   format_type_be(attr->atttypid),
+							   format_type_be(attEx->atttypid),
 							   format_type_be(op->d.fieldselect.resulttype))));
 
 		/* extract the field */
@@ -3242,10 +3244,10 @@ ExecEvalFieldSelect(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 		if (fieldnum > tupDesc->natts)	/* should never happen */
 			elog(ERROR, "attribute number %d exceeds number of columns %d",
 				 fieldnum, tupDesc->natts);
-		attr = TupleDescAttr(tupDesc, fieldnum - 1);
+		attEx = TupleDescExtraAttr(tupDesc->extra, fieldnum - 1);
 
 		/* Check for dropped column, and force a NULL result if so */
-		if (attr->attisdropped)
+		if (attEx->attisdropped)
 		{
 			*op->resnull = true;
 			return;
@@ -3253,12 +3255,12 @@ ExecEvalFieldSelect(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 
 		/* Check for type mismatch --- possible after ALTER COLUMN TYPE? */
 		/* As in CheckVarSlotCompatibility, we should but can't check typmod */
-		if (op->d.fieldselect.resulttype != attr->atttypid)
+		if (op->d.fieldselect.resulttype != attEx->atttypid)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("attribute %d has wrong type", fieldnum),
 					 errdetail("Table has type %s, but query expects %s.",
-							   format_type_be(attr->atttypid),
+							   format_type_be(attEx->atttypid),
 							   format_type_be(op->d.fieldselect.resulttype))));
 
 		/* heap_getattr needs a HeapTuple not a bare HeapTupleHeader */
@@ -4747,19 +4749,21 @@ ExecEvalWholeRowVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 
 			for (int i = 0; i < var_tupdesc->natts; i++)
 			{
-				Form_pg_attribute vattr = TupleDescAttr(var_tupdesc, i);
-				Form_pg_attribute sattr = TupleDescAttr(slot_tupdesc, i);
+				TupleDescAttr *vattr = TupleDescAttr(var_tupdesc, i);
+				TupleDescAttr *sattr = TupleDescAttr(slot_tupdesc, i);
+				TupleDescAttrExtra *vattrEx = TupleDescExtraAttr(var_tupdesc->extra, i);
+				TupleDescAttrExtra *sattrEx = TupleDescExtraAttr(slot_tupdesc->extra, i);
 
-				if (vattr->atttypid == sattr->atttypid)
+				if (vattrEx->atttypid == sattrEx->atttypid)
 					continue;	/* no worries */
-				if (!vattr->attisdropped)
+				if (!vattrEx->attisdropped)
 					ereport(ERROR,
 							(errcode(ERRCODE_DATATYPE_MISMATCH),
 							 errmsg("table row type and query-specified row type do not match"),
 							 errdetail("Table has type %s at ordinal position %d, but query expects %s.",
-									   format_type_be(sattr->atttypid),
+									   format_type_be(sattrEx->atttypid),
 									   i + 1,
-									   format_type_be(vattr->atttypid))));
+									   format_type_be(vattrEx->atttypid))));
 
 				if (vattr->attlen != sattr->attlen ||
 					vattr->attalign != sattr->attalign)
@@ -4843,10 +4847,12 @@ ExecEvalWholeRowVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 
 		for (int i = 0; i < var_tupdesc->natts; i++)
 		{
-			Form_pg_attribute vattr = TupleDescAttr(var_tupdesc, i);
-			Form_pg_attribute sattr = TupleDescAttr(tupleDesc, i);
+			TupleDescAttrExtra *vattrEx = TupleDescExtraAttr(var_tupdesc->extra, i);
+			TupleDescAttrExtra *sattrEx = TupleDescExtraAttr(tupleDesc->extra, i);
+			TupleDescAttr *vattr = TupleDescAttr(var_tupdesc, i);
+			TupleDescAttr *sattr = TupleDescAttr(tupleDesc, i);
 
-			if (!vattr->attisdropped)
+			if (!vattrEx->attisdropped)
 				continue;		/* already checked non-dropped cols */
 			if (slot->tts_isnull[i])
 				continue;		/* null is always okay */

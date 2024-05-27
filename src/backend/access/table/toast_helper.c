@@ -41,6 +41,7 @@ void
 toast_tuple_init(ToastTupleContext *ttc)
 {
 	TupleDesc	tupleDesc = ttc->ttc_rel->rd_att;
+	TupleDescExtra *extra = tupleDesc->extra;
 	int			numAttrs = tupleDesc->natts;
 	int			i;
 
@@ -48,13 +49,14 @@ toast_tuple_init(ToastTupleContext *ttc)
 
 	for (i = 0; i < numAttrs; i++)
 	{
-		Form_pg_attribute att = TupleDescAttr(tupleDesc, i);
+		TupleDescAttr *att = TupleDescAttr(tupleDesc, i);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
 		struct varlena *old_value;
 		struct varlena *new_value;
 
 		ttc->ttc_attr[i].tai_colflags = 0;
 		ttc->ttc_attr[i].tai_oldexternal = NULL;
-		ttc->ttc_attr[i].tai_compression = att->attcompression;
+		ttc->ttc_attr[i].tai_compression = attEx->attcompression;
 
 		if (ttc->ttc_oldvalues != NULL)
 		{
@@ -123,7 +125,7 @@ toast_tuple_init(ToastTupleContext *ttc)
 			/*
 			 * If the table's attribute says PLAIN always, force it so.
 			 */
-			if (att->attstorage == TYPSTORAGE_PLAIN)
+			if (attEx->attstorage == TYPSTORAGE_PLAIN)
 				ttc->ttc_attr[i].tai_colflags |= TOASTCOL_IGNORE;
 
 			/*
@@ -137,7 +139,7 @@ toast_tuple_init(ToastTupleContext *ttc)
 			if (VARATT_IS_EXTERNAL(new_value))
 			{
 				ttc->ttc_attr[i].tai_oldexternal = new_value;
-				if (att->attstorage == TYPSTORAGE_PLAIN)
+				if (attEx->attstorage == TYPSTORAGE_PLAIN)
 					new_value = detoast_attr(new_value);
 				else
 					new_value = detoast_external_attr(new_value);
@@ -182,6 +184,7 @@ toast_tuple_find_biggest_attribute(ToastTupleContext *ttc,
 								   bool for_compression, bool check_main)
 {
 	TupleDesc	tupleDesc = ttc->ttc_rel->rd_att;
+	TupleDescExtra *extra = tupleDesc->extra;
 	int			numAttrs = tupleDesc->natts;
 	int			biggest_attno = -1;
 	int32		biggest_size = MAXALIGN(TOAST_POINTER_SIZE);
@@ -193,7 +196,7 @@ toast_tuple_find_biggest_attribute(ToastTupleContext *ttc,
 
 	for (i = 0; i < numAttrs; i++)
 	{
-		Form_pg_attribute att = TupleDescAttr(tupleDesc, i);
+		TupleDescAttrExtra *att = TupleDescExtraAttr(extra, i);
 
 		if ((ttc->ttc_attr[i].tai_colflags & skip_colflags) != 0)
 			continue;

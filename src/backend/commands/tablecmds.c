@@ -907,10 +907,10 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 	foreach(listptr, stmt->tableElts)
 	{
 		ColumnDef  *colDef = lfirst(listptr);
-		Form_pg_attribute attr;
+		TupleDescAttrExtra *attEx;
 
 		attnum++;
-		attr = TupleDescAttr(descriptor, attnum - 1);
+		attEx = TupleDescExtraAttr(descriptor->extra, attnum - 1);
 
 		if (colDef->raw_default != NULL)
 		{
@@ -924,7 +924,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 			rawEnt->missingMode = false;
 			rawEnt->generated = colDef->generated;
 			rawDefaults = lappend(rawDefaults, rawEnt);
-			attr->atthasdef = true;
+			attEx->atthasdef = true;
 		}
 		else if (colDef->cooked_default != NULL)
 		{
@@ -941,7 +941,7 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 			cooked->inhcount = 0;	/* ditto */
 			cooked->is_no_inherit = false;
 			cookedDefaults = lappend(cookedDefaults, cooked);
-			attr->atthasdef = true;
+			attEx->atthasdef = true;
 		}
 	}
 
@@ -1301,7 +1301,7 @@ BuildDescForRelation(const List *columns)
 	{
 		ColumnDef  *entry = lfirst(l);
 		AclResult	aclresult;
-		Form_pg_attribute att;
+		TupleDescAttrExtra *attEx;
 
 		/*
 		 * for each entry in the list, get the name and type information from
@@ -1332,41 +1332,34 @@ BuildDescForRelation(const List *columns)
 
 		TupleDescInitEntry(desc, attnum, attname,
 						   atttypid, atttypmod, attdim);
-		att = TupleDescAttr(desc, attnum - 1);
+		attEx = TupleDescExtraAttr(desc->extra, attnum - 1);
 
 		/* Override TupleDescInitEntry's settings as requested */
 		TupleDescInitEntryCollation(desc, attnum, attcollation);
 
 		/* Fill in additional stuff not handled by TupleDescInitEntry */
-		att->attnotnull = entry->is_not_null;
+		attEx->attnotnull = entry->is_not_null;
 		has_not_null |= entry->is_not_null;
-		att->attislocal = entry->is_local;
-		att->attinhcount = entry->inhcount;
-		att->attidentity = entry->identity;
-		att->attgenerated = entry->generated;
-		att->attcompression = GetAttributeCompression(att->atttypid, entry->compression);
+		attEx->attislocal = entry->is_local;
+		attEx->attinhcount = entry->inhcount;
+		attEx->attidentity = entry->identity;
+		attEx->attgenerated = entry->generated;
+		attEx->attcompression = GetAttributeCompression(attEx->atttypid, entry->compression);
 		if (entry->storage)
-			att->attstorage = entry->storage;
+			attEx->attstorage = entry->storage;
 		else if (entry->storage_name)
-			att->attstorage = GetAttributeStorage(att->atttypid, entry->storage_name);
+			attEx->attstorage = GetAttributeStorage(attEx->atttypid, entry->storage_name);
 	}
 
 	if (has_not_null)
 	{
-		TupleConstr *constr = (TupleConstr *) palloc0(sizeof(TupleConstr));
-
-		constr->has_not_null = true;
-		constr->has_generated_stored = false;
-		constr->defval = NULL;
-		constr->missing = NULL;
-		constr->num_defval = 0;
-		constr->check = NULL;
-		constr->num_check = 0;
-		desc->constr = constr;
-	}
-	else
-	{
-		desc->constr = NULL;
+		desc->extra->has_not_null = true;
+		desc->extra->has_generated_stored = false;
+		desc->extra->defval = NULL;
+		desc->extra->missing = NULL;
+		desc->extra->num_defval = 0;
+		desc->extra->check = NULL;
+		desc->extra->num_check = 0;
 	}
 
 	return desc;
@@ -2565,7 +2558,7 @@ MergeAttributes(List *columns, const List *supers, char relpersistence,
 		Oid			parent = lfirst_oid(lc);
 		Relation	relation;
 		TupleDesc	tupleDesc;
-		TupleConstr *constr;
+		TupleDescExtra *extra;
 		AttrMap    *newattmap;
 		List	   *inherited_defaults;
 		List	   *cols_with_defaults;
@@ -2646,7 +2639,7 @@ MergeAttributes(List *columns, const List *supers, char relpersistence,
 						   RelationGetRelationName(relation));
 
 		tupleDesc = RelationGetDescr(relation);
-		constr = tupleDesc->constr;
+		extra = tupleDesc->extra;
 
 		/*
 		 * newattmap->attnums[] will contain the child-table attribute numbers
@@ -2661,8 +2654,8 @@ MergeAttributes(List *columns, const List *supers, char relpersistence,
 		for (AttrNumber parent_attno = 1; parent_attno <= tupleDesc->natts;
 			 parent_attno++)
 		{
-			Form_pg_attribute attribute = TupleDescAttr(tupleDesc,
-														parent_attno - 1);
+			TupleDescAttrExtra *attribute = TupleDescExtraAttr(extra,
+															   parent_attno - 1);
 			char	   *attributeName = NameStr(attribute->attname);
 			int			exist_attno;
 			ColumnDef  *newdef;
@@ -2801,11 +2794,11 @@ MergeAttributes(List *columns, const List *supers, char relpersistence,
 		 * using the completed newattmap map.  Identically named constraints
 		 * are merged if possible, else we throw error.
 		 */
-		if (constr && constr->num_check > 0)
+		if (extra->num_check > 0)
 		{
-			ConstrCheck *check = constr->check;
+			ConstrCheck *check = extra->check;
 
-			for (int i = 0; i < constr->num_check; i++)
+			for (int i = 0; i < extra->num_check; i++)
 			{
 				char	   *name = check[i].ccname;
 				Node	   *expr;
@@ -6054,9 +6047,9 @@ ATRewriteTable(AlteredTableInfo *tab, Oid OIDNewHeap, LOCKMODE lockmode)
 		 */
 		for (i = 0; i < newTupDesc->natts; i++)
 		{
-			Form_pg_attribute attr = TupleDescAttr(newTupDesc, i);
+			TupleDescAttrExtra *attEx = TupleDescExtraAttr(newTupDesc->extra, i);
 
-			if (attr->attnotnull && !attr->attisdropped)
+			if (attEx->attnotnull && !attEx->attisdropped)
 				notnull_attrs = lappend_int(notnull_attrs, i);
 		}
 		if (notnull_attrs)
@@ -6135,7 +6128,7 @@ ATRewriteTable(AlteredTableInfo *tab, Oid OIDNewHeap, LOCKMODE lockmode)
 		 */
 		for (i = 0; i < newTupDesc->natts; i++)
 		{
-			if (TupleDescAttr(newTupDesc, i)->attisdropped)
+			if (TupleDescExtraAttr(newTupDesc->extra, i)->attisdropped)
 				dropped_attrs = lappend_int(dropped_attrs, i);
 		}
 
@@ -6244,12 +6237,12 @@ ATRewriteTable(AlteredTableInfo *tab, Oid OIDNewHeap, LOCKMODE lockmode)
 
 				if (slot_attisnull(insertslot, attn + 1))
 				{
-					Form_pg_attribute attr = TupleDescAttr(newTupDesc, attn);
+					TupleDescAttrExtra *attEx = TupleDescExtraAttr(newTupDesc->extra, attn);
 
 					ereport(ERROR,
 							(errcode(ERRCODE_NOT_NULL_VIOLATION),
 							 errmsg("column \"%s\" of relation \"%s\" contains null values",
-									NameStr(attr->attname),
+									NameStr(attEx->attname),
 									RelationGetRelationName(oldrel)),
 							 errtablecol(oldrel, attn + 1)));
 				}
@@ -6743,7 +6736,7 @@ find_composite_type_dependencies(Oid typeOid, Relation origRelation,
 		Form_pg_depend pg_depend = (Form_pg_depend) GETSTRUCT(depTup);
 		Relation	rel;
 		TupleDesc	tupleDesc;
-		Form_pg_attribute att;
+		TupleDescAttrExtra *attEx;
 
 		/* Check for directly dependent types */
 		if (pg_depend->classid == TypeRelationId)
@@ -6780,18 +6773,18 @@ find_composite_type_dependencies(Oid typeOid, Relation origRelation,
 		 * column, but the previous recursion should catch such cases.)
 		 */
 		if (pg_depend->objsubid > 0 && pg_depend->objsubid <= tupleDesc->natts)
-			att = TupleDescAttr(tupleDesc, pg_depend->objsubid - 1);
+			attEx = TupleDescExtraAttr(tupleDesc->extra, pg_depend->objsubid - 1);
 		else
 		{
-			att = NULL;
+			attEx = NULL;
 			for (int attno = 1; attno <= tupleDesc->natts; attno++)
 			{
-				att = TupleDescAttr(tupleDesc, attno - 1);
-				if (att->atttypid == typeOid && !att->attisdropped)
+				attEx = TupleDescExtraAttr(tupleDesc->extra, attno - 1);
+				if (attEx->atttypid == typeOid && !attEx->attisdropped)
 					break;
-				att = NULL;
+				attEx = NULL;
 			}
-			if (att == NULL)
+			if (attEx == NULL)
 			{
 				/* No such column, so assume OK */
 				relation_close(rel, AccessShareLock);
@@ -6817,28 +6810,28 @@ find_composite_type_dependencies(Oid typeOid, Relation origRelation,
 						 errmsg("cannot alter type \"%s\" because column \"%s.%s\" uses it",
 								origTypeName,
 								RelationGetRelationName(rel),
-								NameStr(att->attname))));
+								NameStr(attEx->attname))));
 			else if (origRelation->rd_rel->relkind == RELKIND_COMPOSITE_TYPE)
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("cannot alter type \"%s\" because column \"%s.%s\" uses it",
 								RelationGetRelationName(origRelation),
 								RelationGetRelationName(rel),
-								NameStr(att->attname))));
+								NameStr(attEx->attname))));
 			else if (origRelation->rd_rel->relkind == RELKIND_FOREIGN_TABLE)
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("cannot alter foreign table \"%s\" because column \"%s.%s\" uses its row type",
 								RelationGetRelationName(origRelation),
 								RelationGetRelationName(rel),
-								NameStr(att->attname))));
+								NameStr(attEx->attname))));
 			else
 				ereport(ERROR,
 						(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
 						 errmsg("cannot alter table \"%s\" because column \"%s.%s\" uses its row type",
 								RelationGetRelationName(origRelation),
 								RelationGetRelationName(rel),
-								NameStr(att->attname))));
+								NameStr(attEx->attname))));
 		}
 		else if (OidIsValid(rel->rd_rel->reltype))
 		{
@@ -6994,7 +6987,7 @@ ATExecAddColumn(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	Relation	pgclass,
 				attrdesc;
 	HeapTuple	reltup;
-	Form_pg_attribute attribute;
+	TupleDescAttrExtra *attribute;
 	int			newattnum;
 	char		relkind;
 	Expr	   *defval;
@@ -7142,7 +7135,7 @@ ATExecAddColumn(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	 */
 	tupdesc = BuildDescForRelation(list_make1(colDef));
 
-	attribute = TupleDescAttr(tupdesc, 0);
+	attribute = TupleDescExtraAttr(tupdesc->extra, 0);
 
 	/* Fix up attribute number */
 	attribute->attnum = newattnum;
@@ -7302,7 +7295,7 @@ ATExecAddColumn(List **wqueue, AlteredTableInfo *tab, Relation rel,
 		if (DomainHasConstraints(attribute->atttypid))
 			tab->rewrite |= AT_REWRITE_DEFAULT_VAL;
 
-		if (!TupleDescAttr(rel->rd_att, attribute->attnum - 1)->atthasmissing)
+		if (!TupleDescExtraAttr(rel->rd_att->extra, attribute->attnum - 1)->atthasmissing)
 		{
 			/*
 			 * If the new column is NOT NULL, and there is no missing value,
@@ -7593,7 +7586,7 @@ ATExecDropNotNull(Relation rel, const char *colName, LOCKMODE lockmode)
 		AttrNumber	parent_attnum;
 
 		parent_attnum = get_attnum(parentId, colName);
-		if (TupleDescAttr(tupDesc, parent_attnum - 1)->attnotnull)
+		if (TupleDescExtraAttr(tupDesc->extra, parent_attnum - 1)->attnotnull)
 			ereport(ERROR,
 					(errcode(ERRCODE_INVALID_TABLE_DEFINITION),
 					 errmsg("column \"%s\" is marked NOT NULL in parent table",
@@ -7870,7 +7863,7 @@ ATExecColumnDefault(Relation rel, const char *colName,
 				 errmsg("cannot alter system column \"%s\"",
 						colName)));
 
-	if (TupleDescAttr(tupdesc, attnum - 1)->attidentity)
+	if (TupleDescExtraAttr(tupdesc->extra, attnum - 1)->attidentity)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("column \"%s\" of relation \"%s\" is an identity column",
@@ -7879,7 +7872,7 @@ ATExecColumnDefault(Relation rel, const char *colName,
 				 newDefault ? 0 : errhint("Use %s instead.",
 										  "ALTER TABLE ... ALTER COLUMN ... DROP IDENTITY")));
 
-	if (TupleDescAttr(tupdesc, attnum - 1)->attgenerated)
+	if (TupleDescExtraAttr(tupdesc->extra, attnum - 1)->attgenerated)
 		ereport(ERROR,
 				(errcode(ERRCODE_SYNTAX_ERROR),
 				 errmsg("column \"%s\" of relation \"%s\" is a generated column",
@@ -7887,7 +7880,7 @@ ATExecColumnDefault(Relation rel, const char *colName,
 				 newDefault ?
 		/* translator: %s is an SQL ALTER command */
 				 errhint("Use %s instead.", "ALTER TABLE ... ALTER COLUMN ... SET EXPRESSION") :
-				 (TupleDescAttr(tupdesc, attnum - 1)->attgenerated == ATTRIBUTE_GENERATED_STORED ?
+				 (TupleDescExtraAttr(tupdesc->extra, attnum - 1)->attgenerated == ATTRIBUTE_GENERATED_STORED ?
 				  errhint("Use %s instead.", "ALTER TABLE ... ALTER COLUMN ... DROP EXPRESSION") : 0)));
 
 	/*
@@ -9694,7 +9687,7 @@ ATAddForeignKeyConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 	 */
 	for (i = 0; i < numfks; i++)
 	{
-		char		attgenerated = TupleDescAttr(RelationGetDescr(rel), fkattnum[i] - 1)->attgenerated;
+		char		attgenerated = TupleDescExtraAttr(RelationGetDescr(rel)->extra, fkattnum[i] - 1)->attgenerated;
 
 		if (attgenerated)
 		{
@@ -9864,15 +9857,15 @@ ATAddForeignKeyConstraint(List **wqueue, AlteredTableInfo *tab, Relation rel,
 			CoercionPathType new_pathtype;
 			Oid			old_castfunc;
 			Oid			new_castfunc;
-			Form_pg_attribute attr = TupleDescAttr(tab->oldDesc,
-												   fkattnum[i] - 1);
+			TupleDescAttrExtra *attEx = TupleDescExtraAttr(tab->oldDesc->extra,
+														   fkattnum[i] - 1);
 
 			/*
 			 * Identify coercion pathways from each of the old and new FK-side
 			 * column types to the right (foreign) operand type of the pfeqop.
 			 * We may assume that pg_constraint.conkey is not changing.
 			 */
-			old_fktype = attr->atttypid;
+			old_fktype = attEx->atttypid;
 			new_fktype = fktype;
 			old_pathtype = findFkeyCast(pfeqop_right, old_fktype,
 										&old_castfunc);
@@ -10646,12 +10639,12 @@ CloneFkReferenced(Relation parentRel, Relation partitionRel)
 		/* set up colnames that are used to generate the constraint name */
 		for (int i = 0; i < numfks; i++)
 		{
-			Form_pg_attribute att;
+			TupleDescAttrExtra *attEx;
 
-			att = TupleDescAttr(RelationGetDescr(fkRel),
+			attEx = TupleDescAttr(RelationGetDescr(fkRel)->extra,
 								conkey[i] - 1);
 			fkconstraint->fk_attrs = lappend(fkconstraint->fk_attrs,
-											 makeString(NameStr(att->attname)));
+											 makeString(NameStr(attEx->attname)));
 		}
 
 		/*
@@ -10878,12 +10871,12 @@ CloneFkReferencing(List **wqueue, Relation parentRel, Relation partRel)
 		fkconstraint->initially_valid = true;
 		for (int i = 0; i < numfks; i++)
 		{
-			Form_pg_attribute att;
+			TupleDescAttrExtra *attEx;
 
-			att = TupleDescAttr(RelationGetDescr(partRel),
+			attEx = TupleDescAttr(RelationGetDescr(partRel)->extra,
 								mapped_conkey[i] - 1);
 			fkconstraint->fk_attrs = lappend(fkconstraint->fk_attrs,
-											 makeString(NameStr(att->attname)));
+											 makeString(NameStr(attEx->attname)));
 		}
 		if (ConstraintNameIsUsed(CONSTRAINT_RELATION,
 								 RelationGetRelid(partRel),
@@ -12976,8 +12969,8 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 	ColumnDef  *def = (ColumnDef *) cmd->def;
 	TypeName   *typeName = def->typeName;
 	HeapTuple	heapTup;
-	Form_pg_attribute attTup,
-				attOldTup;
+	Form_pg_attribute attTup;
+	TupleDescAttrExtra *attOldTup;
 	AttrNumber	attnum;
 	HeapTuple	typeTuple;
 	Form_pg_type tform;
@@ -13018,7 +13011,7 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 						colName, RelationGetRelationName(rel))));
 	attTup = (Form_pg_attribute) GETSTRUCT(heapTup);
 	attnum = attTup->attnum;
-	attOldTup = TupleDescAttr(tab->oldDesc, attnum - 1);
+	attOldTup = TupleDescExtraAttr(tab->oldDesc->extra, attnum - 1);
 
 	/* Check for multiple ALTER TYPE on same column --- can't cope */
 	if (attTup->atttypid != attOldTup->atttypid ||
@@ -15705,7 +15698,7 @@ MergeAttributesIntoExisting(Relation child_rel, Relation parent_rel, bool ispart
 
 	for (AttrNumber parent_attno = 1; parent_attno <= parent_desc->natts; parent_attno++)
 	{
-		Form_pg_attribute parent_att = TupleDescAttr(parent_desc, parent_attno - 1);
+		TupleDescAttrExtra *parent_att = TupleDescExtraAttr(parent_desc->extra, parent_attno - 1);
 		char	   *parent_attname = NameStr(parent_att->attname);
 		HeapTuple	tuple;
 
@@ -16333,13 +16326,13 @@ ATExecAddOf(Relation rel, const TypeName *ofTypename, LOCKMODE lockmode)
 	table_attno = 1;
 	for (type_attno = 1; type_attno <= typeTupleDesc->natts; type_attno++)
 	{
-		Form_pg_attribute type_attr,
-					table_attr;
+		TupleDescAttrExtra *type_attr,
+						   *table_attr;
 		const char *type_attname,
 				   *table_attname;
 
 		/* Get the next non-dropped type attribute. */
-		type_attr = TupleDescAttr(typeTupleDesc, type_attno - 1);
+		type_attr = TupleDescExtraAttr(typeTupleDesc->extra, type_attno - 1);
 		if (type_attr->attisdropped)
 			continue;
 		type_attname = NameStr(type_attr->attname);
@@ -16352,7 +16345,7 @@ ATExecAddOf(Relation rel, const TypeName *ofTypename, LOCKMODE lockmode)
 						(errcode(ERRCODE_DATATYPE_MISMATCH),
 						 errmsg("table is missing column \"%s\"",
 								type_attname)));
-			table_attr = TupleDescAttr(tableTupleDesc, table_attno - 1);
+			table_attr = TupleDescExtraAttr(tableTupleDesc->extra, table_attno - 1);
 			table_attno++;
 		} while (table_attr->attisdropped);
 		table_attname = NameStr(table_attr->attname);
@@ -16378,8 +16371,8 @@ ATExecAddOf(Relation rel, const TypeName *ofTypename, LOCKMODE lockmode)
 	/* Any remaining columns at the end of the table had better be dropped. */
 	for (; table_attno <= tableTupleDesc->natts; table_attno++)
 	{
-		Form_pg_attribute table_attr = TupleDescAttr(tableTupleDesc,
-													 table_attno - 1);
+		TupleDescAttrExtra *table_attr = TupleDescExtraAttr(tableTupleDesc->extra,
+															table_attno - 1);
 
 		if (!table_attr->attisdropped)
 			ereport(ERROR,
@@ -16635,7 +16628,7 @@ ATExecReplicaIdentity(Relation rel, ReplicaIdentityStmt *stmt, LOCKMODE lockmode
 	for (key = 0; key < IndexRelationGetNumberOfKeyAttributes(indexRel); key++)
 	{
 		int16		attno = indexRel->rd_index->indkey.values[key];
-		Form_pg_attribute attr;
+		TupleDescAttrExtra *attEx;
 
 		/*
 		 * Reject any other system columns.  (Going forward, we'll disallow
@@ -16648,13 +16641,13 @@ ATExecReplicaIdentity(Relation rel, ReplicaIdentityStmt *stmt, LOCKMODE lockmode
 					 errmsg("index \"%s\" cannot be used as replica identity because column %d is a system column",
 							RelationGetRelationName(indexRel), attno)));
 
-		attr = TupleDescAttr(rel->rd_att, attno - 1);
-		if (!attr->attnotnull)
+		attEx = TupleDescExtraAttr(rel->rd_att->extra, attno - 1);
+		if (!attEx->attnotnull)
 			ereport(ERROR,
 					(errcode(ERRCODE_WRONG_OBJECT_TYPE),
 					 errmsg("index \"%s\" cannot be used as replica identity because column \"%s\" is nullable",
 							RelationGetRelationName(indexRel),
-							NameStr(attr->attname))));
+							NameStr(attEx->attname))));
 	}
 
 	/* This index is suitable for use as a replica identity. Mark it. */
@@ -17970,7 +17963,7 @@ ComputePartitionAttrs(ParseState *pstate, Relation rel, List *partParams, AttrNu
 					AttrNumber	attno = i + FirstLowInvalidHeapAttributeNumber;
 
 					if (attno > 0 &&
-						TupleDescAttr(RelationGetDescr(rel), attno - 1)->attgenerated)
+						TupleDescExtraAttr(RelationGetDescr(rel)->extra, attno - 1)->attgenerated)
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_OBJECT_DEFINITION),
 								 errmsg("cannot use generated column in partition key"),
@@ -18100,26 +18093,26 @@ PartConstraintImpliedByRelConstraint(Relation scanrel,
 									 List *partConstraint)
 {
 	List	   *existConstraint = NIL;
-	TupleConstr *constr = RelationGetDescr(scanrel)->constr;
+	TupleDescExtra *extra = RelationGetDescr(scanrel)->extra;
 	int			i;
 
-	if (constr && constr->has_not_null)
+	if (extra->has_not_null)
 	{
 		int			natts = scanrel->rd_att->natts;
 
 		for (i = 1; i <= natts; i++)
 		{
-			Form_pg_attribute att = TupleDescAttr(scanrel->rd_att, i - 1);
+			TupleDescAttrExtra *attEx = TupleDescExtraAttr(scanrel->rd_att->extra, i - 1);
 
-			if (att->attnotnull && !att->attisdropped)
+			if (attEx->attnotnull && !attEx->attisdropped)
 			{
 				NullTest   *ntest = makeNode(NullTest);
 
 				ntest->arg = (Expr *) makeVar(1,
 											  i,
-											  att->atttypid,
-											  att->atttypmod,
-											  att->attcollation,
+											  attEx->atttypid,
+											  attEx->atttypmod,
+											  attEx->attcollation,
 											  0);
 				ntest->nulltesttype = IS_NOT_NULL;
 
@@ -18152,11 +18145,11 @@ bool
 ConstraintImpliedByRelConstraint(Relation scanrel, List *testConstraint, List *provenConstraint)
 {
 	List	   *existConstraint = list_copy(provenConstraint);
-	TupleConstr *constr = RelationGetDescr(scanrel)->constr;
+	TupleDescExtra *extra = RelationGetDescr(scanrel)->extra;
 	int			num_check,
 				i;
 
-	num_check = (constr != NULL) ? constr->num_check : 0;
+	num_check = extra->num_check;
 	for (i = 0; i < num_check; i++)
 	{
 		Node	   *cexpr;
@@ -18165,10 +18158,10 @@ ConstraintImpliedByRelConstraint(Relation scanrel, List *testConstraint, List *p
 		 * If this constraint hasn't been fully validated yet, we must ignore
 		 * it here.
 		 */
-		if (!constr->check[i].ccvalid)
+		if (!extra->check[i].ccvalid)
 			continue;
 
-		cexpr = stringToNode(constr->check[i].ccbin);
+		cexpr = stringToNode(extra->check[i].ccbin);
 
 		/*
 		 * Run each expression through const-simplification and
@@ -18459,7 +18452,7 @@ ATExecAttachPartition(List **wqueue, Relation rel, PartitionCmd *cmd,
 	natts = tupleDesc->natts;
 	for (attno = 1; attno <= natts; attno++)
 	{
-		Form_pg_attribute attribute = TupleDescAttr(tupleDesc, attno - 1);
+		TupleDescAttrExtra *attribute = TupleDescExtraAttr(tupleDesc->extra, attno - 1);
 		char	   *attributeName = NameStr(attribute->attname);
 
 		/* Ignore dropped */
@@ -18869,10 +18862,10 @@ CloneRowTriggersToPartition(Relation parent, Relation partition)
 
 			for (i = 0; i < trigForm->tgattr.dim1; i++)
 			{
-				Form_pg_attribute col;
+				TupleDescAttrExtra *col;
 
-				col = TupleDescAttr(parent->rd_att,
-									trigForm->tgattr.values[i] - 1);
+				col = TupleDescExtraAttr(parent->rd_att->extra,
+										 trigForm->tgattr.values[i] - 1);
 				cols = lappend(cols,
 							   makeString(pstrdup(NameStr(col->attname))));
 			}
@@ -19303,10 +19296,10 @@ DetachPartitionFinalize(Relation rel, Relation partRel, bool concurrent,
 	 */
 	for (int attno = 0; attno < RelationGetNumberOfAttributes(partRel); attno++)
 	{
-		Form_pg_attribute attr = TupleDescAttr(partRel->rd_att, attno);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(partRel->rd_att->extra, attno);
 
-		if (!attr->attisdropped && attr->attidentity)
-			ATExecDropIdentity(partRel, NameStr(attr->attname), false,
+		if (!attEx->attisdropped && attEx->attidentity)
+			ATExecDropIdentity(partRel, NameStr(attEx->attname), false,
 							   AccessExclusiveLock, true, true);
 	}
 

@@ -955,19 +955,21 @@ tupledesc_match(TupleDesc dst_tupdesc, TupleDesc src_tupdesc)
 
 	for (i = 0; i < dst_tupdesc->natts; i++)
 	{
-		Form_pg_attribute dattr = TupleDescAttr(dst_tupdesc, i);
-		Form_pg_attribute sattr = TupleDescAttr(src_tupdesc, i);
+		TupleDescAttr *dattr = TupleDescAttr(dst_tupdesc, i);
+		TupleDescAttr *sattr = TupleDescAttr(src_tupdesc, i);
+		TupleDescAttrExtra *dattrEx = TupleDescExtraAttr(dst_tupdesc->extra, i);
+		TupleDescAttrExtra *sattrEx = TupleDescExtraAttr(src_tupdesc->extra, i);
 
-		if (IsBinaryCoercible(sattr->atttypid, dattr->atttypid))
+		if (IsBinaryCoercible(sattrEx->atttypid, dattrEx->atttypid))
 			continue;			/* no worries */
-		if (!dattr->attisdropped)
+		if (!dattrEx->attisdropped)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("function return row and query-specified return row do not match"),
 					 errdetail("Returned type %s at ordinal position %d, but query expects %s.",
-							   format_type_be(sattr->atttypid),
+							   format_type_be(sattrEx->atttypid),
 							   i + 1,
-							   format_type_be(dattr->atttypid))));
+							   format_type_be(dattrEx->atttypid))));
 
 		if (dattr->attlen != sattr->attlen ||
 			dattr->attalign != sattr->attalign)

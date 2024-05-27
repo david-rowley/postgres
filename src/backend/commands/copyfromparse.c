@@ -790,7 +790,7 @@ NextCopyFromRawFields(CopyFromState cstate, char ***fields, int *nfields)
 			{
 				int			attnum = lfirst_int(cur);
 				char	   *colName;
-				Form_pg_attribute attr = TupleDescAttr(tupDesc, attnum - 1);
+				TupleDescAttrExtra *attrEx = TupleDescExtraAttr(tupDesc->extra, attnum - 1);
 
 				Assert(fldnum < cstate->max_fields);
 
@@ -799,14 +799,14 @@ NextCopyFromRawFields(CopyFromState cstate, char ***fields, int *nfields)
 					ereport(ERROR,
 							(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 							 errmsg("column name mismatch in header line field %d: got null value (\"%s\"), expected \"%s\"",
-									fldnum, cstate->opts.null_print, NameStr(attr->attname))));
+									fldnum, cstate->opts.null_print, NameStr(attrEx->attname))));
 
-				if (namestrcmp(&attr->attname, colName) != 0)
+				if (namestrcmp(&attrEx->attname, colName) != 0)
 				{
 					ereport(ERROR,
 							(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 							 errmsg("column name mismatch in header line field %d: got \"%s\", expected \"%s\"",
-									fldnum, colName, NameStr(attr->attname))));
+									fldnum, colName, NameStr(attrEx->attname))));
 				}
 			}
 		}
@@ -898,13 +898,13 @@ NextCopyFrom(CopyFromState cstate, ExprContext *econtext,
 		{
 			int			attnum = lfirst_int(cur);
 			int			m = attnum - 1;
-			Form_pg_attribute att = TupleDescAttr(tupDesc, m);
+			TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupDesc->extra, m);
 
 			if (fieldno >= fldct)
 				ereport(ERROR,
 						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 						 errmsg("missing data for column \"%s\"",
-								NameStr(att->attname))));
+								NameStr(attEx->attname))));
 			string = field_strings[fieldno++];
 
 			if (cstate->convert_select_flags &&
@@ -938,7 +938,7 @@ NextCopyFrom(CopyFromState cstate, ExprContext *econtext,
 				}
 			}
 
-			cstate->cur_attname = NameStr(att->attname);
+			cstate->cur_attname = NameStr(attEx->attname);
 			cstate->cur_attval = string;
 
 			if (string != NULL)
@@ -963,7 +963,7 @@ NextCopyFrom(CopyFromState cstate, ExprContext *econtext,
 			else if (!InputFunctionCallSafe(&in_functions[m],
 											string,
 											typioparams[m],
-											att->atttypmod,
+											attEx->atttypmod,
 											(Node *) cstate->escontext,
 											&values[m]))
 			{
@@ -1055,13 +1055,13 @@ NextCopyFrom(CopyFromState cstate, ExprContext *econtext,
 		{
 			int			attnum = lfirst_int(cur);
 			int			m = attnum - 1;
-			Form_pg_attribute att = TupleDescAttr(tupDesc, m);
+			TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupDesc->extra, m);
 
-			cstate->cur_attname = NameStr(att->attname);
+			cstate->cur_attname = NameStr(attEx->attname);
 			values[m] = CopyReadBinaryAttribute(cstate,
 												&in_functions[m],
 												typioparams[m],
-												att->atttypmod,
+												attEx->atttypmod,
 												&nulls[m]);
 			cstate->cur_attname = NULL;
 		}
@@ -1739,13 +1739,13 @@ CopyReadAttributesText(CopyFromState cstate)
 			else
 			{
 				TupleDesc	tupDesc = RelationGetDescr(cstate->rel);
-				Form_pg_attribute att = TupleDescAttr(tupDesc, m);
+				TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupDesc->extra, m);
 
 				ereport(ERROR,
 						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 						 errmsg("unexpected default marker in COPY data"),
 						 errdetail("Column \"%s\" has no default value.",
-								   NameStr(att->attname))));
+								   NameStr(attEx->attname))));
 			}
 		}
 		else
@@ -1954,13 +1954,13 @@ endfield:
 			else
 			{
 				TupleDesc	tupDesc = RelationGetDescr(cstate->rel);
-				Form_pg_attribute att = TupleDescAttr(tupDesc, m);
+				TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupDesc->extra, m);
 
 				ereport(ERROR,
 						(errcode(ERRCODE_BAD_COPY_FILE_FORMAT),
 						 errmsg("unexpected default marker in COPY data"),
 						 errdetail("Column \"%s\" has no default value.",
-								   NameStr(att->attname))));
+								   NameStr(attEx->attname))));
 			}
 		}
 

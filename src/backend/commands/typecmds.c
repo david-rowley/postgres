@@ -3164,10 +3164,12 @@ validateDomainNotNullConstraint(Oid domainoid)
 			for (i = 0; i < rtc->natts; i++)
 			{
 				int			attnum = rtc->atts[i];
-				Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum - 1);
 
 				if (slot_attisnull(slot, attnum))
 				{
+					TupleDescAttrExtra *attEx = TupleDescAttr(tupdesc->extra,
+															  attnum - 1);
+
 					/*
 					 * In principle the auxiliary information for this error
 					 * should be errdatatype(), but errtablecol() seems
@@ -3178,7 +3180,7 @@ validateDomainNotNullConstraint(Oid domainoid)
 					ereport(ERROR,
 							(errcode(ERRCODE_NOT_NULL_VIOLATION),
 							 errmsg("column \"%s\" of table \"%s\" contains null values",
-									NameStr(attr->attname),
+									NameStr(attEx->attname),
 									RelationGetRelationName(testrel)),
 							 errtablecol(testrel, attnum)));
 				}
@@ -3243,7 +3245,6 @@ validateDomainCheckConstraint(Oid domainoid, const char *ccbin)
 				Datum		d;
 				bool		isNull;
 				Datum		conResult;
-				Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum - 1);
 
 				d = slot_getattr(slot, attnum, &isNull);
 
@@ -3256,6 +3257,9 @@ validateDomainCheckConstraint(Oid domainoid, const char *ccbin)
 
 				if (!isNull && !DatumGetBool(conResult))
 				{
+					TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupdesc->extra,
+																   attnum - 1);
+
 					/*
 					 * In principle the auxiliary information for this error
 					 * should be errdomainconstraint(), but errtablecol()
@@ -3267,7 +3271,7 @@ validateDomainCheckConstraint(Oid domainoid, const char *ccbin)
 					ereport(ERROR,
 							(errcode(ERRCODE_CHECK_VIOLATION),
 							 errmsg("column \"%s\" of table \"%s\" contains values that violate the new constraint",
-									NameStr(attr->attname),
+									NameStr(attEx->attname),
 									RelationGetRelationName(testrel)),
 							 errtablecol(testrel, attnum)));
 				}
@@ -3355,7 +3359,7 @@ get_rels_with_domain(Oid domainOid, LOCKMODE lockmode)
 		Form_pg_depend pg_depend = (Form_pg_depend) GETSTRUCT(depTup);
 		RelToCheck *rtc = NULL;
 		ListCell   *rellist;
-		Form_pg_attribute pg_att;
+		TupleDescAttrExtra *pg_att;
 		int			ptr;
 
 		/* Check for directly dependent types */
@@ -3453,7 +3457,7 @@ get_rels_with_domain(Oid domainOid, LOCKMODE lockmode)
 		 */
 		if (pg_depend->objsubid > RelationGetNumberOfAttributes(rtc->rel))
 			continue;
-		pg_att = TupleDescAttr(rtc->rel->rd_att, pg_depend->objsubid - 1);
+		pg_att = TupleDescExtraAttr(rtc->rel->rd_att->extra, pg_depend->objsubid - 1);
 		if (pg_att->attisdropped || pg_att->atttypid != domainOid)
 			continue;
 

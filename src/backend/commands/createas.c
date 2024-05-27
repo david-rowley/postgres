@@ -454,6 +454,7 @@ static void
 intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 {
 	DR_intorel *myState = (DR_intorel *) self;
+	TupleDescExtra *extra = typeinfo->extra;
 	IntoClause *into = myState->into;
 	bool		is_matview;
 	List	   *attrList;
@@ -477,7 +478,7 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	lc = list_head(into->colNames);
 	for (attnum = 0; attnum < typeinfo->natts; attnum++)
 	{
-		Form_pg_attribute attribute = TupleDescAttr(typeinfo, attnum);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, attnum);
 		ColumnDef  *col;
 		char	   *colname;
 
@@ -487,12 +488,12 @@ intorel_startup(DestReceiver *self, int operation, TupleDesc typeinfo)
 			lc = lnext(into->colNames, lc);
 		}
 		else
-			colname = NameStr(attribute->attname);
+			colname = NameStr(attEx->attname);
 
 		col = makeColumnDef(colname,
-							attribute->atttypid,
-							attribute->atttypmod,
-							attribute->attcollation);
+							attEx->atttypid,
+							attEx->atttypmod,
+							attEx->attcollation);
 
 		/*
 		 * It's possible that the column is of a collatable type but the

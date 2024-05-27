@@ -96,6 +96,7 @@ HeapTuple
 heap_toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 							int options)
 {
+	TupleDescExtra *extra;
 	HeapTuple	result_tuple;
 	TupleDesc	tupleDesc;
 	int			numAttrs;
@@ -129,6 +130,7 @@ heap_toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 	 * Get the tuple descriptor and break down the tuple(s) into fields.
 	 */
 	tupleDesc = rel->rd_att;
+	extra = tupleDesc->extra;
 	numAttrs = tupleDesc->natts;
 
 	Assert(numAttrs <= MaxHeapAttributeNumber);
@@ -193,7 +195,7 @@ heap_toast_insert_or_update(Relation rel, HeapTuple newtup, HeapTuple oldtup,
 		/*
 		 * Attempt to compress it inline, if it has attstorage EXTENDED
 		 */
-		if (TupleDescAttr(tupleDesc, biggest_attno)->attstorage == TYPSTORAGE_EXTENDED)
+		if (TupleDescExtraAttr(extra, biggest_attno)->attstorage == TYPSTORAGE_EXTENDED)
 			toast_tuple_try_compression(&ttc, biggest_attno);
 		else
 		{

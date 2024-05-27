@@ -88,7 +88,8 @@ CreateTemplateTupleDesc(int natts)
 	 * Initialize other fields of the tupdesc.
 	 */
 	desc->natts = natts;
-	desc->constr = NULL;
+	desc->extra = (TupleDescExtra *) palloc(offsetof(struct TupleDescExtra, attrs) +
+											natts + sizeof(TupleDescAttrExtra));
 	desc->tdtypeid = RECORDOID;
 	desc->tdtypmod = -1;
 	desc->tdrefcount = -1;		/* assume not reference-counted */
@@ -108,25 +109,45 @@ TupleDesc
 CreateTupleDesc(int natts, Form_pg_attribute *attrs)
 {
 	TupleDesc	desc;
+	TupleDescExtra *extra;
 	int			i;
 
 	desc = CreateTemplateTupleDesc(natts);
 
 	for (i = 0; i < natts; ++i)
 	{
-		TupleDescAttr *desc_attr = TupleDescAttr(desc, i);
+		TupleDescAttr *attr = TupleDescAttr(desc, i);
 
-		desc_attr->atttypid = attrs[i]->atttypid;
-		desc_attr->attcollation = attrs[i]->attcollation;
-		desc_attr->atttypmod = attrs[i]->atttypmod;
-		desc_attr->attlen = attrs[i]->attlen;
-		desc_attr->attnum = attrs[i]->attnum;
-		desc_attr->attnotnull = attrs[i]->attnotnull;
-		desc_attr->attbyval = attrs[i]->attbyval;
-		desc_attr->attalign = attrs[i]->attalign;
-		desc_attr->attisdropped = attrs[i]->attisdropped;
-		desc_attr->atthasmissing = attrs[i]->atthasmissing;
-		desc_attr->attcacheoff = attrs[i]->attcacheoff;
+		attr->attcacheoff = attrs[i]->attcacheoff;
+		attr->attlen = attrs[i]->attlen;
+		attr->attbyval = attrs[i]->attbyval;
+		attr->attalign = attrs[i]->attalign;
+	}
+
+	extra = desc->extra;
+
+	for (i = 0; i < natts; ++i)
+	{
+		TupleDescAttrExtra *attr = TupleDescExtraAttr(extra, i);
+
+		attr->attrelid = attrs[i]->attrelid;
+		memcpy(NameStr(attr->attname), NameStr(attrs[i]->attname), NAMEDATALEN);
+		attr->atttypid = attrs[i]->atttypid;
+		attr->attnum = attrs[i]->attnum;
+		attr->atttypmod = attrs[i]->atttypmod;
+		attr->attndims = attrs[i]->attndims;
+		attr->attstorage = attrs[i]->attstorage;
+		attr->attcompression = attrs[i]->attcompression;
+		attr->attcollation = attrs[i]->attcollation;
+		attr->attnotnull = attrs[i]->attnotnull;
+		attr->atthasdef = attrs[i]->atthasdef;
+		attr->atthasmissing = attrs[i]->atthasmissing;
+		attr->attidentity = attrs[i]->attidentity;
+		attr->attgenerated = attrs[i]->attgenerated;
+		attr->attisdropped = attrs[i]->attisdropped;
+		attr->attislocal = attrs[i]->attislocal;
+		attr->attinhcount = attrs[i]->attinhcount;
+		attr->attcollation = attrs[i]->attcollation;
 	}
 
 	return desc;
@@ -152,6 +173,11 @@ CreateTupleDescCopy(TupleDesc tupdesc)
 		   TupleDescAttr(tupdesc, 0),
 		   desc->natts * sizeof(TupleDescAttr));
 
+	/* Flat-copy the TupleDescAttrExtra fields */
+	memcpy(TupleDescExtraAttr(desc->extra, 0),
+		   TupleDescExtraAttr(tupdesc->extra, 0),
+		   desc->natts * sizeof(TupleDescAttrExtra));
+
 	/* We can copy the tuple type identification, too */
 	desc->tdtypeid = tupdesc->tdtypeid;
 	desc->tdtypmod = tupdesc->tdtypmod;
@@ -168,63 +194,64 @@ TupleDesc
 CreateTupleDescCopyConstr(TupleDesc tupdesc)
 {
 	TupleDesc	desc;
-	TupleConstr *constr = tupdesc->constr;
+	TupleDescExtra *srcextra = tupdesc->extra;
+	TupleDescExtra *dstextra;
 	int			i;
 
 	desc = CreateTemplateTupleDesc(tupdesc->natts);
+	dstextra = desc->extra;
 
 	/* Flat-copy the attribute array */
 	memcpy(TupleDescAttr(desc, 0),
 		   TupleDescAttr(tupdesc, 0),
 		   desc->natts * sizeof(TupleDescAttr));
 
-	/* Copy the TupleConstr data structure, if any */
-	if (constr)
+	/* Flat-copy the TupleDescAttrExtra fields */
+	memcpy(TupleDescExtraAttr(dstextra, 0),
+		   TupleDescExtraAttr(srcextra, 0),
+		   desc->natts * sizeof(TupleDescAttrExtra));
+
+	/* Copy the TupleDescExtra data structure */
+
+	dstextra->has_not_null = srcextra->has_not_null;
+	dstextra->has_generated_stored = srcextra->has_generated_stored;
+
+	if ((dstextra->num_defval = srcextra->num_defval) > 0)
 	{
-		TupleConstr *cpy = (TupleConstr *) palloc0(sizeof(TupleConstr));
+		dstextra->defval = (AttrDefault *) palloc(dstextra->num_defval * sizeof(AttrDefault));
+		memcpy(dstextra->defval, srcextra->defval, dstextra->num_defval * sizeof(AttrDefault));
+		for (i = dstextra->num_defval - 1; i >= 0; i--)
+			dstextra->defval[i].adbin = pstrdup(srcextra->defval[i].adbin);
+	}
 
-		cpy->has_not_null = constr->has_not_null;
-		cpy->has_generated_stored = constr->has_generated_stored;
-
-		if ((cpy->num_defval = constr->num_defval) > 0)
+	if (srcextra->missing)
+	{
+		dstextra->missing = (AttrMissing *) palloc(tupdesc->natts * sizeof(AttrMissing));
+		memcpy(dstextra->missing, srcextra->missing, tupdesc->natts * sizeof(AttrMissing));
+		for (i = tupdesc->natts - 1; i >= 0; i--)
 		{
-			cpy->defval = (AttrDefault *) palloc(cpy->num_defval * sizeof(AttrDefault));
-			memcpy(cpy->defval, constr->defval, cpy->num_defval * sizeof(AttrDefault));
-			for (i = cpy->num_defval - 1; i >= 0; i--)
-				cpy->defval[i].adbin = pstrdup(constr->defval[i].adbin);
-		}
-
-		if (constr->missing)
-		{
-			cpy->missing = (AttrMissing *) palloc(tupdesc->natts * sizeof(AttrMissing));
-			memcpy(cpy->missing, constr->missing, tupdesc->natts * sizeof(AttrMissing));
-			for (i = tupdesc->natts - 1; i >= 0; i--)
+			if (srcextra->missing[i].am_present)
 			{
-				if (constr->missing[i].am_present)
-				{
-					Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+				TupleDescAttr *attr = TupleDescAttr(tupdesc, i);
 
-					cpy->missing[i].am_value = datumCopy(constr->missing[i].am_value,
-														 attr->attbyval,
-														 attr->attlen);
-				}
+				dstextra->missing[i].am_value = datumCopy(srcextra->missing[i].am_value,
+														attr->attbyval,
+														attr->attlen);
 			}
 		}
+	}
 
-		if ((cpy->num_check = constr->num_check) > 0)
+	if ((dstextra->num_check = srcextra->num_check) > 0)
+	{
+		dstextra->check = (ConstrCheck *) palloc(dstextra->num_check * sizeof(ConstrCheck));
+		memcpy(dstextra->check, srcextra->check, dstextra->num_check * sizeof(ConstrCheck));
+		for (i = dstextra->num_check - 1; i >= 0; i--)
 		{
-			cpy->check = (ConstrCheck *) palloc(cpy->num_check * sizeof(ConstrCheck));
-			memcpy(cpy->check, constr->check, cpy->num_check * sizeof(ConstrCheck));
-			for (i = cpy->num_check - 1; i >= 0; i--)
-			{
-				cpy->check[i].ccname = pstrdup(constr->check[i].ccname);
-				cpy->check[i].ccbin = pstrdup(constr->check[i].ccbin);
-				cpy->check[i].ccvalid = constr->check[i].ccvalid;
-				cpy->check[i].ccnoinherit = constr->check[i].ccnoinherit;
-			}
+			dstextra->check[i].ccname = pstrdup(srcextra->check[i].ccname);
+			dstextra->check[i].ccbin = pstrdup(srcextra->check[i].ccbin);
+			dstextra->check[i].ccvalid = srcextra->check[i].ccvalid;
+			dstextra->check[i].ccnoinherit = srcextra->check[i].ccnoinherit;
 		}
-
-		desc->constr = cpy;
 	}
 
 	/* We can copy the tuple type identification, too */
@@ -250,7 +277,10 @@ TupleDescCopy(TupleDesc dst, TupleDesc src)
 	/* Flat-copy the header and attribute array */
 	memcpy(dst, src, TupleDescSize(src));
 
-	dst->constr = NULL;
+	/* Flat-copy the TupleDescAttrExtra fields */
+	memcpy(TupleDescExtraAttr(dst->extra, 0),
+		   TupleDescExtraAttr(src->extra, 0),
+		   dst->natts * sizeof(TupleDescAttrExtra));
 
 	/*
 	 * Also, assume the destination is not to be ref-counted.  (Copying the
@@ -272,6 +302,9 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 {
 	TupleDescAttr *dstAtt = TupleDescAttr(dst, dstAttno - 1);
 	TupleDescAttr *srcAtt = TupleDescAttr(src, srcAttno - 1);
+	TupleDescAttrExtra *dstAttEx = TupleDescExtraAttr(dst->extra, dstAttno - 1);
+	TupleDescAttrExtra *srcAttEx = TupleDescExtraAttr(src->extra, srcAttno - 1);
+
 
 	/*
 	 * sanity checks
@@ -284,6 +317,7 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 	Assert(dstAttno <= dst->natts);
 
 	memcpy(dstAtt, srcAtt, sizeof(TupleDescAttr));
+	memcpy(dstAttEx, srcAttEx, sizeof(TupleDescAttrExtra));
 
 	/*
 	 * Aside from updating the attno, we'd better reset attcacheoff.
@@ -294,11 +328,11 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 	 * by other uses of this function or TupleDescInitEntry.  So we cheat a
 	 * bit to avoid a useless O(N^2) penalty.
 	 */
-	dstAtt->attnum = dstAttno;
+	dstAttEx->attnum = dstAttno;
 	dstAtt->attcacheoff = -1;
 
 	/* since we're not copying constraints or defaults, clear these */
-	dstAtt->attnotnull = false;
+	dstAttEx->attnotnull = false;
 }
 
 /*
@@ -315,42 +349,39 @@ FreeTupleDesc(TupleDesc tupdesc)
 	 */
 	Assert(tupdesc->tdrefcount <= 0);
 
-	if (tupdesc->constr)
+	if (tupdesc->extra->num_defval > 0)
 	{
-		if (tupdesc->constr->num_defval > 0)
-		{
-			AttrDefault *attrdef = tupdesc->constr->defval;
+		AttrDefault *attrdef = tupdesc->extra->defval;
 
-			for (i = tupdesc->constr->num_defval - 1; i >= 0; i--)
-				pfree(attrdef[i].adbin);
-			pfree(attrdef);
-		}
-		if (tupdesc->constr->missing)
-		{
-			AttrMissing *attrmiss = tupdesc->constr->missing;
+		for (i = tupdesc->extra->num_defval - 1; i >= 0; i--)
+			pfree(attrdef[i].adbin);
+		pfree(attrdef);
+	}
+	if (tupdesc->extra->missing)
+	{
+		AttrMissing *attrmiss = tupdesc->extra->missing;
 
-			for (i = tupdesc->natts - 1; i >= 0; i--)
-			{
-				if (attrmiss[i].am_present
-					&& !TupleDescAttr(tupdesc, i)->attbyval)
-					pfree(DatumGetPointer(attrmiss[i].am_value));
-			}
-			pfree(attrmiss);
-		}
-		if (tupdesc->constr->num_check > 0)
+		for (i = tupdesc->natts - 1; i >= 0; i--)
 		{
-			ConstrCheck *check = tupdesc->constr->check;
-
-			for (i = tupdesc->constr->num_check - 1; i >= 0; i--)
-			{
-				pfree(check[i].ccname);
-				pfree(check[i].ccbin);
-			}
-			pfree(check);
+			if (attrmiss[i].am_present
+				&& !TupleDescAttr(tupdesc, i)->attbyval)
+				pfree(DatumGetPointer(attrmiss[i].am_value));
 		}
-		pfree(tupdesc->constr);
+		pfree(attrmiss);
+	}
+	if (tupdesc->extra->num_check > 0)
+	{
+		ConstrCheck *check = tupdesc->extra->check;
+
+		for (i = tupdesc->extra->num_check - 1; i >= 0; i--)
+		{
+			pfree(check[i].ccname);
+			pfree(check[i].ccbin);
+		}
+		pfree(check);
 	}
 
+	pfree(tupdesc->extra);
 	pfree(tupdesc);
 }
 
@@ -395,6 +426,8 @@ DecrTupleDescRefCount(TupleDesc tupdesc)
 bool
 equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 {
+	TupleDescExtra *extra1;
+	TupleDescExtra *extra2;
 	int			i,
 				n;
 
@@ -405,10 +438,16 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 
 	/* tdtypmod and tdrefcount are not checked */
 
+	extra1 = tupdesc1->extra;
+	extra2 = tupdesc2->extra;
+
 	for (i = 0; i < tupdesc1->natts; i++)
 	{
 		TupleDescAttr *attr1 = TupleDescAttr(tupdesc1, i);
 		TupleDescAttr *attr2 = TupleDescAttr(tupdesc2, i);
+		TupleDescAttrExtra *attr1ex = TupleDescExtraAttr(extra1, i);
+		TupleDescAttrExtra *attr2ex = TupleDescExtraAttr(extra2, i);
+
 
 		/*
 		 * We do not need to check every single field here: we can disregard
@@ -423,114 +462,104 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 		 * copies.  We also intentionally ignore atthasmissing, since that's
 		 * not very relevant in tupdescs, which lack the attmissingval field.
 		 */
-		//if (strcmp(NameStr(attr1->attname), NameStr(attr2->attname)) != 0)
-		//	return false;
-		if (attr1->atttypid != attr2->atttypid)
+		if (strcmp(NameStr(attr1ex->attname), NameStr(attr2ex->attname)) != 0)
+			return false;
+		if (attr1ex->atttypid != attr2ex->atttypid)
 			return false;
 		if (attr1->attlen != attr2->attlen)
 			return false;
-		//if (attr1->attndims != attr2->attndims)
-		//	return false;
-		if (attr1->atttypmod != attr2->atttypmod)
+		if (attr1ex->attndims != attr2ex->attndims)
+			return false;
+		if (attr1ex->atttypmod != attr2ex->atttypmod)
 			return false;
 		if (attr1->attbyval != attr2->attbyval)
 			return false;
 		if (attr1->attalign != attr2->attalign)
 			return false;
-		//if (attr1->attstorage != attr2->attstorage)
-		//	return false;
-		//if (attr1->attcompression != attr2->attcompression)
-		//	return false;
-		if (attr1->attnotnull != attr2->attnotnull)
+		if (attr1ex->attstorage != attr2ex->attstorage)
 			return false;
-		//if (attr1->atthasdef != attr2->atthasdef)
-		//	return false;
-		//if (attr1->attidentity != attr2->attidentity)
-		//	return false;
-		//if (attr1->attgenerated != attr2->attgenerated)
-		//	return false;
-		if (attr1->attisdropped != attr2->attisdropped)
+		if (attr1ex->attcompression != attr2ex->attcompression)
 			return false;
-		//if (attr1->attislocal != attr2->attislocal)
-		//	return false;
-		//if (attr1->attinhcount != attr2->attinhcount)
-		//	return false;
-		if (attr1->attcollation != attr2->attcollation)
+		if (attr1ex->attnotnull != attr2ex->attnotnull)
 			return false;
-		/* variable-length fields are not even present... */
+		if (attr1ex->atthasdef != attr2ex->atthasdef)
+			return false;
+		if (attr1ex->attidentity != attr2ex->attidentity)
+			return false;
+		if (attr1ex->attgenerated != attr2ex->attgenerated)
+			return false;
+		if (attr1ex->attisdropped != attr2ex->attisdropped)
+			return false;
+		if (attr1ex->attislocal != attr2ex->attislocal)
+			return false;
+		if (attr1ex->attinhcount != attr2ex->attinhcount)
+			return false;
+		if (attr1ex->attcollation != attr2ex->attcollation)
+			return false;
 	}
 
-	if (tupdesc1->constr != NULL)
+	if (extra1->has_not_null != extra2->has_not_null)
+		return false;
+	if (extra1->has_generated_stored != extra2->has_generated_stored)
+		return false;
+	n = extra1->num_defval;
+	if (n != (int) extra2->num_defval)
+		return false;
+	/* We assume here that both AttrDefault arrays are in adnum order */
+	for (i = 0; i < n; i++)
 	{
-		TupleConstr *constr1 = tupdesc1->constr;
-		TupleConstr *constr2 = tupdesc2->constr;
+		AttrDefault *defval1 = extra1->defval + i;
+		AttrDefault *defval2 = extra2->defval + i;
 
-		if (constr2 == NULL)
+		if (defval1->adnum != defval2->adnum)
 			return false;
-		if (constr1->has_not_null != constr2->has_not_null)
+		if (strcmp(defval1->adbin, defval2->adbin) != 0)
 			return false;
-		if (constr1->has_generated_stored != constr2->has_generated_stored)
+	}
+	if (extra1->missing)
+	{
+		if (!extra2->missing)
 			return false;
-		n = constr1->num_defval;
-		if (n != (int) constr2->num_defval)
-			return false;
-		/* We assume here that both AttrDefault arrays are in adnum order */
-		for (i = 0; i < n; i++)
+		for (i = 0; i < tupdesc1->natts; i++)
 		{
-			AttrDefault *defval1 = constr1->defval + i;
-			AttrDefault *defval2 = constr2->defval + i;
+			AttrMissing *missval1 = extra1->missing + i;
+			AttrMissing *missval2 = extra2->missing + i;
 
-			if (defval1->adnum != defval2->adnum)
+			if (missval1->am_present != missval2->am_present)
 				return false;
-			if (strcmp(defval1->adbin, defval2->adbin) != 0)
-				return false;
-		}
-		if (constr1->missing)
-		{
-			if (!constr2->missing)
-				return false;
-			for (i = 0; i < tupdesc1->natts; i++)
+			if (missval1->am_present)
 			{
-				AttrMissing *missval1 = constr1->missing + i;
-				AttrMissing *missval2 = constr2->missing + i;
+				TupleDescAttr *missatt1 = TupleDescAttr(tupdesc1, i);
 
-				if (missval1->am_present != missval2->am_present)
+				if (!datumIsEqual(missval1->am_value, missval2->am_value,
+									missatt1->attbyval, missatt1->attlen))
 					return false;
-				if (missval1->am_present)
-				{
-					Form_pg_attribute missatt1 = TupleDescAttr(tupdesc1, i);
-
-					if (!datumIsEqual(missval1->am_value, missval2->am_value,
-									  missatt1->attbyval, missatt1->attlen))
-						return false;
-				}
 			}
 		}
-		else if (constr2->missing)
-			return false;
-		n = constr1->num_check;
-		if (n != (int) constr2->num_check)
-			return false;
-
-		/*
-		 * Similarly, we rely here on the ConstrCheck entries being sorted by
-		 * name.  If there are duplicate names, the outcome of the comparison
-		 * is uncertain, but that should not happen.
-		 */
-		for (i = 0; i < n; i++)
-		{
-			ConstrCheck *check1 = constr1->check + i;
-			ConstrCheck *check2 = constr2->check + i;
-
-			if (!(strcmp(check1->ccname, check2->ccname) == 0 &&
-				  strcmp(check1->ccbin, check2->ccbin) == 0 &&
-				  check1->ccvalid == check2->ccvalid &&
-				  check1->ccnoinherit == check2->ccnoinherit))
-				return false;
-		}
 	}
-	else if (tupdesc2->constr != NULL)
+	else if (extra2->missing)
 		return false;
+	n = extra1->num_check;
+	if (n != (int) extra2->num_check)
+		return false;
+
+	/*
+		* Similarly, we rely here on the ConstrCheck entries being sorted by
+		* name.  If there are duplicate names, the outcome of the comparison
+		* is uncertain, but that should not happen.
+		*/
+	for (i = 0; i < n; i++)
+	{
+		ConstrCheck *check1 = extra1->check + i;
+		ConstrCheck *check2 = extra2->check + i;
+
+		if (!(strcmp(check1->ccname, check2->ccname) == 0 &&
+				strcmp(check1->ccbin, check2->ccbin) == 0 &&
+				check1->ccvalid == check2->ccvalid &&
+				check1->ccnoinherit == check2->ccnoinherit))
+			return false;
+	}
+
 	return true;
 }
 
@@ -562,27 +591,35 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 bool
 equalRowTypes(TupleDesc tupdesc1, TupleDesc tupdesc2)
 {
+	TupleDescExtra *extra1;
+	TupleDescExtra *extra2;
+
 	if (tupdesc1->natts != tupdesc2->natts)
 		return false;
 	if (tupdesc1->tdtypeid != tupdesc2->tdtypeid)
 		return false;
 
+	extra1 = tupdesc1->extra;
+	extra2 = tupdesc2->extra;
+
 	for (int i = 0; i < tupdesc1->natts; i++)
 	{
 		TupleDescAttr *attr1 = TupleDescAttr(tupdesc1, i);
 		TupleDescAttr *attr2 = TupleDescAttr(tupdesc2, i);
+		TupleDescAttrExtra *attr1ex = TupleDescExtraAttr(extra1, i);
+		TupleDescAttrExtra *attr2ex = TupleDescExtraAttr(extra2, i);
 
-		//if (strcmp(NameStr(attr1->attname), NameStr(attr2->attname)) != 0)
-		//	return false;
-		if (attr1->atttypid != attr2->atttypid)
+		if (strcmp(NameStr(attr1ex->attname), NameStr(attr2ex->attname)) != 0)
 			return false;
-		if (attr1->atttypmod != attr2->atttypmod)
+		if (attr1ex->atttypid != attr2ex->atttypid)
 			return false;
-		if (attr1->attcollation != attr2->attcollation)
+		if (attr1ex->atttypmod != attr2ex->atttypmod)
+			return false;
+		if (attr1ex->attcollation != attr2ex->attcollation)
 			return false;
 
 		/* Record types derived from tables could have dropped fields. */
-		if (attr1->attisdropped != attr2->attisdropped)
+		if (attr1ex->attisdropped != attr2ex->attisdropped)
 			return false;
 	}
 
@@ -598,13 +635,14 @@ equalRowTypes(TupleDesc tupdesc1, TupleDesc tupdesc2)
 uint32
 hashRowType(TupleDesc desc)
 {
+	TupleDescExtra *extra = desc->extra;
 	uint32		s;
 	int			i;
 
 	s = hash_combine(0, hash_uint32(desc->natts));
 	s = hash_combine(s, hash_uint32(desc->tdtypeid));
 	for (i = 0; i < desc->natts; ++i)
-		s = hash_combine(s, hash_uint32(TupleDescAttr(desc, i)->atttypid));
+		s = hash_combine(s, hash_uint32(TupleDescExtraAttr(extra, i)->atttypid));
 
 	return s;
 }
@@ -635,6 +673,7 @@ TupleDescInitEntry(TupleDesc desc,
 	HeapTuple	tuple;
 	Form_pg_type typeForm;
 	TupleDescAttr *att;
+	TupleDescAttrExtra *attEx;
 
 	/*
 	 * sanity checks
@@ -649,33 +688,34 @@ TupleDescInitEntry(TupleDesc desc,
 	 * initialize the attribute fields
 	 */
 	att = TupleDescAttr(desc, attributeNumber - 1);
+	attEx = TupleDescExtraAttr(desc->extra, attributeNumber - 1);
 
-	//att->attrelid = 0;			/* dummy value */
+	attEx->attrelid = 0;			/* dummy value */
 
 	/*
 	 * Note: attributeName can be NULL, because the planner doesn't always
 	 * fill in valid resname values in targetlists, particularly for resjunk
 	 * attributes. Also, do nothing if caller wants to re-use the old attname.
 	 */
-	//if (attributeName == NULL)
-	//	MemSet(NameStr(att->attname), 0, NAMEDATALEN);
-	//else if (attributeName != NameStr(att->attname))
-	//	namestrcpy(&(att->attname), attributeName);
+	if (attributeName == NULL)
+		MemSet(NameStr(attEx->attname), 0, NAMEDATALEN);
+	else if (attributeName != NameStr(attEx->attname))
+		namestrcpy(&(attEx->attname), attributeName);
 
 	att->attcacheoff = -1;
-	att->atttypmod = typmod;
+	attEx->atttypmod = typmod;
 
-	att->attnum = attributeNumber;
-	//att->attndims = attdim;
+	attEx->attnum = attributeNumber;
+	attEx->attndims = attdim;
 
-	att->attnotnull = false;
-	//att->atthasdef = false;
-	att->atthasmissing = false;
-	//att->attidentity = '\0';
-	//att->attgenerated = '\0';
-	att->attisdropped = false;
-	//att->attislocal = true;
-	//att->attinhcount = 0;
+	attEx->attnotnull = false;
+	attEx->atthasdef = false;
+	attEx->atthasmissing = false;
+	attEx->attidentity = '\0';
+	attEx->attgenerated = '\0';
+	attEx->attisdropped = false;
+	attEx->attislocal = true;
+	attEx->attinhcount = 0;
 	/* variable-length fields are not present in tupledescs */
 
 	tuple = SearchSysCache1(TYPEOID, ObjectIdGetDatum(oidtypeid));
@@ -683,13 +723,13 @@ TupleDescInitEntry(TupleDesc desc,
 		elog(ERROR, "cache lookup failed for type %u", oidtypeid);
 	typeForm = (Form_pg_type) GETSTRUCT(tuple);
 
-	att->atttypid = oidtypeid;
+	attEx->atttypid = oidtypeid;
 	att->attlen = typeForm->typlen;
 	att->attbyval = typeForm->typbyval;
 	att->attalign = typeForm->typalign;
-	//att->attstorage = typeForm->typstorage;
-	//att->attcompression = InvalidCompressionMethod;
-	att->attcollation = typeForm->typcollation;
+	attEx->attstorage = typeForm->typstorage;
+	attEx->attcompression = InvalidCompressionMethod;
+	attEx->attcollation = typeForm->typcollation;
 
 	ReleaseSysCache(tuple);
 }
@@ -702,12 +742,13 @@ TupleDescInitEntry(TupleDesc desc,
 void
 TupleDescInitBuiltinEntry(TupleDesc desc,
 						  AttrNumber attributeNumber,
-						  const char *attributeName, // XXX not needed
+						  const char *attributeName,
 						  Oid oidtypeid,
 						  int32 typmod,
 						  int attdim)
 {
 	TupleDescAttr *att;
+	TupleDescAttrExtra *attEx;
 
 	/* sanity checks */
 	Assert(PointerIsValid(desc));
@@ -718,29 +759,30 @@ TupleDescInitBuiltinEntry(TupleDesc desc,
 
 	/* initialize the attribute fields */
 	att = TupleDescAttr(desc, attributeNumber - 1);
-	//att->attrelid = 0;			/* dummy value */
+	attEx = TupleDescExtraAttr(desc->extra, attributeNumber - 1);
+
+	attEx->attrelid = 0;			/* dummy value */
 
 	/* unlike TupleDescInitEntry, we require an attribute name */
 	Assert(attributeName != NULL);
-	//namestrcpy(&(att->attname), attributeName);
+	namestrcpy(&(attEx->attname), attributeName);
 
 	att->attcacheoff = -1;
-	att->atttypmod = typmod;
+	attEx->atttypmod = typmod;
 
-	att->attnum = attributeNumber;
-	//att->attndims = attdim;
+	attEx->attnum = attributeNumber;
+	attEx->attndims = attdim;
 
-	att->attnotnull = false;
-	//att->atthasdef = false;
-	att->atthasmissing = false;
-	//att->attidentity = '\0';
-	//att->attgenerated = '\0';
-	att->attisdropped = false;
-	//att->attislocal = true;
-	//att->attinhcount = 0;
-	/* variable-length fields are not present in tupledescs */
+	attEx->attnotnull = false;
+	attEx->atthasdef = false;
+	attEx->atthasmissing = false;
+	attEx->attidentity = '\0';
+	attEx->attgenerated = '\0';
+	attEx->attisdropped = false;
+	attEx->attislocal = true;
+	attEx->attinhcount = 0;
 
-	att->atttypid = oidtypeid;
+	attEx->atttypid = oidtypeid;
 
 	/*
 	 * Our goal here is to support just enough types to let basic builtin
@@ -754,45 +796,45 @@ TupleDescInitBuiltinEntry(TupleDesc desc,
 			att->attlen = -1;
 			att->attbyval = false;
 			att->attalign = TYPALIGN_INT;
-			//att->attstorage = TYPSTORAGE_EXTENDED;
-			//att->attcompression = InvalidCompressionMethod;
-			att->attcollation = DEFAULT_COLLATION_OID;
+			attEx->attstorage = TYPSTORAGE_EXTENDED;
+			attEx->attcompression = InvalidCompressionMethod;
+			attEx->attcollation = DEFAULT_COLLATION_OID;
 			break;
 
 		case BOOLOID:
 			att->attlen = 1;
 			att->attbyval = true;
 			att->attalign = TYPALIGN_CHAR;
-			//att->attstorage = TYPSTORAGE_PLAIN;
-			//att->attcompression = InvalidCompressionMethod;
-			att->attcollation = InvalidOid;
+			attEx->attstorage = TYPSTORAGE_PLAIN;
+			attEx->attcompression = InvalidCompressionMethod;
+			attEx->attcollation = InvalidOid;
 			break;
 
 		case INT4OID:
 			att->attlen = 4;
 			att->attbyval = true;
 			att->attalign = TYPALIGN_INT;
-			//att->attstorage = TYPSTORAGE_PLAIN;
-			//att->attcompression = InvalidCompressionMethod;
-			att->attcollation = InvalidOid;
+			attEx->attstorage = TYPSTORAGE_PLAIN;
+			attEx->attcompression = InvalidCompressionMethod;
+			attEx->attcollation = InvalidOid;
 			break;
 
 		case INT8OID:
 			att->attlen = 8;
 			att->attbyval = FLOAT8PASSBYVAL;
 			att->attalign = TYPALIGN_DOUBLE;
-			//att->attstorage = TYPSTORAGE_PLAIN;
-			//att->attcompression = InvalidCompressionMethod;
-			att->attcollation = InvalidOid;
+			attEx->attstorage = TYPSTORAGE_PLAIN;
+			attEx->attcompression = InvalidCompressionMethod;
+			attEx->attcollation = InvalidOid;
 			break;
 
 		case OIDOID:
 			att->attlen = 4;
 			att->attbyval = true;
 			att->attalign = TYPALIGN_INT;
-			//att->attstorage = TYPSTORAGE_PLAIN;
-			//att->attcompression = InvalidCompressionMethod;
-			att->attcollation = InvalidOid;
+			attEx->attstorage = TYPSTORAGE_PLAIN;
+			attEx->attcompression = InvalidCompressionMethod;
+			attEx->attcollation = InvalidOid;
 			break;
 
 		default:
@@ -818,7 +860,7 @@ TupleDescInitEntryCollation(TupleDesc desc,
 	Assert(attributeNumber >= 1);
 	Assert(attributeNumber <= desc->natts);
 
-	TupleDescAttr(desc, attributeNumber - 1)->attcollation = collationid;
+	TupleDescExtraAttr(desc->extra, attributeNumber - 1)->attcollation = collationid;
 }
 
 /*
@@ -876,18 +918,14 @@ Node *
 TupleDescGetDefault(TupleDesc tupdesc, AttrNumber attnum)
 {
 	Node	   *result = NULL;
+	AttrDefault *attrdef = tupdesc->extra->defval;
 
-	if (tupdesc->constr)
+	for (int i = 0; i < tupdesc->extra->num_defval; i++)
 	{
-		AttrDefault *attrdef = tupdesc->constr->defval;
-
-		for (int i = 0; i < tupdesc->constr->num_defval; i++)
+		if (attrdef[i].adnum == attnum)
 		{
-			if (attrdef[i].adnum == attnum)
-			{
-				result = stringToNode(attrdef[i].adbin);
-				break;
-			}
+			result = stringToNode(attrdef[i].adbin);
+			break;
 		}
 	}
 

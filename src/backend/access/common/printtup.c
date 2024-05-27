@@ -165,6 +165,7 @@ void
 SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo,
 						  List *targetlist, int16 *formats)
 {
+	TupleDescExtra *extra = typeinfo->extra;
 	int			natts = typeinfo->natts;
 	int			i;
 	ListCell   *tlist_item = list_head(targetlist);
@@ -193,9 +194,10 @@ SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo,
 
 	for (i = 0; i < natts; ++i)
 	{
-		Form_pg_attribute att = TupleDescAttr(typeinfo, i);
-		Oid			atttypid = att->atttypid;
-		int32		atttypmod = att->atttypmod;
+		TupleDescAttr *att = TupleDescAttr(typeinfo, i);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
+		Oid			atttypid = attEx->atttypid;
+		int32		atttypmod = attEx->atttypmod;
 		Oid			resorigtbl;
 		AttrNumber	resorigcol;
 		int16		format;
@@ -230,7 +232,7 @@ SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo,
 		else
 			format = 0;
 
-		pq_writestring(buf, NameStr(att->attname));
+		pq_writestring(buf, NameStr(attEx->attname));
 		pq_writeint32(buf, resorigtbl);
 		pq_writeint16(buf, resorigcol);
 		pq_writeint32(buf, atttypid);
@@ -248,6 +250,7 @@ SendRowDescriptionMessage(StringInfo buf, TupleDesc typeinfo,
 static void
 printtup_prepare_info(DR_printtup *myState, TupleDesc typeinfo, int numAttrs)
 {
+	TupleDescExtra *extra = typeinfo->extra;
 	int16	   *formats = myState->portal->formats;
 	int			i;
 
@@ -268,19 +271,20 @@ printtup_prepare_info(DR_printtup *myState, TupleDesc typeinfo, int numAttrs)
 	{
 		PrinttupAttrInfo *thisState = myState->myinfo + i;
 		int16		format = (formats ? formats[i] : 0);
-		Form_pg_attribute attr = TupleDescAttr(typeinfo, i);
+		TupleDescAttr *attr = TupleDescAttr(typeinfo, i);
+		TupleDescAttrExtra *attrEx = TupleDescExtraAttr(extra, i);
 
 		thisState->format = format;
 		if (format == 0)
 		{
-			getTypeOutputInfo(attr->atttypid,
+			getTypeOutputInfo(attrEx->atttypid,
 							  &thisState->typoutput,
 							  &thisState->typisvarlena);
 			fmgr_info(thisState->typoutput, &thisState->finfo);
 		}
 		else if (format == 1)
 		{
-			getTypeBinaryOutputInfo(attr->atttypid,
+			getTypeBinaryOutputInfo(attrEx->atttypid,
 									&thisState->typsend,
 									&thisState->typisvarlena);
 			fmgr_info(thisState->typsend, &thisState->finfo);
@@ -420,19 +424,20 @@ printtup_destroy(DestReceiver *self)
  */
 static void
 printatt(unsigned attributeId,
-		 Form_pg_attribute attributeP,
+		 TupleDescAttr *att,
+		 TupleDescAttrExtra *attEx,
 		 char *value)
 {
 	printf("\t%2d: %s%s%s%s\t(typeid = %u, len = %d, typmod = %d, byval = %c)\n",
 		   attributeId,
-		   NameStr(attributeP->attname),
+		   NameStr(attEx->attname),
 		   value != NULL ? " = \"" : "",
 		   value != NULL ? value : "",
 		   value != NULL ? "\"" : "",
-		   (unsigned int) (attributeP->atttypid),
-		   attributeP->attlen,
-		   attributeP->atttypmod,
-		   attributeP->attbyval ? 't' : 'f');
+		   (unsigned int) (attEx->atttypid),
+		   att->attlen,
+		   attEx->atttypmod,
+		   att->attbyval ? 't' : 'f');
 }
 
 /* ----------------
@@ -442,6 +447,7 @@ printatt(unsigned attributeId,
 void
 debugStartup(DestReceiver *self, int operation, TupleDesc typeinfo)
 {
+	TupleDescExtra *extra = typeinfo->extra;
 	int			natts = typeinfo->natts;
 	int			i;
 
@@ -449,7 +455,11 @@ debugStartup(DestReceiver *self, int operation, TupleDesc typeinfo)
 	 * show the return type of the tuples
 	 */
 	for (i = 0; i < natts; ++i)
-		printatt((unsigned) i + 1, TupleDescAttr(typeinfo, i), NULL);
+	{
+		TupleDescAttr *att = TupleDescAttr(typeinfo, i);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
+		printatt((unsigned) i + 1, att, attEx, NULL);
+	}
 	printf("\t----\n");
 }
 
@@ -461,6 +471,7 @@ bool
 debugtup(TupleTableSlot *slot, DestReceiver *self)
 {
 	TupleDesc	typeinfo = slot->tts_tupleDescriptor;
+	TupleDescExtra *extra = typeinfo->extra;
 	int			natts = typeinfo->natts;
 	int			i;
 	Datum		attr;
@@ -471,15 +482,17 @@ debugtup(TupleTableSlot *slot, DestReceiver *self)
 
 	for (i = 0; i < natts; ++i)
 	{
+		TupleDescAttr *att = TupleDescAttr(typeinfo, i);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
+
 		attr = slot_getattr(slot, i + 1, &isnull);
 		if (isnull)
 			continue;
-		getTypeOutputInfo(TupleDescAttr(typeinfo, i)->atttypid,
-						  &typoutput, &typisvarlena);
+		getTypeOutputInfo(attEx->atttypid, &typoutput, &typisvarlena);
 
 		value = OidOutputFunctionCall(typoutput, attr);
 
-		printatt((unsigned) i + 1, TupleDescAttr(typeinfo, i), value);
+		printatt((unsigned) i + 1, att, attEx, value);
 	}
 	printf("\t----\n");
 

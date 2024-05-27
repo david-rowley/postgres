@@ -425,7 +425,7 @@ AssertCheckRanges(Ranges *ranges, FmgrInfo *cmpFn, Oid colloid)
  */
 static void
 AssertCheckExpandedRanges(BrinDesc *bdesc, Oid colloid, AttrNumber attno,
-						  Form_pg_attribute attr, ExpandedRange *ranges,
+						  TupleDescAttrExtra *attrEx, ExpandedRange *ranges,
 						  int nranges)
 {
 #ifdef USE_ASSERT_CHECKING
@@ -433,10 +433,10 @@ AssertCheckExpandedRanges(BrinDesc *bdesc, Oid colloid, AttrNumber attno,
 	FmgrInfo   *eq;
 	FmgrInfo   *lt;
 
-	eq = minmax_multi_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+	eq = minmax_multi_get_strategy_procinfo(bdesc, attno, attrEx->atttypid,
 											BTEqualStrategyNumber);
 
-	lt = minmax_multi_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+	lt = minmax_multi_get_strategy_procinfo(bdesc, attno, attrEx->atttypid,
 											BTLessStrategyNumber);
 
 	/*
@@ -1044,12 +1044,12 @@ has_matching_range(BrinDesc *bdesc, Oid colloid, Ranges *ranges,
  */
 static bool
 range_contains_value(BrinDesc *bdesc, Oid colloid,
-					 AttrNumber attno, Form_pg_attribute attr,
+					 AttrNumber attno, TupleDescAttrExtra *attrEx,
 					 Ranges *ranges, Datum newval, bool full)
 {
 	int			i;
 	FmgrInfo   *cmpEqualFn;
-	Oid			typid = attr->atttypid;
+	Oid			typid = attrEx->atttypid;
 
 	/*
 	 * First inspect the ranges, if there are any. We first check the whole
@@ -1600,7 +1600,7 @@ store_expanded_ranges(Ranges *ranges, ExpandedRange *eranges, int neranges)
  */
 static bool
 ensure_free_space_in_buffer(BrinDesc *bdesc, Oid colloid,
-							AttrNumber attno, Form_pg_attribute attr,
+							AttrNumber attno, TupleDescAttrExtra *attrEx,
 							Ranges *range)
 {
 	MemoryContext ctx;
@@ -1622,7 +1622,7 @@ ensure_free_space_in_buffer(BrinDesc *bdesc, Oid colloid,
 		return false;
 
 	/* we'll certainly need the comparator, so just look it up now */
-	cmpFn = minmax_multi_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+	cmpFn = minmax_multi_get_strategy_procinfo(bdesc, attno, attrEx->atttypid,
 											   BTLessStrategyNumber);
 
 	/* deduplicate values, if there's an unsorted part */
@@ -1660,7 +1660,7 @@ ensure_free_space_in_buffer(BrinDesc *bdesc, Oid colloid,
 	eranges = build_expanded_ranges(cmpFn, colloid, range, &neranges);
 
 	/* Is the expanded representation of ranges correct? */
-	AssertCheckExpandedRanges(bdesc, colloid, attno, attr, eranges, neranges);
+	AssertCheckExpandedRanges(bdesc, colloid, attno, attrEx, eranges, neranges);
 
 	/* and we'll also need the 'distance' procedure */
 	distanceFn = minmax_multi_get_procinfo(bdesc, attno, PROCNUM_DISTANCE);
@@ -1678,7 +1678,7 @@ ensure_free_space_in_buffer(BrinDesc *bdesc, Oid colloid,
 									  cmpFn, colloid);
 
 	/* Is the result of reducing expanded ranges correct? */
-	AssertCheckExpandedRanges(bdesc, colloid, attno, attr, eranges, neranges);
+	AssertCheckExpandedRanges(bdesc, colloid, attno, attrEx, eranges, neranges);
 
 	/* Make sure we've sufficiently reduced the number of ranges. */
 	Assert(count_values(eranges, neranges) <= range->maxvalues * MINMAX_BUFFER_LOAD_FACTOR);
@@ -1701,14 +1701,17 @@ ensure_free_space_in_buffer(BrinDesc *bdesc, Oid colloid,
  */
 static bool
 range_add_value(BrinDesc *bdesc, Oid colloid,
-				AttrNumber attno, Form_pg_attribute attr,
+				AttrNumber attno, TupleDescAttr *attr,
+				TupleDescAttrExtra *attrEx,
 				Ranges *ranges, Datum newval)
 {
 	FmgrInfo   *cmpFn;
 	bool		modified = false;
 
 	/* we'll certainly need the comparator, so just look it up now */
-	cmpFn = minmax_multi_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+	cmpFn = minmax_multi_get_strategy_procinfo(bdesc,
+											   attno,
+											   attrEx->atttypid,
 											   BTLessStrategyNumber);
 
 	/* comprehensive checks of the input ranges */
@@ -1730,7 +1733,7 @@ range_add_value(BrinDesc *bdesc, Oid colloid,
 	 * do it now.
 	 */
 	modified = ensure_free_space_in_buffer(bdesc, colloid,
-										   attno, attr, ranges);
+										   attno, attrEx, ranges);
 
 	/*
 	 * Bail out if the value already is covered by the range.
@@ -1746,7 +1749,7 @@ range_add_value(BrinDesc *bdesc, Oid colloid,
 	 *
 	 * This also implies the values array can't contain duplicate values.
 	 */
-	if (range_contains_value(bdesc, colloid, attno, attr, ranges, newval, false))
+	if (range_contains_value(bdesc, colloid, attno, attrEx, ranges, newval, false))
 		return modified;
 
 	/* Make a copy of the value, if needed. */
@@ -1774,7 +1777,7 @@ range_add_value(BrinDesc *bdesc, Oid colloid,
 	AssertCheckRanges(ranges, cmpFn, colloid);
 
 	/* Check the range contains the value we just added. */
-	Assert(range_contains_value(bdesc, colloid, attno, attr, ranges, newval, true));
+	Assert(range_contains_value(bdesc, colloid, attno, attrEx, ranges, newval, true));
 
 	/* yep, we've modified the range */
 	return true;
@@ -2419,7 +2422,8 @@ brin_minmax_multi_add_value(PG_FUNCTION_ARGS)
 	MinMaxMultiOptions *opts = (MinMaxMultiOptions *) PG_GET_OPCLASS_OPTIONS();
 	Oid			colloid = PG_GET_COLLATION();
 	bool		modified = false;
-	Form_pg_attribute attr;
+	TupleDescAttr *attr;
+	TupleDescAttrExtra *attrEx;
 	AttrNumber	attno;
 	Ranges	   *ranges;
 	SerializedRanges *serialized = NULL;
@@ -2428,6 +2432,7 @@ brin_minmax_multi_add_value(PG_FUNCTION_ARGS)
 
 	attno = column->bv_attno;
 	attr = TupleDescAttr(bdesc->bd_tupdesc, attno - 1);
+	attrEx = TupleDescExtraAttr(bdesc->bd_tupdesc->extra, attno - 1);
 
 	/* use the already deserialized value, if possible */
 	ranges = (Ranges *) DatumGetPointer(column->bv_mem_value);
@@ -2473,11 +2478,11 @@ brin_minmax_multi_add_value(PG_FUNCTION_ARGS)
 		ranges = minmax_multi_init(maxvalues);
 		ranges->attno = attno;
 		ranges->colloid = colloid;
-		ranges->typid = attr->atttypid;
+		ranges->typid = attrEx->atttypid;
 		ranges->target_maxvalues = target_maxvalues;
 
 		/* we'll certainly need the comparator, so just look it up now */
-		ranges->cmp = minmax_multi_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+		ranges->cmp = minmax_multi_get_strategy_procinfo(bdesc, attno, attrEx->atttypid,
 														 BTLessStrategyNumber);
 
 		MemoryContextSwitchTo(oldctx);
@@ -2519,10 +2524,10 @@ brin_minmax_multi_add_value(PG_FUNCTION_ARGS)
 
 		ranges->attno = attno;
 		ranges->colloid = colloid;
-		ranges->typid = attr->atttypid;
+		ranges->typid = attrEx->atttypid;
 
 		/* we'll certainly need the comparator, so just look it up now */
-		ranges->cmp = minmax_multi_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+		ranges->cmp = minmax_multi_get_strategy_procinfo(bdesc, attno, attrEx->atttypid,
 														 BTLessStrategyNumber);
 
 		column->bv_mem_value = PointerGetDatum(ranges);
@@ -2535,7 +2540,7 @@ brin_minmax_multi_add_value(PG_FUNCTION_ARGS)
 	 * Try to add the new value to the range. We need to update the modified
 	 * flag, so that we serialize the updated summary later.
 	 */
-	modified |= range_add_value(bdesc, colloid, attno, attr, ranges, newval);
+	modified |= range_add_value(bdesc, colloid, attno, attr, attrEx, ranges, newval);
 
 
 	PG_RETURN_BOOL(modified);
@@ -2745,7 +2750,7 @@ brin_minmax_multi_union(PG_FUNCTION_ARGS)
 	Ranges	   *ranges_a;
 	Ranges	   *ranges_b;
 	AttrNumber	attno;
-	Form_pg_attribute attr;
+	TupleDescAttrExtra *attrEx;
 	ExpandedRange *eranges;
 	int			neranges;
 	FmgrInfo   *cmpFn,
@@ -2758,7 +2763,7 @@ brin_minmax_multi_union(PG_FUNCTION_ARGS)
 	Assert(!col_a->bv_allnulls && !col_b->bv_allnulls);
 
 	attno = col_a->bv_attno;
-	attr = TupleDescAttr(bdesc->bd_tupdesc, attno - 1);
+	attrEx = TupleDescExtraAttr(bdesc->bd_tupdesc->extra, attno - 1);
 
 	serialized_a = (SerializedRanges *) PG_DETOAST_DATUM(col_a->bv_values[0]);
 	serialized_b = (SerializedRanges *) PG_DETOAST_DATUM(col_b->bv_values[0]);
@@ -2797,7 +2802,7 @@ brin_minmax_multi_union(PG_FUNCTION_ARGS)
 						 ranges_b->nranges + ranges_b->nvalues,
 						 ranges_b);
 
-	cmpFn = minmax_multi_get_strategy_procinfo(bdesc, attno, attr->atttypid,
+	cmpFn = minmax_multi_get_strategy_procinfo(bdesc, attno, attrEx->atttypid,
 											   BTLessStrategyNumber);
 
 	/* sort the expanded ranges */
@@ -2810,7 +2815,7 @@ brin_minmax_multi_union(PG_FUNCTION_ARGS)
 	neranges = merge_overlapping_ranges(cmpFn, colloid, eranges, neranges);
 
 	/* check that the combine ranges are correct (no overlaps, ordering) */
-	AssertCheckExpandedRanges(bdesc, colloid, attno, attr, eranges, neranges);
+	AssertCheckExpandedRanges(bdesc, colloid, attno, attrEx, eranges, neranges);
 
 	/*
 	 * If needed, reduce some of the ranges.
@@ -2839,7 +2844,7 @@ brin_minmax_multi_union(PG_FUNCTION_ARGS)
 									  cmpFn, colloid);
 
 	/* Is the result of reducing expanded ranges correct? */
-	AssertCheckExpandedRanges(bdesc, colloid, attno, attr, eranges, neranges);
+	AssertCheckExpandedRanges(bdesc, colloid, attno, attrEx, eranges, neranges);
 
 	/* update the first range summary */
 	store_expanded_ranges(ranges_a, eranges, neranges);
@@ -2931,20 +2936,20 @@ minmax_multi_get_strategy_procinfo(BrinDesc *bdesc, uint16 attno, Oid subtype,
 
 	if (opaque->strategy_procinfos[strategynum - 1].fn_oid == InvalidOid)
 	{
-		Form_pg_attribute attr;
+		TupleDescAttrExtra *attrEx;
 		HeapTuple	tuple;
 		Oid			opfamily,
 					oprid;
 
 		opfamily = bdesc->bd_index->rd_opfamily[attno - 1];
-		attr = TupleDescAttr(bdesc->bd_tupdesc, attno - 1);
+		attrEx = TupleDescExtraAttr(bdesc->bd_tupdesc->extra, attno - 1);
 		tuple = SearchSysCache4(AMOPSTRATEGY, ObjectIdGetDatum(opfamily),
-								ObjectIdGetDatum(attr->atttypid),
+								ObjectIdGetDatum(attrEx->atttypid),
 								ObjectIdGetDatum(subtype),
 								Int16GetDatum(strategynum));
 		if (!HeapTupleIsValid(tuple))
 			elog(ERROR, "missing operator %d(%u,%u) in opfamily %u",
-				 strategynum, attr->atttypid, subtype, opfamily);
+				 strategynum, attrEx->atttypid, subtype, opfamily);
 
 		oprid = DatumGetObjectId(SysCacheGetAttrNotNull(AMOPSTRATEGY, tuple,
 														Anum_pg_amop_amopopr));

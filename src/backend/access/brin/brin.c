@@ -667,7 +667,7 @@ bringetbitmap(IndexScanDesc scan, TIDBitmap *tbm)
 		 */
 		Assert((key->sk_flags & SK_ISNULL) ||
 			   (key->sk_collation ==
-				TupleDescAttr(bdesc->bd_tupdesc,
+				TupleDescExtraAttr(bdesc->bd_tupdesc->extra,
 							  keyattno - 1)->attcollation));
 
 		/*
@@ -1592,7 +1592,7 @@ brin_build_desc(Relation rel)
 	for (keyno = 0; keyno < tupdesc->natts; keyno++)
 	{
 		FmgrInfo   *opcInfoFn;
-		Form_pg_attribute attr = TupleDescAttr(tupdesc, keyno);
+		TupleDescAttrExtra *attr = TupleDescExtraAttr(tupdesc->extra, keyno);
 
 		opcInfoFn = index_getprocinfo(rel, keyno + 1, BRIN_PROCNUM_OPCINFO);
 

@@ -316,16 +316,16 @@ tuples_equal(TupleTableSlot *slot1, TupleTableSlot *slot2,
 	/* Check equality of the attributes. */
 	for (attrnum = 0; attrnum < slot1->tts_tupleDescriptor->natts; attrnum++)
 	{
-		Form_pg_attribute att;
+		TupleDescAttrExtra *attEx;
 		TypeCacheEntry *typentry;
 
-		att = TupleDescAttr(slot1->tts_tupleDescriptor, attrnum);
+		attEx = TupleDescExtraAttr(slot1->tts_tupleDescriptor->extra, attrnum);
 
 		/*
 		 * Ignore dropped and generated columns as the publisher doesn't send
 		 * those
 		 */
-		if (att->attisdropped || att->attgenerated)
+		if (attEx->attisdropped || attEx->attgenerated)
 			continue;
 
 		/*
@@ -344,18 +344,18 @@ tuples_equal(TupleTableSlot *slot1, TupleTableSlot *slot2,
 		typentry = eq[attrnum];
 		if (typentry == NULL)
 		{
-			typentry = lookup_type_cache(att->atttypid,
+			typentry = lookup_type_cache(attEx->atttypid,
 										 TYPECACHE_EQ_OPR_FINFO);
 			if (!OidIsValid(typentry->eq_opr_finfo.fn_oid))
 				ereport(ERROR,
 						(errcode(ERRCODE_UNDEFINED_FUNCTION),
 						 errmsg("could not identify an equality operator for type %s",
-								format_type_be(att->atttypid))));
+								format_type_be(attEx->atttypid))));
 			eq[attrnum] = typentry;
 		}
 
 		if (!DatumGetBool(FunctionCall2Coll(&typentry->eq_opr_finfo,
-											att->attcollation,
+											attEx->attcollation,
 											slot1->tts_values[attrnum],
 											slot2->tts_values[attrnum])))
 			return false;
@@ -511,14 +511,12 @@ ExecSimpleRelationInsert(ResultRelInfo *resultRelInfo,
 		List	   *recheckIndexes = NIL;
 
 		/* Compute stored generated columns */
-		if (rel->rd_att->constr &&
-			rel->rd_att->constr->has_generated_stored)
+		if (rel->rd_att->extra->has_generated_stored)
 			ExecComputeStoredGenerated(resultRelInfo, estate, slot,
 									   CMD_INSERT);
 
 		/* Check the constraints of the tuple */
-		if (rel->rd_att->constr)
-			ExecConstraints(resultRelInfo, slot, estate);
+		ExecConstraints(resultRelInfo, slot, estate);
 		if (rel->rd_rel->relispartition)
 			ExecPartitionCheck(resultRelInfo, slot, estate, true);
 
@@ -579,14 +577,12 @@ ExecSimpleRelationUpdate(ResultRelInfo *resultRelInfo,
 		TU_UpdateIndexes update_indexes;
 
 		/* Compute stored generated columns */
-		if (rel->rd_att->constr &&
-			rel->rd_att->constr->has_generated_stored)
+		if (rel->rd_att->extra->has_generated_stored)
 			ExecComputeStoredGenerated(resultRelInfo, estate, slot,
 									   CMD_UPDATE);
 
 		/* Check the constraints of the tuple */
-		if (rel->rd_att->constr)
-			ExecConstraints(resultRelInfo, slot, estate);
+		ExecConstraints(resultRelInfo, slot, estate);
 		if (rel->rd_rel->relispartition)
 			ExecPartitionCheck(resultRelInfo, slot, estate, true);
 

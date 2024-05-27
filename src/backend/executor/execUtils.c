@@ -584,6 +584,7 @@ ExecConditionalAssignProjectionInfo(PlanState *planstate, TupleDesc inputDesc,
 static bool
 tlist_matches_tupdesc(PlanState *ps, List *tlist, int varno, TupleDesc tupdesc)
 {
+	TupleDescExtra *extra = tupdesc->extra;
 	int			numattrs = tupdesc->natts;
 	int			attrno;
 	ListCell   *tlist_item = list_head(tlist);
@@ -591,7 +592,7 @@ tlist_matches_tupdesc(PlanState *ps, List *tlist, int varno, TupleDesc tupdesc)
 	/* Check the tlist attributes */
 	for (attrno = 1; attrno <= numattrs; attrno++)
 	{
-		Form_pg_attribute att_tup = TupleDescAttr(tupdesc, attrno - 1);
+		TupleDescAttrExtra *att_tup = TupleDescExtraAttr(extra, attrno - 1);
 		Var		   *var;
 
 		if (tlist_item == NULL)
@@ -1022,11 +1023,11 @@ GetAttributeByName(HeapTupleHeader tuple, const char *attname, bool *isNull)
 	attrno = InvalidAttrNumber;
 	for (i = 0; i < tupDesc->natts; i++)
 	{
-		Form_pg_attribute att = TupleDescAttr(tupDesc, i);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupDesc->extra, i);
 
-		if (namestrcmp(&(att->attname), attname) == 0)
+		if (namestrcmp(&(attEx->attname), attname) == 0)
 		{
-			attrno = att->attnum;
+			attrno = attEx->attnum;
 			break;
 		}
 	}

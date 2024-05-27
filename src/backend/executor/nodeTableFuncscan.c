@@ -202,7 +202,7 @@ ExecInitTableFuncScan(TableFuncScan *node, EState *estate, int eflags)
 	{
 		Oid			in_funcid;
 
-		getTypeInputInfo(TupleDescAttr(tupdesc, i)->atttypid,
+		getTypeInputInfo(TupleDescExtraAttr(tupdesc->extra, i)->atttypid,
 						 &in_funcid, &scanstate->typioparams[i]);
 		fmgr_info(in_funcid, &scanstate->in_functions[i]);
 	}
@@ -401,7 +401,7 @@ tfuncInitialize(TableFuncScanState *tstate, ExprContext *econtext, Datum doc)
 	foreach(lc1, tstate->colexprs)
 	{
 		char	   *colfilter;
-		Form_pg_attribute att = TupleDescAttr(tupdesc, colno);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupdesc->extra, colno);
 
 		if (colno != ordinalitycol)
 		{
@@ -415,11 +415,11 @@ tfuncInitialize(TableFuncScanState *tstate, ExprContext *econtext, Datum doc)
 							(errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
 							 errmsg("column filter expression must not be null"),
 							 errdetail("Filter for column \"%s\" is null.",
-									   NameStr(att->attname))));
+									   NameStr(attEx->attname))));
 				colfilter = TextDatumGetCString(value);
 			}
 			else
-				colfilter = NameStr(att->attname);
+				colfilter = NameStr(attEx->attname);
 
 			routine->SetColumnFilter(tstate, colfilter, colno);
 		}
@@ -472,7 +472,7 @@ tfuncLoadRows(TableFuncScanState *tstate, ExprContext *econtext)
 		 */
 		for (colno = 0; colno < natts; colno++)
 		{
-			Form_pg_attribute att = TupleDescAttr(tupdesc, colno);
+			TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupdesc->extra, colno);
 
 			if (colno == ordinalitycol)
 			{
@@ -486,8 +486,8 @@ tfuncLoadRows(TableFuncScanState *tstate, ExprContext *econtext)
 
 				values[colno] = routine->GetValue(tstate,
 												  colno,
-												  att->atttypid,
-												  att->atttypmod,
+												  attEx->atttypid,
+												  attEx->atttypmod,
 												  &isnull);
 
 				/* No value?  Evaluate and apply the default, if any */
@@ -505,7 +505,7 @@ tfuncLoadRows(TableFuncScanState *tstate, ExprContext *econtext)
 					ereport(ERROR,
 							(errcode(ERRCODE_NULL_VALUE_NOT_ALLOWED),
 							 errmsg("null is not allowed in column \"%s\"",
-									NameStr(att->attname))));
+									NameStr(attEx->attname))));
 
 				nulls[colno] = isnull;
 			}

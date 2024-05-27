@@ -2377,15 +2377,17 @@ CallStmtResultDesc(CallStmt *stmt)
 	 */
 	if (tupdesc)
 	{
+		TupleDescExtra *extra = tupdesc->extra;
+
 		Assert(tupdesc->natts == list_length(stmt->outargs));
 		for (int i = 0; i < tupdesc->natts; i++)
 		{
-			Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+			TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
 			Node	   *outarg = (Node *) list_nth(stmt->outargs, i);
 
 			TupleDescInitEntry(tupdesc,
 							   i + 1,
-							   NameStr(att->attname),
+							   NameStr(attEx->attname),
 							   exprType(outarg),
 							   -1,
 							   0);

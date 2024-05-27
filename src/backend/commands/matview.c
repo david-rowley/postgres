@@ -723,8 +723,8 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 			{
 				int			attnum = indexStruct->indkey.values[i];
 				Oid			opclass = indclass->values[i];
-				Form_pg_attribute attr = TupleDescAttr(tupdesc, attnum - 1);
-				Oid			attrtype = attr->atttypid;
+				TupleDescAttrExtra *attEx = TupleDescAttr(tupdesc->extra, attnum - 1);
+				Oid			attrtype = attEx->atttypid;
 				HeapTuple	cla_ht;
 				Form_pg_opclass cla_tup;
 				Oid			opfamily;
@@ -774,9 +774,9 @@ refresh_by_match_merge(Oid matviewOid, Oid tempOid, Oid relowner,
 					appendStringInfoString(&querybuf, " AND ");
 
 				leftop = quote_qualified_identifier("newdata",
-													NameStr(attr->attname));
+													NameStr(attEx->attname));
 				rightop = quote_qualified_identifier("mv",
-													 NameStr(attr->attname));
+													 NameStr(attEx->attname));
 
 				generate_operator_clause(&querybuf,
 										 leftop, attrtype,

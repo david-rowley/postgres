@@ -857,6 +857,7 @@ ProcessCopyOptions(ParseState *pstate,
 List *
 CopyGetAttnums(TupleDesc tupDesc, Relation rel, List *attnamelist)
 {
+	TupleDescExtra *extra = tupDesc->extra;
 	List	   *attnums = NIL;
 
 	if (attnamelist == NIL)
@@ -867,15 +868,17 @@ CopyGetAttnums(TupleDesc tupDesc, Relation rel, List *attnamelist)
 
 		for (i = 0; i < attr_count; i++)
 		{
-			if (TupleDescAttr(tupDesc, i)->attisdropped)
+			TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
+			if (attEx->attisdropped)
 				continue;
-			if (TupleDescAttr(tupDesc, i)->attgenerated)
+			if (attEx->attgenerated)
 				continue;
 			attnums = lappend_int(attnums, i + 1);
 		}
 	}
 	else
 	{
+
 		/* Validate the user-supplied list and extract attnums */
 		ListCell   *l;
 
@@ -889,19 +892,19 @@ CopyGetAttnums(TupleDesc tupDesc, Relation rel, List *attnamelist)
 			attnum = InvalidAttrNumber;
 			for (i = 0; i < tupDesc->natts; i++)
 			{
-				Form_pg_attribute att = TupleDescAttr(tupDesc, i);
+				TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
 
-				if (att->attisdropped)
+				if (attEx->attisdropped)
 					continue;
-				if (namestrcmp(&(att->attname), name) == 0)
+				if (namestrcmp(&(attEx->attname), name) == 0)
 				{
-					if (att->attgenerated)
+					if (attEx->attgenerated)
 						ereport(ERROR,
 								(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
 								 errmsg("column \"%s\" is a generated column",
 										name),
 								 errdetail("Generated columns cannot be used in COPY.")));
-					attnum = att->attnum;
+					attnum = attEx->attnum;
 					break;
 				}
 			}

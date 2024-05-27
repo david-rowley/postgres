@@ -173,6 +173,7 @@ gistrescan(IndexScanDesc scan, ScanKey key, int nkeys,
 	 */
 	if (scan->xs_want_itup && !scan->xs_hitupdesc)
 	{
+		TupleDescExtra *leafExtra = so->giststate->leafTupdesc->extra;
 		int			natts;
 		int			nkeyatts;
 		int			attno;
@@ -197,8 +198,7 @@ gistrescan(IndexScanDesc scan, ScanKey key, int nkeys,
 		{
 			/* taking opcintype from giststate->tupdesc */
 			TupleDescInitEntry(so->giststate->fetchTupdesc, attno, NULL,
-							   TupleDescAttr(so->giststate->leafTupdesc,
-											 attno - 1)->atttypid,
+							   TupleDescExtraAttr(leafExtra, attno - 1)->atttypid,
 							   -1, 0);
 		}
 		scan->xs_hitupdesc = so->giststate->fetchTupdesc;

@@ -184,7 +184,7 @@ ExecCheckPlanOutput(Relation resultRel, List *targetList)
 	foreach(lc, targetList)
 	{
 		TargetEntry *tle = (TargetEntry *) lfirst(lc);
-		Form_pg_attribute attr;
+		TupleDescAttrExtra *attr;
 
 		Assert(!tle->resjunk);	/* caller removed junk items already */
 
@@ -193,7 +193,7 @@ ExecCheckPlanOutput(Relation resultRel, List *targetList)
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("table row type and query-specified row type do not match"),
 					 errdetail("Query has too many columns.")));
-		attr = TupleDescAttr(resultDesc, attno);
+		attr = TupleDescExtraAttr(resultDesc->extra, attno);
 		attno++;
 
 		if (!attr->attisdropped)
@@ -353,7 +353,7 @@ ExecInitStoredGenerated(ResultRelInfo *resultRelInfo,
 	MemoryContext oldContext;
 
 	/* Nothing to do if no generated columns */
-	if (!(tupdesc->constr && tupdesc->constr->has_generated_stored))
+	if (!tupdesc->extra->has_generated_stored)
 		return;
 
 	/*
@@ -379,7 +379,7 @@ ExecInitStoredGenerated(ResultRelInfo *resultRelInfo,
 
 	for (int i = 0; i < natts; i++)
 	{
-		if (TupleDescAttr(tupdesc, i)->attgenerated == ATTRIBUTE_GENERATED_STORED)
+		if (TupleDescExtraAttr(tupdesc->extra, i)->attgenerated == ATTRIBUTE_GENERATED_STORED)
 		{
 			Expr	   *expr;
 
@@ -454,7 +454,7 @@ ExecComputeStoredGenerated(ResultRelInfo *resultRelInfo,
 	bool	   *nulls;
 
 	/* We should not be called unless this is true */
-	Assert(tupdesc->constr && tupdesc->constr->has_generated_stored);
+	Assert(tupdesc->extra->has_generated_stored);
 
 	/*
 	 * Initialize the expressions if we didn't already, and check whether we
@@ -487,14 +487,14 @@ ExecComputeStoredGenerated(ResultRelInfo *resultRelInfo,
 
 	for (int i = 0; i < natts; i++)
 	{
-		Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+		TupleDescAttr *attr = TupleDescAttr(tupdesc, i);
 
 		if (ri_GeneratedExprs[i])
 		{
 			Datum		val;
 			bool		isnull;
 
-			Assert(attr->attgenerated == ATTRIBUTE_GENERATED_STORED);
+			Assert(TupleDescExtraAttr(tupdesc->extra, i)->attgenerated == ATTRIBUTE_GENERATED_STORED);
 
 			econtext->ecxt_scantuple = slot;
 
@@ -829,8 +829,7 @@ ExecInsert(ModifyTableContext *context,
 		/*
 		 * Compute stored generated columns
 		 */
-		if (resultRelationDesc->rd_att->constr &&
-			resultRelationDesc->rd_att->constr->has_generated_stored)
+		if (resultRelationDesc->rd_att->extra->has_generated_stored)
 			ExecComputeStoredGenerated(resultRelInfo, estate, slot,
 									   CMD_INSERT);
 
@@ -956,8 +955,7 @@ ExecInsert(ModifyTableContext *context,
 		/*
 		 * Compute stored generated columns
 		 */
-		if (resultRelationDesc->rd_att->constr &&
-			resultRelationDesc->rd_att->constr->has_generated_stored)
+		if (resultRelationDesc->rd_att->extra->has_generated_stored)
 			ExecComputeStoredGenerated(resultRelInfo, estate, slot,
 									   CMD_INSERT);
 
@@ -991,8 +989,7 @@ ExecInsert(ModifyTableContext *context,
 		/*
 		 * Check the constraints of the tuple.
 		 */
-		if (resultRelationDesc->rd_att->constr)
-			ExecConstraints(resultRelInfo, slot, estate);
+		ExecConstraints(resultRelInfo, slot, estate);
 
 		/*
 		 * Also check the tuple against the partition constraint, if there is
@@ -1947,8 +1944,7 @@ ExecUpdatePrepareSlot(ResultRelInfo *resultRelInfo,
 	/*
 	 * Compute stored generated columns
 	 */
-	if (resultRelationDesc->rd_att->constr &&
-		resultRelationDesc->rd_att->constr->has_generated_stored)
+	if (resultRelationDesc->rd_att->extra->has_generated_stored)
 		ExecComputeStoredGenerated(resultRelInfo, estate, slot,
 								   CMD_UPDATE);
 }
@@ -2088,8 +2084,7 @@ lreplace:
 	 * passes all other constraints, so we will call ExecConstraints() and
 	 * have it validate all remaining checks.
 	 */
-	if (resultRelationDesc->rd_att->constr)
-		ExecConstraints(resultRelInfo, slot, estate);
+	ExecConstraints(resultRelInfo, slot, estate);
 
 	/*
 	 * replace the heap tuple

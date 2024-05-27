@@ -77,11 +77,11 @@
  *     INSERT INTO test VALUES (repeat('A',10));
  * This can be verified with pageinspect.
  */
-#define ATT_IS_PACKABLE(att) \
-	((att)->attlen == -1 && (att)->attstorage != TYPSTORAGE_PLAIN)
+#define ATT_IS_PACKABLE(att, attEx) \
+	((att)->attlen == -1 && (attEx)->attstorage != TYPSTORAGE_PLAIN)
 /* Use this if it's already known varlena */
-#define VARLENA_ATT_IS_PACKABLE(att) \
-	((att)->attstorage != TYPSTORAGE_PLAIN)
+#define VARLENA_ATT_IS_PACKABLE(attEx) \
+	((attEx)->attstorage != TYPSTORAGE_PLAIN)
 
 /*
  * Setup for caching pass-by-ref missing attributes in a way that survives
@@ -148,20 +148,21 @@ getmissingattr(TupleDesc tupleDesc,
 			   int attnum, bool *isnull)
 {
 	TupleDescAttr *att;
+	TupleDescAttrExtra *attEx;
 
 	Assert(attnum <= tupleDesc->natts);
 	Assert(attnum > 0);
 
 	att = TupleDescAttr(tupleDesc, attnum - 1);
+	attEx = TupleDescExtraAttr(tupleDesc->extra, attnum - 1);
 
-	if (att->atthasmissing)
+	if (attEx->atthasmissing)
 	{
 		AttrMissing *attrmiss;
 
-		Assert(tupleDesc->constr);
-		Assert(tupleDesc->constr->missing);
+		Assert(tupleDesc->extra->missing);
 
-		attrmiss = tupleDesc->constr->missing + (attnum - 1);
+		attrmiss = tupleDesc->extra->missing + (attnum - 1);
 
 		if (attrmiss->am_present)
 		{
@@ -223,15 +224,18 @@ heap_compute_data_size(TupleDesc tupleDesc,
 	for (i = 0; i < numberOfAttributes; i++)
 	{
 		Datum		val;
-		Form_pg_attribute atti;
+		TupleDescAttr *atti;
+		TupleDescAttrExtra *attiEx;
 
 		if (isnull[i])
 			continue;
 
 		val = values[i];
 		atti = TupleDescAttr(tupleDesc, i);
+		attiEx = TupleDescExtraAttr(tupleDesc->extra, i);
 
-		if (ATT_IS_PACKABLE(atti) &&
+		/* XXX pack attstorage into TupleDescAttr? */
+		if (ATT_IS_PACKABLE(atti, attiEx) &&
 			VARATT_CAN_MAKE_SHORT(DatumGetPointer(val)))
 		{
 			/*
@@ -268,7 +272,8 @@ heap_compute_data_size(TupleDesc tupleDesc,
  * Fill in either a data value or a bit in the null bitmask
  */
 static inline void
-fill_val(Form_pg_attribute att,
+fill_val(TupleDescAttr *att,
+		 TupleDescAttrExtra *attEx,
 		 bits8 **bit,
 		 int *bitmask,
 		 char **dataP,
@@ -349,7 +354,7 @@ fill_val(Form_pg_attribute att,
 			data_length = VARSIZE_SHORT(val);
 			memcpy(data, val, data_length);
 		}
-		else if (VARLENA_ATT_IS_PACKABLE(att) &&
+		else if (VARLENA_ATT_IS_PACKABLE(attEx) &&
 				 VARATT_CAN_MAKE_SHORT(val))
 		{
 			/* convert to short varlena -- no alignment */
@@ -402,6 +407,7 @@ heap_fill_tuple(TupleDesc tupleDesc,
 				char *data, Size data_size,
 				uint16 *infomask, bits8 *bit)
 {
+	TupleDescExtra *extra = tupleDesc->extra;
 	bits8	   *bitP;
 	int			bitmask;
 	int			i;
@@ -427,9 +433,11 @@ heap_fill_tuple(TupleDesc tupleDesc,
 
 	for (i = 0; i < numberOfAttributes; i++)
 	{
-		Form_pg_attribute attr = TupleDescAttr(tupleDesc, i);
+		TupleDescAttr *attr = TupleDescAttr(tupleDesc, i);
+		TupleDescAttrExtra *attrEx = TupleDescExtraAttr(extra, i);
 
 		fill_val(attr,
+				 attrEx,
 				 bitP ? &bitP : NULL,
 				 &bitmask,
 				 &data,
@@ -461,7 +469,7 @@ heap_attisnull(HeapTuple tup, int attnum, TupleDesc tupleDesc)
 	Assert(!tupleDesc || attnum <= tupleDesc->natts);
 	if (attnum > (int) HeapTupleHeaderGetNatts(tup->t_data))
 	{
-		if (tupleDesc && TupleDescAttr(tupleDesc, attnum - 1)->atthasmissing)
+		if (tupleDesc && TupleDescExtraAttr(tupleDesc->extra, attnum - 1)->atthasmissing)
 			return false;
 		else
 			return true;
@@ -659,7 +667,7 @@ nocachegetattr(HeapTuple tup,
 		off = 0;
 		for (i = 0;; i++)		/* loop exit is at "break" */
 		{
-			Form_pg_attribute att = TupleDescAttr(tupleDesc, i);
+			TupleDescAttr *att = TupleDescAttr(tupleDesc, i);
 
 			if (HeapTupleHasNulls(tup) && att_isnull(i, bp))
 			{
@@ -830,6 +838,7 @@ expand_tuple(HeapTuple *targetHeapTuple,
 			 HeapTuple sourceTuple,
 			 TupleDesc tupleDesc)
 {
+	TupleDescExtra *extra = tupleDesc->extra;
 	AttrMissing *attrmiss = NULL;
 	int			attnum;
 	int			firstmissingnum;
@@ -858,15 +867,14 @@ expand_tuple(HeapTuple *targetHeapTuple,
 
 	targetDataLen = sourceDataLen;
 
-	if (tupleDesc->constr &&
-		tupleDesc->constr->missing)
+	if (tupleDesc->extra->missing)
 	{
 		/*
 		 * If there are missing values we want to put them into the tuple.
 		 * Before that we have to compute the extra length for the values
 		 * array and the variable length data.
 		 */
-		attrmiss = tupleDesc->constr->missing;
+		attrmiss = tupleDesc->extra->missing;
 
 		/*
 		 * Find the first item in attrmiss for which we don't have a value in
@@ -1022,10 +1030,12 @@ expand_tuple(HeapTuple *targetHeapTuple,
 	{
 
 		TupleDescAttr *attr = TupleDescAttr(tupleDesc, attnum);
+		TupleDescAttrExtra *attrEx = TupleDescExtraAttr(extra, attnum);
 
 		if (attrmiss && attrmiss[attnum].am_present)
 		{
 			fill_val(attr,
+					 attrEx,
 					 nullBits ? &nullBits : NULL,
 					 &bitMask,
 					 &targetData,
@@ -1036,6 +1046,7 @@ expand_tuple(HeapTuple *targetHeapTuple,
 		else
 		{
 			fill_val(attr,
+					 attrEx,
 					 &nullBits,
 					 &bitMask,
 					 &targetData,

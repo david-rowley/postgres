@@ -5333,6 +5333,8 @@ static void
 serialize_prepare_info(SerializeDestReceiver *receiver,
 					   TupleDesc typeinfo, int nattrs)
 {
+	TupleDescExtra *extra = typeinfo->extra;
+
 	/* get rid of any old data */
 	if (receiver->finfos)
 		pfree(receiver->finfos);
@@ -5348,7 +5350,7 @@ serialize_prepare_info(SerializeDestReceiver *receiver,
 	for (int i = 0; i < nattrs; i++)
 	{
 		FmgrInfo   *finfo = receiver->finfos + i;
-		Form_pg_attribute attr = TupleDescAttr(typeinfo, i);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
 		Oid			typoutput;
 		Oid			typsend;
 		bool		typisvarlena;
@@ -5356,7 +5358,7 @@ serialize_prepare_info(SerializeDestReceiver *receiver,
 		if (receiver->format == 0)
 		{
 			/* wire protocol format text */
-			getTypeOutputInfo(attr->atttypid,
+			getTypeOutputInfo(attEx->atttypid,
 							  &typoutput,
 							  &typisvarlena);
 			fmgr_info(typoutput, finfo);
@@ -5364,7 +5366,7 @@ serialize_prepare_info(SerializeDestReceiver *receiver,
 		else if (receiver->format == 1)
 		{
 			/* wire protocol format binary */
-			getTypeBinaryOutputInfo(attr->atttypid,
+			getTypeBinaryOutputInfo(attEx->atttypid,
 									&typsend,
 									&typisvarlena);
 			fmgr_info(typsend, finfo);

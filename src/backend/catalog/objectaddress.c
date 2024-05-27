@@ -1571,7 +1571,7 @@ get_object_address_attrdef(ObjectType objtype, List *object,
 	/* Look up attribute number and fetch the pg_attrdef OID */
 	attnum = get_attnum(reloid, attname);
 	defoid = InvalidOid;
-	if (attnum != InvalidAttrNumber && tupdesc->constr != NULL)
+	if (attnum != InvalidAttrNumber)
 		defoid = GetAttrDefaultOid(reloid, attnum);
 	if (!OidIsValid(defoid))
 	{

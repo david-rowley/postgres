@@ -1829,7 +1829,7 @@ check_sql_fn_retval(List *queryTreeLists,
 		foreach(lc, tlist)
 		{
 			TargetEntry *tle = (TargetEntry *) lfirst(lc);
-			Form_pg_attribute attr;
+			TupleDescAttrExtra *attr;
 
 			/* resjunk columns can simply be ignored */
 			if (tle->resjunk)
@@ -1844,7 +1844,7 @@ check_sql_fn_retval(List *queryTreeLists,
 							 errmsg("return type mismatch in function declared to return %s",
 									format_type_be(rettype)),
 							 errdetail("Final statement returns too many columns.")));
-				attr = TupleDescAttr(rettupdesc, colindex - 1);
+				attr = TupleDescExtraAttr(rettupdesc->extra, colindex - 1);
 				if (attr->attisdropped && insertDroppedCols)
 				{
 					Expr	   *null_expr;
@@ -1885,7 +1885,7 @@ check_sql_fn_retval(List *queryTreeLists,
 		/* remaining columns in rettupdesc had better all be dropped */
 		for (colindex++; colindex <= tupnatts; colindex++)
 		{
-			if (!TupleDescAttr(rettupdesc, colindex - 1)->attisdropped)
+			if (!TupleDescExtraAttr(rettupdesc->extra, colindex - 1)->attisdropped)
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_FUNCTION_DEFINITION),
 						 errmsg("return type mismatch in function declared to return %s",

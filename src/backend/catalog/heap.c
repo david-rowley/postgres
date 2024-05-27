@@ -456,6 +456,7 @@ void
 CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind,
 						 int flags)
 {
+	TupleDescExtra *extra = tupdesc->extra;
 	int			i;
 	int			j;
 	int			natts = tupdesc->natts;
@@ -477,13 +478,13 @@ CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind,
 	{
 		for (i = 0; i < natts; i++)
 		{
-			Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+			TupleDescAttrExtra *attrEx = TupleDescExtraAttr(extra, i);
 
-			if (SystemAttributeByName(NameStr(attr->attname)) != NULL)
+			if (SystemAttributeByName(NameStr(attrEx->attname)) != NULL)
 				ereport(ERROR,
 						(errcode(ERRCODE_DUPLICATE_COLUMN),
 						 errmsg("column name \"%s\" conflicts with a system column name",
-								NameStr(attr->attname))));
+								NameStr(attrEx->attname))));
 		}
 	}
 
@@ -494,12 +495,12 @@ CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind,
 	{
 		for (j = 0; j < i; j++)
 		{
-			if (strcmp(NameStr(TupleDescAttr(tupdesc, j)->attname),
-					   NameStr(TupleDescAttr(tupdesc, i)->attname)) == 0)
+			if (strcmp(NameStr(TupleDescExtraAttr(extra, j)->attname),
+					   NameStr(TupleDescExtraAttr(extra, i)->attname)) == 0)
 				ereport(ERROR,
 						(errcode(ERRCODE_DUPLICATE_COLUMN),
 						 errmsg("column name \"%s\" specified more than once",
-								NameStr(TupleDescAttr(tupdesc, j)->attname))));
+								NameStr(TupleDescAttr(extra, j)->attname))));
 		}
 	}
 
@@ -508,9 +509,9 @@ CheckAttributeNamesTypes(TupleDesc tupdesc, char relkind,
 	 */
 	for (i = 0; i < natts; i++)
 	{
-		CheckAttributeType(NameStr(TupleDescAttr(tupdesc, i)->attname),
-						   TupleDescAttr(tupdesc, i)->atttypid,
-						   TupleDescAttr(tupdesc, i)->attcollation,
+		CheckAttributeType(NameStr(TupleDescExtraAttr(extra, i)->attname),
+						   TupleDescExtraAttr(extra, i)->atttypid,
+						   TupleDescExtraAttr(extra, i)->attcollation,
 						   NIL, /* assume we're creating a new rowtype */
 						   flags);
 	}
@@ -601,6 +602,7 @@ CheckAttributeType(const char *attname,
 		 */
 		Relation	relation;
 		TupleDesc	tupdesc;
+		TupleDescExtra *extra = tupdesc->extra;
 		int			i;
 
 		/*
@@ -623,12 +625,12 @@ CheckAttributeType(const char *attname,
 
 		for (i = 0; i < tupdesc->natts; i++)
 		{
-			Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+			TupleDescAttrExtra *attrEx = TupleDescExtraAttr(extra, i);
 
-			if (attr->attisdropped)
+			if (attrEx->attisdropped)
 				continue;
-			CheckAttributeType(NameStr(attr->attname),
-							   attr->atttypid, attr->attcollation,
+			CheckAttributeType(NameStr(attrEx->attname),
+							   attrEx->atttypid, attrEx->attcollation,
 							   containing_rowtypes,
 							   flags & ~CHKATYPE_IS_PARTKEY);
 		}
@@ -705,6 +707,7 @@ InsertPgAttributeTuples(Relation pg_attribute_rel,
 						const FormExtraData_pg_attribute tupdesc_extra[],
 						CatalogIndexState indstate)
 {
+	TupleDescExtra *extra = tupdesc->extra;
 	TupleTableSlot **slot;
 	TupleDesc	td;
 	int			nslots;
@@ -723,7 +726,9 @@ InsertPgAttributeTuples(Relation pg_attribute_rel,
 
 	while (natts < tupdesc->natts)
 	{
-		Form_pg_attribute attrs = TupleDescAttr(tupdesc, natts);
+		TupleDescAttr *attrs = TupleDescAttr(tupdesc, natts);
+		TupleDescAttrExtra *attrsEx = TupleDescExtraAttr(extra, natts);
+
 		const FormExtraData_pg_attribute *attrs_extra = tupdesc_extra ? &tupdesc_extra[natts] : NULL;
 
 		ExecClearTuple(slot[slotCount]);
@@ -734,28 +739,28 @@ InsertPgAttributeTuples(Relation pg_attribute_rel,
 		if (new_rel_oid != InvalidOid)
 			slot[slotCount]->tts_values[Anum_pg_attribute_attrelid - 1] = ObjectIdGetDatum(new_rel_oid);
 		else
-			slot[slotCount]->tts_values[Anum_pg_attribute_attrelid - 1] = ObjectIdGetDatum(attrs->attrelid);
+			slot[slotCount]->tts_values[Anum_pg_attribute_attrelid - 1] = ObjectIdGetDatum(attrsEx->attrelid);
 
-		slot[slotCount]->tts_values[Anum_pg_attribute_attname - 1] = NameGetDatum(&attrs->attname);
-		slot[slotCount]->tts_values[Anum_pg_attribute_atttypid - 1] = ObjectIdGetDatum(attrs->atttypid);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attname - 1] = NameGetDatum(&attrsEx->attname);
+		slot[slotCount]->tts_values[Anum_pg_attribute_atttypid - 1] = ObjectIdGetDatum(attrsEx->atttypid);
 		slot[slotCount]->tts_values[Anum_pg_attribute_attlen - 1] = Int16GetDatum(attrs->attlen);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attnum - 1] = Int16GetDatum(attrs->attnum);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attnum - 1] = Int16GetDatum(attrsEx->attnum);
 		slot[slotCount]->tts_values[Anum_pg_attribute_attcacheoff - 1] = Int32GetDatum(-1);
-		slot[slotCount]->tts_values[Anum_pg_attribute_atttypmod - 1] = Int32GetDatum(attrs->atttypmod);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attndims - 1] = Int16GetDatum(attrs->attndims);
+		slot[slotCount]->tts_values[Anum_pg_attribute_atttypmod - 1] = Int32GetDatum(attrsEx->atttypmod);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attndims - 1] = Int16GetDatum(attrsEx->attndims);
 		slot[slotCount]->tts_values[Anum_pg_attribute_attbyval - 1] = BoolGetDatum(attrs->attbyval);
 		slot[slotCount]->tts_values[Anum_pg_attribute_attalign - 1] = CharGetDatum(attrs->attalign);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attstorage - 1] = CharGetDatum(attrs->attstorage);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attcompression - 1] = CharGetDatum(attrs->attcompression);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attnotnull - 1] = BoolGetDatum(attrs->attnotnull);
-		slot[slotCount]->tts_values[Anum_pg_attribute_atthasdef - 1] = BoolGetDatum(attrs->atthasdef);
-		slot[slotCount]->tts_values[Anum_pg_attribute_atthasmissing - 1] = BoolGetDatum(attrs->atthasmissing);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attidentity - 1] = CharGetDatum(attrs->attidentity);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attgenerated - 1] = CharGetDatum(attrs->attgenerated);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attisdropped - 1] = BoolGetDatum(attrs->attisdropped);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attislocal - 1] = BoolGetDatum(attrs->attislocal);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attinhcount - 1] = Int16GetDatum(attrs->attinhcount);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attcollation - 1] = ObjectIdGetDatum(attrs->attcollation);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attstorage - 1] = CharGetDatum(attrsEx->attstorage);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attcompression - 1] = CharGetDatum(attrsEx->attcompression);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attnotnull - 1] = BoolGetDatum(attrsEx->attnotnull);
+		slot[slotCount]->tts_values[Anum_pg_attribute_atthasdef - 1] = BoolGetDatum(attrsEx->atthasdef);
+		slot[slotCount]->tts_values[Anum_pg_attribute_atthasmissing - 1] = BoolGetDatum(attrsEx->atthasmissing);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attidentity - 1] = CharGetDatum(attrsEx->attidentity);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attgenerated - 1] = CharGetDatum(attrsEx->attgenerated);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attisdropped - 1] = BoolGetDatum(attrsEx->attisdropped);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attislocal - 1] = BoolGetDatum(attrsEx->attislocal);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attinhcount - 1] = Int16GetDatum(attrsEx->attinhcount);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attcollation - 1] = ObjectIdGetDatum(attrsEx->attcollation);
 		if (attrs_extra)
 		{
 			slot[slotCount]->tts_values[Anum_pg_attribute_attstattarget - 1] = attrs_extra->attstattarget.value;
@@ -839,18 +844,19 @@ AddNewAttributeTuples(Oid new_rel_oid,
 	/* add dependencies on their datatypes and collations */
 	for (int i = 0; i < natts; i++)
 	{
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(tupdesc->extra, i);
+
 		/* Add dependency info */
 		ObjectAddressSubSet(myself, RelationRelationId, new_rel_oid, i + 1);
-		ObjectAddressSet(referenced, TypeRelationId,
-						 tupdesc->attrs[i].atttypid);
+		ObjectAddressSet(referenced, TypeRelationId, attEx->atttypid);
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 
 		/* The default collation is pinned, so don't bother recording it */
-		if (OidIsValid(tupdesc->attrs[i].attcollation) &&
-			tupdesc->attrs[i].attcollation != DEFAULT_COLLATION_OID)
+		if (OidIsValid(attEx->attcollation) &&
+			attEx->attcollation != DEFAULT_COLLATION_OID)
 		{
 			ObjectAddressSet(referenced, CollationRelationId,
-							 tupdesc->attrs[i].attcollation);
+							 attEx->attcollation);
 			recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 		}
 	}
@@ -2257,7 +2263,7 @@ AddRelationNewConstraints(Relation rel,
 {
 	List	   *cookedConstraints = NIL;
 	TupleDesc	tupleDesc;
-	TupleConstr *oldconstr;
+	TupleDescExtra *oldextra;
 	int			numoldchecks;
 	ParseState *pstate;
 	ParseNamespaceItem *nsitem;
@@ -2270,11 +2276,8 @@ AddRelationNewConstraints(Relation rel,
 	 * Get info about existing constraints.
 	 */
 	tupleDesc = RelationGetDescr(rel);
-	oldconstr = tupleDesc->constr;
-	if (oldconstr)
-		numoldchecks = oldconstr->num_check;
-	else
-		numoldchecks = 0;
+	oldextra = tupleDesc->extra;
+	numoldchecks = oldextra->num_check;
 
 	/*
 	 * Create a dummy ParseState and insert the target relation as its sole
@@ -2295,7 +2298,7 @@ AddRelationNewConstraints(Relation rel,
 	 */
 	foreach_ptr(RawColumnDefault, colDef, newColDefaults)
 	{
-		Form_pg_attribute atp = TupleDescAttr(rel->rd_att, colDef->attnum - 1);
+		TupleDescAttrExtra *atp = TupleDescExtraAttr(rel->rd_att->extra, colDef->attnum - 1);
 		Oid			defOid;
 
 		expr = cookDefault(pstate, colDef->raw_default,

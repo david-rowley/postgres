@@ -2043,14 +2043,16 @@ heapam_relation_needs_toast_table(Relation rel)
 	bool		maxlength_unknown = false;
 	bool		has_toastable_attrs = false;
 	TupleDesc	tupdesc = rel->rd_att;
+	TupleDescExtra *extra = tupdesc->extra;
 	int32		tuple_length;
 	int			i;
 
 	for (i = 0; i < tupdesc->natts; i++)
 	{
-		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+		TupleDescAttr *att = TupleDescAttr(tupdesc, i);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
 
-		if (att->attisdropped)
+		if (attEx->attisdropped)
 			continue;
 		data_length = att_align_nominal(data_length, att->attalign);
 		if (att->attlen > 0)
@@ -2060,14 +2062,14 @@ heapam_relation_needs_toast_table(Relation rel)
 		}
 		else
 		{
-			int32		maxlen = type_maximum_size(att->atttypid,
-												   att->atttypmod);
+			int32		maxlen = type_maximum_size(attEx->atttypid,
+												   attEx->atttypmod);
 
 			if (maxlen < 0)
 				maxlength_unknown = true;
 			else
 				data_length += maxlen;
-			if (att->attstorage != TYPSTORAGE_PLAIN)
+			if (attEx->attstorage != TYPSTORAGE_PLAIN)
 				has_toastable_attrs = true;
 		}
 	}
@@ -2516,6 +2518,7 @@ reform_and_rewrite_tuple(HeapTuple tuple,
 {
 	TupleDesc	oldTupDesc = RelationGetDescr(OldHeap);
 	TupleDesc	newTupDesc = RelationGetDescr(NewHeap);
+	TupleDescExtra *newExtra = newTupDesc->extra;
 	HeapTuple	copiedTuple;
 	int			i;
 
@@ -2524,7 +2527,7 @@ reform_and_rewrite_tuple(HeapTuple tuple,
 	/* Be sure to null out any dropped columns */
 	for (i = 0; i < newTupDesc->natts; i++)
 	{
-		if (TupleDescAttr(newTupDesc, i)->attisdropped)
+		if (TupleDescExtraAttr(newExtra, i)->attisdropped)
 			isnull[i] = true;
 	}
 

@@ -588,13 +588,13 @@ BeginCopyTo(ParseState *pstate,
 		foreach(cur, attnums)
 		{
 			int			attnum = lfirst_int(cur);
-			Form_pg_attribute attr = TupleDescAttr(tupDesc, attnum - 1);
+			TupleDescAttrExtra *attrEx = TupleDescExtraAttr(tupDesc->extra, attnum - 1);
 
 			if (!list_member_int(cstate->attnumlist, attnum))
 				ereport(ERROR,
 						(errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
 						 errmsg("FORCE_QUOTE column \"%s\" not referenced by COPY",
-								NameStr(attr->attname))));
+								NameStr(attrEx->attname))));
 			cstate->opts.force_quote_flags[attnum - 1] = true;
 		}
 	}
@@ -744,6 +744,7 @@ DoCopyTo(CopyToState cstate)
 	bool		pipe = (cstate->filename == NULL && cstate->data_dest_cb == NULL);
 	bool		fe_copy = (pipe && whereToSendOutput == DestRemote);
 	TupleDesc	tupDesc;
+	TupleDescExtra *extra;
 	int			num_phys_attrs;
 	ListCell   *cur;
 	uint64		processed;
@@ -755,7 +756,10 @@ DoCopyTo(CopyToState cstate)
 		tupDesc = RelationGetDescr(cstate->rel);
 	else
 		tupDesc = cstate->queryDesc->tupDesc;
+
 	num_phys_attrs = tupDesc->natts;
+	extra = tupDesc->extra;
+
 	cstate->opts.null_print_client = cstate->opts.null_print;	/* default */
 
 	/* We use fe_msgbuf as a per-row buffer regardless of copy_dest */
@@ -768,14 +772,14 @@ DoCopyTo(CopyToState cstate)
 		int			attnum = lfirst_int(cur);
 		Oid			out_func_oid;
 		bool		isvarlena;
-		Form_pg_attribute attr = TupleDescAttr(tupDesc, attnum - 1);
+		TupleDescAttrExtra *attEx = TupleDescAttr(extra, attnum - 1);
 
 		if (cstate->opts.binary)
-			getTypeBinaryOutputInfo(attr->atttypid,
+			getTypeBinaryOutputInfo(attEx->atttypid,
 									&out_func_oid,
 									&isvarlena);
 		else
-			getTypeOutputInfo(attr->atttypid,
+			getTypeOutputInfo(attEx->atttypid,
 							  &out_func_oid,
 							  &isvarlena);
 		fmgr_info(out_func_oid, &cstate->out_functions[attnum - 1]);
@@ -830,7 +834,7 @@ DoCopyTo(CopyToState cstate)
 					CopySendChar(cstate, cstate->opts.delim[0]);
 				hdr_delim = true;
 
-				colname = NameStr(TupleDescAttr(tupDesc, attnum - 1)->attname);
+				colname = NameStr(TupleDescExtraAttr(tupDesc->extra, attnum - 1)->attname);
 
 				if (cstate->opts.csv_mode)
 					CopyAttributeOutCSV(cstate, colname, false);

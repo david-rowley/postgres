@@ -507,6 +507,7 @@ publication_translate_columns(Relation targetrel, List *columns,
 	ListCell   *lc;
 	int			n = 0;
 	TupleDesc	tupdesc = RelationGetDescr(targetrel);
+	TupleDescExtra *extra = tupdesc->extra;
 
 	/* Bail out when no column list defined. */
 	if (!columns)
@@ -534,7 +535,7 @@ publication_translate_columns(Relation targetrel, List *columns,
 					errmsg("cannot use system column \"%s\" in publication column list",
 						   colname));
 
-		if (TupleDescAttr(tupdesc, attnum - 1)->attgenerated)
+		if (TupleDescExtraAttr(extra, attnum - 1)->attgenerated)
 			ereport(ERROR,
 					errcode(ERRCODE_INVALID_COLUMN_REFERENCE),
 					errmsg("cannot use generated column \"%s\" in publication column list",
@@ -1224,18 +1225,19 @@ pg_get_publication_tables(PG_FUNCTION_ARGS)
 			int			nattnums = 0;
 			int16	   *attnums;
 			TupleDesc	desc = RelationGetDescr(rel);
+			TupleDescExtra *extra = desc->extra;
 			int			i;
 
 			attnums = (int16 *) palloc(desc->natts * sizeof(int16));
 
 			for (i = 0; i < desc->natts; i++)
 			{
-				Form_pg_attribute att = TupleDescAttr(desc, i);
+				TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
 
-				if (att->attisdropped || att->attgenerated)
+				if (attEx->attisdropped || attEx->attgenerated)
 					continue;
 
-				attnums[nattnums++] = att->attnum;
+				attnums[nattnums++] = attEx->attnum;
 			}
 
 			if (nattnums > 0)

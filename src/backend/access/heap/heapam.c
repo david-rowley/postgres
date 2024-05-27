@@ -4079,7 +4079,7 @@ static bool
 heap_attr_equals(TupleDesc tupdesc, int attrnum, Datum value1, Datum value2,
 				 bool isnull1, bool isnull2)
 {
-	Form_pg_attribute att;
+	TupleDescAttr *att;
 
 	/*
 	 * If one value is NULL and other is not, then they are certainly not

@@ -103,7 +103,7 @@ ExecSort(PlanState *pstate)
 			tuplesortopts |= TUPLESORT_ALLOWBOUNDED;
 
 		if (node->datumSort)
-			tuplesortstate = tuplesort_begin_datum(TupleDescAttr(tupDesc, 0)->atttypid,
+			tuplesortstate = tuplesort_begin_datum(TupleDescExtraAttr(tupDesc->extra, 0)->atttypid,
 												   plannode->sortOperators[0],
 												   plannode->collations[0],
 												   plannode->nullsFirst[0],

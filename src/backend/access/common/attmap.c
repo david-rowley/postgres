@@ -76,6 +76,8 @@ build_attrmap_by_position(TupleDesc indesc,
 						  TupleDesc outdesc,
 						  const char *msg)
 {
+	TupleDescExtra *inextra = indesc->extra;
+	TupleDescExtra *outextra = outdesc->extra;
 	AttrMap    *attrMap;
 	int			nincols;
 	int			noutcols;
@@ -97,30 +99,31 @@ build_attrmap_by_position(TupleDesc indesc,
 	for (i = 0; i < n; i++)
 	{
 		TupleDescAttr *att = TupleDescAttr(outdesc, i);
-		Oid			atttypid;
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(outextra, i);
+		Oid atttypid;
 		int32		atttypmod;
 
-		if (att->attisdropped)
+		if (attEx->attisdropped)
 			continue;			/* attrMap->attnums[i] is already 0 */
 		noutcols++;
-		atttypid = att->atttypid;
-		atttypmod = att->atttypmod;
+		atttypid = attEx->atttypid;
+		atttypmod = attEx->atttypmod;
 		for (; j < indesc->natts; j++)
 		{
-			att = TupleDescAttr(indesc, j);
-			if (att->attisdropped)
+			attEx = TupleDescExtraAttr(inextra, j);
+			if (attEx->attisdropped)
 				continue;
 			nincols++;
 
 			/* Found matching column, now check type */
-			if (atttypid != att->atttypid ||
-				(atttypmod != att->atttypmod && atttypmod >= 0))
+			if (atttypid != attEx->atttypid ||
+				(atttypmod != attEx->atttypmod && atttypmod >= 0))
 				ereport(ERROR,
 						(errcode(ERRCODE_DATATYPE_MISMATCH),
 						 errmsg_internal("%s", _(msg)),
 						 errdetail("Returned type %s does not match expected type %s in column %d.",
-								   format_type_with_typemod(att->atttypid,
-															att->atttypmod),
+								   format_type_with_typemod(attEx->atttypid,
+															attEx->atttypmod),
 								   format_type_with_typemod(atttypid,
 															atttypmod),
 								   noutcols)));
@@ -135,7 +138,7 @@ build_attrmap_by_position(TupleDesc indesc,
 	/* Check for unused input columns */
 	for (; j < indesc->natts; j++)
 	{
-		if (TupleDescAttr(indesc, j)->attisdropped)
+		if (TupleDescExtraAttr(indesc->extra, j)->attisdropped)
 			continue;
 		nincols++;
 		same = false;			/* we'll complain below */
@@ -190,7 +193,7 @@ build_attrmap_by_name(TupleDesc indesc,
 	attrMap = make_attrmap(outnatts);
 	for (i = 0; i < outnatts; i++)
 	{
-		TupleDescAttr *outatt = TupleDescAttr(outdesc, i);
+		TupleDescAttrExtra *outatt = TupleDescExtraAttr(outdesc->extra, i);
 		char	   *attname;
 		Oid			atttypid;
 		int32		atttypmod;
@@ -215,19 +218,19 @@ build_attrmap_by_name(TupleDesc indesc,
 		 */
 		for (j = 0; j < innatts; j++)
 		{
-			Form_pg_attribute inatt;
+			TupleDescAttrExtra *inattEx;
 
 			nextindesc++;
 			if (nextindesc >= innatts)
 				nextindesc = 0;
 
-			inatt = TupleDescAttr(indesc, nextindesc);
-			if (inatt->attisdropped)
+			inattEx = TupleDescExtraAttr(indesc->extra, nextindesc);
+			if (inattEx->attisdropped)
 				continue;
-			if (strcmp(attname, NameStr(inatt->attname)) == 0)
+			if (strcmp(attname, NameStr(inattEx->attname)) == 0)
 			{
 				/* Found it, check type */
-				if (atttypid != inatt->atttypid || atttypmod != inatt->atttypmod)
+				if (atttypid != inattEx->atttypid || atttypmod != inattEx->atttypmod)
 					ereport(ERROR,
 							(errcode(ERRCODE_DATATYPE_MISMATCH),
 							 errmsg("could not convert row type"),
@@ -235,7 +238,7 @@ build_attrmap_by_name(TupleDesc indesc,
 									   attname,
 									   format_type_be(outdesc->tdtypeid),
 									   format_type_be(indesc->tdtypeid))));
-				attrMap->attnums[i] = inatt->attnum;
+				attrMap->attnums[i] = inattEx->attnum;
 				break;
 			}
 		}
@@ -291,21 +294,28 @@ check_attrmap_match(TupleDesc indesc,
 					TupleDesc outdesc,
 					AttrMap *attrMap)
 {
+	TupleDescExtra *inextra;
+	TupleDescExtra *outextra;
 	int			i;
 
 	/* no match if attribute numbers are not the same */
 	if (indesc->natts != outdesc->natts)
 		return false;
 
+	inextra = indesc->extra;
+	outextra = outdesc->extra;
+
 	for (i = 0; i < attrMap->maplen; i++)
 	{
-		Form_pg_attribute inatt = TupleDescAttr(indesc, i);
-		Form_pg_attribute outatt = TupleDescAttr(outdesc, i);
+		TupleDescAttr *inatt = TupleDescAttr(indesc, i);
+		TupleDescAttr *outatt = TupleDescAttr(outdesc, i);
+		TupleDescAttrExtra *inattex = TupleDescExtraAttr(inextra, i);
+		TupleDescAttrExtra *outattex = TupleDescExtraAttr(outextra, i);
 
 		/*
 		 * If the input column has a missing attribute, we need a conversion.
 		 */
-		if (inatt->atthasmissing)
+		if (inattex->atthasmissing)
 			return false;
 
 		if (attrMap->attnums[i] == (i + 1))
@@ -317,7 +327,7 @@ check_attrmap_match(TupleDesc indesc,
 		 * must agree.
 		 */
 		if (attrMap->attnums[i] == 0 &&
-			inatt->attisdropped &&
+			inattex->attisdropped &&
 			inatt->attlen == outatt->attlen &&
 			inatt->attalign == outatt->attalign)
 			continue;

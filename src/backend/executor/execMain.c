@@ -1718,8 +1718,8 @@ ExecRelCheck(ResultRelInfo *resultRelInfo,
 			 TupleTableSlot *slot, EState *estate)
 {
 	Relation	rel = resultRelInfo->ri_RelationDesc;
-	int			ncheck = rel->rd_att->constr->num_check;
-	ConstrCheck *check = rel->rd_att->constr->check;
+	int			ncheck = rel->rd_att->extra->num_check;
+	ConstrCheck *check = rel->rd_att->extra->check;
 	ExprContext *econtext;
 	MemoryContext oldContext;
 	int			i;
@@ -1918,21 +1918,19 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 {
 	Relation	rel = resultRelInfo->ri_RelationDesc;
 	TupleDesc	tupdesc = RelationGetDescr(rel);
-	TupleConstr *constr = tupdesc->constr;
+	TupleDescExtra *extra = tupdesc->extra;
 	Bitmapset  *modifiedCols;
 
-	Assert(constr);				/* we should not be called otherwise */
-
-	if (constr->has_not_null)
+	if (extra->has_not_null)
 	{
 		int			natts = tupdesc->natts;
 		int			attrChk;
 
 		for (attrChk = 1; attrChk <= natts; attrChk++)
 		{
-			Form_pg_attribute att = TupleDescAttr(tupdesc, attrChk - 1);
+			TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, attrChk - 1);
 
-			if (att->attnotnull && slot_attisnull(slot, attrChk))
+			if (attEx->attnotnull && slot_attisnull(slot, attrChk))
 			{
 				char	   *val_desc;
 				Relation	orig_rel = rel;
@@ -1979,7 +1977,7 @@ ExecConstraints(ResultRelInfo *resultRelInfo,
 				ereport(ERROR,
 						(errcode(ERRCODE_NOT_NULL_VIOLATION),
 						 errmsg("null value in column \"%s\" of relation \"%s\" violates not-null constraint",
-								NameStr(att->attname),
+								NameStr(attEx->attname),
 								RelationGetRelationName(orig_rel)),
 						 val_desc ? errdetail("Failing row contains %s.", val_desc) : 0,
 						 errtablecol(orig_rel, attrChk)));
@@ -2217,6 +2215,7 @@ ExecBuildSlotValueDescription(Oid reloid,
 							  Bitmapset *modifiedCols,
 							  int maxfieldlen)
 {
+	TupleDescExtra *extra = tupdesc->extra;
 	StringInfoData buf;
 	StringInfoData collist;
 	bool		write_comma = false;
@@ -2263,10 +2262,10 @@ ExecBuildSlotValueDescription(Oid reloid,
 		bool		column_perm = false;
 		char	   *val;
 		int			vallen;
-		Form_pg_attribute att = TupleDescAttr(tupdesc, i);
+		TupleDescAttrExtra *attEx = TupleDescExtraAttr(extra, i);
 
 		/* ignore dropped columns */
-		if (att->attisdropped)
+		if (attEx->attisdropped)
 			continue;
 
 		if (!table_perm)
@@ -2277,9 +2276,9 @@ ExecBuildSlotValueDescription(Oid reloid,
 			 * for the column.  If not, omit this column from the error
 			 * message.
 			 */
-			aclresult = pg_attribute_aclcheck(reloid, att->attnum,
+			aclresult = pg_attribute_aclcheck(reloid, attEx->attnum,
 											  GetUserId(), ACL_SELECT);
-			if (bms_is_member(att->attnum - FirstLowInvalidHeapAttributeNumber,
+			if (bms_is_member(attEx->attnum - FirstLowInvalidHeapAttributeNumber,
 							  modifiedCols) || aclresult == ACLCHECK_OK)
 			{
 				column_perm = any_perm = true;
@@ -2289,7 +2288,7 @@ ExecBuildSlotValueDescription(Oid reloid,
 				else
 					write_comma_collist = true;
 
-				appendStringInfoString(&collist, NameStr(att->attname));
+				appendStringInfoString(&collist, NameStr(attEx->attname));
 			}
 		}
 
@@ -2302,7 +2301,7 @@ ExecBuildSlotValueDescription(Oid reloid,
 				Oid			foutoid;
 				bool		typisvarlena;
 
-				getTypeOutputInfo(att->atttypid,
+				getTypeOutputInfo(attEx->atttypid,
 								  &foutoid, &typisvarlena);
 				val = OidOutputFunctionCall(foutoid, slot->tts_values[i]);
 			}
