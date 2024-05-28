@@ -187,10 +187,10 @@ tts_virtual_materialize(TupleTableSlot *slot)
 	/* compute size of memory required */
 	for (int natt = 0; natt < desc->natts; natt++)
 	{
-		Form_pg_attribute att = TupleDescAttr(desc, natt);
+		TupleDescDeformAttr *att = TupleDescDeformAttr(desc, natt);
 		Datum		val;
 
-		if (att->attbyval || slot->tts_isnull[natt])
+		if (DeformAttrByVal(att) || slot->tts_isnull[natt])
 			continue;
 
 		val = slot->tts_values[natt];
@@ -223,10 +223,10 @@ tts_virtual_materialize(TupleTableSlot *slot)
 	/* and copy all attributes into the pre-allocated space */
 	for (int natt = 0; natt < desc->natts; natt++)
 	{
-		Form_pg_attribute att = TupleDescAttr(desc, natt);
+		TupleDescDeformAttr *att = TupleDescDeformAttr(desc, natt);
 		Datum		val;
 
-		if (att->attbyval || slot->tts_isnull[natt])
+		if (DeformAttrByVal(att) || slot->tts_isnull[natt])
 			continue;
 
 		val = slot->tts_values[natt];
@@ -1044,7 +1044,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 
 	for (; attnum < natts; attnum++)
 	{
-		Form_pg_attribute thisatt = TupleDescAttr(tupleDesc, attnum);
+		TupleDescDeformAttr *thisatt = TupleDescDeformAttr(tupleDesc, attnum);
 
 		if (hasnulls && att_isnull(attnum, bp))
 		{
@@ -1085,7 +1085,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 				thisatt->attcacheoff = off;
 		}
 
-		values[attnum] = fetchatt(thisatt, tp + off);
+		values[attnum] = fetchatt_fast(thisatt, tp + off);
 
 		off = att_addlength_pointer(off, thisatt->attlen, tp + off);
 
@@ -2237,7 +2237,7 @@ BuildTupleFromCStrings(AttInMetadata *attinmeta, char **values)
 	 */
 	for (i = 0; i < natts; i++)
 	{
-		if (!TupleDescAttr(tupdesc, i)->attisdropped)
+		if (!DeformAttrIsDropped(TupleDescDeformAttr(tupdesc, i)))
 		{
 			/* Non-dropped attributes */
 			dvalues[i] = InputFunctionCall(&attinmeta->attinfuncs[i],

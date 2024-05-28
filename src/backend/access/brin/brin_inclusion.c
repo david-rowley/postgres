@@ -146,12 +146,12 @@ brin_inclusion_add_value(PG_FUNCTION_ARGS)
 	Datum		result;
 	bool		new = false;
 	AttrNumber	attno;
-	Form_pg_attribute attr;
+	TupleDescDeformAttr *attr;
 
 	Assert(!isnull);
 
 	attno = column->bv_attno;
-	attr = TupleDescAttr(bdesc->bd_tupdesc, attno - 1);
+	attr = TupleDescDeformAttr(bdesc->bd_tupdesc, attno - 1);
 
 	/*
 	 * If the recorded value is null, copy the new value (which we know to be
@@ -160,7 +160,7 @@ brin_inclusion_add_value(PG_FUNCTION_ARGS)
 	if (column->bv_allnulls)
 	{
 		column->bv_values[INCLUSION_UNION] =
-			datumCopy(newval, attr->attbyval, attr->attlen);
+			datumCopy(newval,  DeformAttrByVal(attr), attr->attlen);
 		column->bv_values[INCLUSION_UNMERGEABLE] = BoolGetDatum(false);
 		column->bv_values[INCLUSION_CONTAINS_EMPTY] = BoolGetDatum(false);
 		column->bv_allnulls = false;
@@ -225,13 +225,13 @@ brin_inclusion_add_value(PG_FUNCTION_ARGS)
 	Assert(finfo != NULL);
 	result = FunctionCall2Coll(finfo, colloid,
 							   column->bv_values[INCLUSION_UNION], newval);
-	if (!attr->attbyval &&
+	if (!DeformAttrByVal(attr) &&
 		DatumGetPointer(result) != DatumGetPointer(column->bv_values[INCLUSION_UNION]))
 	{
 		pfree(DatumGetPointer(column->bv_values[INCLUSION_UNION]));
 
 		if (result == newval)
-			result = datumCopy(result, attr->attbyval, attr->attlen);
+			result = datumCopy(result, DeformAttrByVal(attr), attr->attlen);
 	}
 	column->bv_values[INCLUSION_UNION] = result;
 
@@ -479,7 +479,7 @@ brin_inclusion_union(PG_FUNCTION_ARGS)
 	BrinValues *col_b = (BrinValues *) PG_GETARG_POINTER(2);
 	Oid			colloid = PG_GET_COLLATION();
 	AttrNumber	attno;
-	Form_pg_attribute attr;
+	TupleDescDeformAttr *attr;
 	FmgrInfo   *finfo;
 	Datum		result;
 
@@ -487,7 +487,7 @@ brin_inclusion_union(PG_FUNCTION_ARGS)
 	Assert(!col_a->bv_allnulls && !col_b->bv_allnulls);
 
 	attno = col_a->bv_attno;
-	attr = TupleDescAttr(bdesc->bd_tupdesc, attno - 1);
+	attr = TupleDescDeformAttr(bdesc->bd_tupdesc, attno - 1);
 
 	/* If B includes empty elements, mark A similarly, if needed. */
 	if (!DatumGetBool(col_a->bv_values[INCLUSION_CONTAINS_EMPTY]) &&
@@ -522,13 +522,13 @@ brin_inclusion_union(PG_FUNCTION_ARGS)
 	result = FunctionCall2Coll(finfo, colloid,
 							   col_a->bv_values[INCLUSION_UNION],
 							   col_b->bv_values[INCLUSION_UNION]);
-	if (!attr->attbyval &&
+	if (!DeformAttrByVal(attr) &&
 		DatumGetPointer(result) != DatumGetPointer(col_a->bv_values[INCLUSION_UNION]))
 	{
 		pfree(DatumGetPointer(col_a->bv_values[INCLUSION_UNION]));
 
 		if (result == col_b->bv_values[INCLUSION_UNION])
-			result = datumCopy(result, attr->attbyval, attr->attlen);
+			result = datumCopy(result, DeformAttrByVal(attr), attr->attlen);
 	}
 	col_a->bv_values[INCLUSION_UNION] = result;
 

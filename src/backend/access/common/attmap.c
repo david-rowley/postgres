@@ -135,7 +135,9 @@ build_attrmap_by_position(TupleDesc indesc,
 	/* Check for unused input columns */
 	for (; j < indesc->natts; j++)
 	{
-		if (TupleDescAttr(indesc, j)->attisdropped)
+		TupleDescDeformAttr *attr = TupleDescDeformAttr(indesc, j);
+
+		if (DeformAttrIsDropped(attr))
 			continue;
 		nincols++;
 		same = false;			/* we'll complain below */
@@ -299,17 +301,19 @@ check_attrmap_match(TupleDesc indesc,
 
 	for (i = 0; i < attrMap->maplen; i++)
 	{
-		Form_pg_attribute inatt = TupleDescAttr(indesc, i);
-		Form_pg_attribute outatt = TupleDescAttr(outdesc, i);
+		TupleDescDeformAttr *inatt = TupleDescDeformAttr(indesc, i);
+		TupleDescDeformAttr *outatt;
 
 		/*
 		 * If the input column has a missing attribute, we need a conversion.
 		 */
-		if (inatt->atthasmissing)
+		if (DeformAttrHasMissing(inatt))
 			return false;
 
 		if (attrMap->attnums[i] == (i + 1))
 			continue;
+
+		outatt = TupleDescDeformAttr(outdesc, i);
 
 		/*
 		 * If it's a dropped column and the corresponding input column is also
@@ -317,7 +321,7 @@ check_attrmap_match(TupleDesc indesc,
 		 * must agree.
 		 */
 		if (attrMap->attnums[i] == 0 &&
-			inatt->attisdropped &&
+			DeformAttrIsDropped(inatt) &&
 			inatt->attlen == outatt->attlen &&
 			inatt->attalign == outatt->attalign)
 			continue;

@@ -477,6 +477,8 @@ ConstructTupleDescriptor(Relation heapRelation,
 
 			ReleaseSysCache(tuple);
 		}
+
+		populate_TupleDescAttr(TupleDescDeformAttr(indexTupDesc, i), to);
 	}
 
 	pfree(amroutine);

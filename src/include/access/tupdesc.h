@@ -46,6 +46,43 @@ typedef struct TupleConstr
 } TupleConstr;
 
 /*
+ * Cut-down version of FormData_pg_attribute for faster access for tuple
+ * deformation.
+ */
+typedef struct TupleDescDeformAttr
+{
+	int32	attcacheoff;
+	int16	attlen;
+	uint8	attflags;
+	char	attalign;
+} TupleDescDeformAttr;
+
+#define DEFORM_ATTR_FLAG_BYVAL			(1 << 0)
+#define DEFORM_ATTR_FLAG_IS_PACKABLE	(1 << 1)
+#define DEFORM_ATTR_FLAG_HAS_MISSING	(1 << 2)
+#define DEFORM_ATTR_FLAG_IS_DROPPED		(1 << 3)
+#define DEFORM_ATTR_FLAG_IS_GENERATED	(1 << 4)
+#define DEFORM_ATTR_FLAG_IS_NOTNULL		(1 << 5)
+
+#define DeformAttrByVal(att) \
+	(((att)->attflags & DEFORM_ATTR_FLAG_BYVAL) != 0)
+
+#define DeformAttrIsPackable(att) \
+	(((att)->attflags & DEFORM_ATTR_FLAG_IS_PACKABLE) != 0)
+
+#define DeformAttrHasMissing(att) \
+	(((att)->attflags & DEFORM_ATTR_FLAG_HAS_MISSING) != 0)
+
+#define DeformAttrIsDropped(att) \
+	(((att)->attflags & DEFORM_ATTR_FLAG_IS_DROPPED) != 0)
+
+#define DeformAttrIsGenerated(att) \
+	(((att)->attflags & DEFORM_ATTR_FLAG_IS_GENERATED) != 0)
+
+#define DeformAttrIsNotNull(att) \
+	(((att)->attflags & DEFORM_ATTR_FLAG_IS_NOTNULL) != 0)
+
+/*
  * This struct is passed around within the backend to describe the structure
  * of tuples.  For tuples coming from on-disk relations, the information is
  * collected from the pg_attribute, pg_attrdef, and pg_constraint catalogs.
@@ -85,11 +122,18 @@ typedef struct TupleDescData
 	TupleConstr *constr;		/* constraints, or NULL if none */
 	/* attrs[N] is the description of Attribute Number N+1 */
 	FormData_pg_attribute *attrs;
+	TupleDescDeformAttr deform_attrs[FLEXIBLE_ARRAY_MEMBER];
 }			TupleDescData;
 typedef struct TupleDescData *TupleDesc;
 
 /* Accessor for the i'th attribute of tupdesc. */
 #define TupleDescAttr(tupdesc, i) (&(tupdesc)->attrs[(i)])
+
+/* Accessor for the i'th TupleDescAttr of tupdesc */
+#define TupleDescDeformAttr(tupdesc, i) (&(tupdesc)->deform_attrs[(i)])
+
+extern void populate_TupleDescAttr(TupleDescDeformAttr *dst,
+								   Form_pg_attribute src);
 
 extern TupleDesc CreateTemplateTupleDesc(int natts);
 
@@ -99,13 +143,15 @@ extern TupleDesc CreateTupleDescCopy(TupleDesc tupdesc);
 
 extern TupleDesc CreateTupleDescCopyConstr(TupleDesc tupdesc);
 
-#define TupleDescSize(src) MAXALIGN(sizeof(TupleDescData))
+#define TupleDescSize(src) \
+	(offsetof(struct TupleDescData, deform_attrs) + \
+	 (src)->natts * sizeof(TupleDescDeformAttr))
 
 #define TupleDescFullSize(src) \
-	(MAXALIGN(sizeof(TupleDescData)) + sizeof(FormData_pg_attribute) * (src)->natts)
+	(TupleDescSize(src) + sizeof(FormData_pg_attribute) * (src)->natts)
 
 #define TupleDescAttrAddress(desc) \
-	(Form_pg_attribute) ((char *) (desc) + MAXALIGN(sizeof(TupleDescData)))
+	(Form_pg_attribute) ((char *) (desc) + TupleDescSize(desc))
 
 extern void TupleDescCopy(TupleDesc dst, TupleDesc src);
 

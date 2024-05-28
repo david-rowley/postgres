@@ -4884,17 +4884,17 @@ _bt_keep_natts_fast(Relation rel, IndexTuple lastleft, IndexTuple firstright)
 					datum2;
 		bool		isNull1,
 					isNull2;
-		Form_pg_attribute att;
+		TupleDescDeformAttr *att;
 
 		datum1 = index_getattr(lastleft, attnum, itupdesc, &isNull1);
 		datum2 = index_getattr(firstright, attnum, itupdesc, &isNull2);
-		att = TupleDescAttr(itupdesc, attnum - 1);
+		att = TupleDescDeformAttr(itupdesc, attnum - 1);
 
 		if (isNull1 != isNull2)
 			break;
 
 		if (!isNull1 &&
-			!datum_image_eq(datum1, datum2, att->attbyval, att->attlen))
+			!datum_image_eq(datum1, datum2, DeformAttrByVal(att), att->attlen))
 			break;
 
 		keepnatts++;

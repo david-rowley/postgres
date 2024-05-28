@@ -4079,8 +4079,6 @@ static bool
 heap_attr_equals(TupleDesc tupdesc, int attrnum, Datum value1, Datum value2,
 				 bool isnull1, bool isnull2)
 {
-	Form_pg_attribute att;
-
 	/*
 	 * If one value is NULL and other is not, then they are certainly not
 	 * equal
@@ -4110,9 +4108,11 @@ heap_attr_equals(TupleDesc tupdesc, int attrnum, Datum value1, Datum value2,
 	}
 	else
 	{
+		TupleDescDeformAttr *att;
+
 		Assert(attrnum <= tupdesc->natts);
-		att = TupleDescAttr(tupdesc, attrnum - 1);
-		return datumIsEqual(value1, value2, att->attbyval, att->attlen);
+		att = TupleDescDeformAttr(tupdesc, attrnum - 1);
+		return datumIsEqual(value1, value2, DeformAttrByVal(att), att->attlen);
 	}
 }
 
@@ -4193,7 +4193,7 @@ HeapDetermineColumnsInfo(Relation relation,
 		 * that system attributes can't be stored externally.
 		 */
 		if (attrnum < 0 || isnull1 ||
-			TupleDescAttr(tupdesc, attrnum - 1)->attlen != -1)
+			TupleDescDeformAttr(tupdesc, attrnum - 1)->attlen != -1)
 			continue;
 
 		/*

@@ -699,10 +699,10 @@ ER_get_flat_size(ExpandedObjectHeader *eohptr)
 	{
 		for (i = 0; i < erh->nfields; i++)
 		{
-			Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+			TupleDescDeformAttr *attr = TupleDescDeformAttr(tupdesc, i);
 
 			if (!erh->dnulls[i] &&
-				!attr->attbyval && attr->attlen == -1 &&
+				!DeformAttrByVal(attr) && attr->attlen == -1 &&
 				VARATT_IS_EXTERNAL(DatumGetPointer(erh->dvalues[i])))
 			{
 				/*
@@ -1115,7 +1115,7 @@ expanded_record_set_field_internal(ExpandedRecordHeader *erh, int fnumber,
 								   bool check_constraints)
 {
 	TupleDesc	tupdesc;
-	Form_pg_attribute attr;
+	TupleDescDeformAttr *attr;
 	Datum	   *dvalues;
 	bool	   *dnulls;
 	char	   *oldValue;
@@ -1146,8 +1146,8 @@ expanded_record_set_field_internal(ExpandedRecordHeader *erh, int fnumber,
 	 * Copy new field value into record's context, and deal with detoasting,
 	 * if needed.
 	 */
-	attr = TupleDescAttr(tupdesc, fnumber - 1);
-	if (!isnull && !attr->attbyval)
+	attr = TupleDescDeformAttr(tupdesc, fnumber - 1);
+	if (!isnull && !DeformAttrByVal(attr))
 	{
 		MemoryContext oldcxt;
 
@@ -1201,7 +1201,7 @@ expanded_record_set_field_internal(ExpandedRecordHeader *erh, int fnumber,
 	erh->flat_size = 0;
 
 	/* Grab old field value for pfree'ing, if needed. */
-	if (!attr->attbyval && !dnulls[fnumber - 1])
+	if (!DeformAttrByVal(attr) && !dnulls[fnumber - 1])
 		oldValue = (char *) DatumGetPointer(dvalues[fnumber - 1]);
 	else
 		oldValue = NULL;
@@ -1279,18 +1279,18 @@ expanded_record_set_fields(ExpandedRecordHeader *erh,
 
 	for (fnumber = 0; fnumber < erh->nfields; fnumber++)
 	{
-		Form_pg_attribute attr = TupleDescAttr(tupdesc, fnumber);
+		TupleDescDeformAttr *attr = TupleDescDeformAttr(tupdesc, fnumber);
 		Datum		newValue;
 		bool		isnull;
 
 		/* Ignore dropped columns */
-		if (attr->attisdropped)
+		if (DeformAttrIsDropped(attr))
 			continue;
 
 		newValue = newValues[fnumber];
 		isnull = isnulls[fnumber];
 
-		if (!attr->attbyval)
+		if (!DeformAttrByVal(attr))
 		{
 			/*
 			 * Copy new field value into record's context, and deal with
@@ -1541,9 +1541,9 @@ check_domain_for_new_field(ExpandedRecordHeader *erh, int fnumber,
 	 */
 	if (!isnull)
 	{
-		Form_pg_attribute attr = TupleDescAttr(erh->er_tupdesc, fnumber - 1);
+		TupleDescDeformAttr *attr = TupleDescDeformAttr(erh->er_tupdesc, fnumber - 1);
 
-		if (!attr->attbyval && attr->attlen == -1 &&
+		if (!DeformAttrByVal(attr) && attr->attlen == -1 &&
 			VARATT_IS_EXTERNAL(DatumGetPointer(newValue)))
 			dummy_erh->flags |= ER_FLAG_HAVE_EXTERNAL;
 	}

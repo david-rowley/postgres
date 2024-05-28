@@ -175,12 +175,12 @@ MemoizeHash_hash(struct memoize_hash *tb, const MemoizeKey *key)
 
 			if (!pslot->tts_isnull[i])	/* treat nulls as having hash key 0 */
 			{
-				Form_pg_attribute attr;
+				TupleDescDeformAttr *attr;
 				uint32		hkey;
 
-				attr = TupleDescAttr(pslot->tts_tupleDescriptor, i);
+				attr = TupleDescDeformAttr(pslot->tts_tupleDescriptor, i);
 
-				hkey = datum_image_hash(pslot->tts_values[i], attr->attbyval, attr->attlen);
+				hkey = datum_image_hash(pslot->tts_values[i], DeformAttrByVal(attr), attr->attlen);
 
 				hashkey ^= hkey;
 			}
@@ -242,7 +242,7 @@ MemoizeHash_equal(struct memoize_hash *tb, const MemoizeKey *key1,
 
 		for (int i = 0; i < numkeys; i++)
 		{
-			Form_pg_attribute attr;
+			TupleDescDeformAttr *attr;
 
 			if (tslot->tts_isnull[i] != pslot->tts_isnull[i])
 			{
@@ -255,9 +255,9 @@ MemoizeHash_equal(struct memoize_hash *tb, const MemoizeKey *key1,
 				continue;
 
 			/* perform binary comparison on the two datums */
-			attr = TupleDescAttr(tslot->tts_tupleDescriptor, i);
+			attr = TupleDescDeformAttr(tslot->tts_tupleDescriptor, i);
 			if (!datum_image_eq(tslot->tts_values[i], pslot->tts_values[i],
-								attr->attbyval, attr->attlen))
+								DeformAttrByVal(attr), attr->attlen))
 			{
 				match = false;
 				break;

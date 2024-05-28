@@ -867,9 +867,9 @@ CopyGetAttnums(TupleDesc tupDesc, Relation rel, List *attnamelist)
 
 		for (i = 0; i < attr_count; i++)
 		{
-			if (TupleDescAttr(tupDesc, i)->attisdropped)
-				continue;
-			if (TupleDescAttr(tupDesc, i)->attgenerated)
+			TupleDescDeformAttr *attr = TupleDescDeformAttr(tupDesc, i);
+
+			if (DeformAttrIsDropped(attr) || DeformAttrIsGenerated(attr))
 				continue;
 			attnums = lappend_int(attnums, i + 1);
 		}

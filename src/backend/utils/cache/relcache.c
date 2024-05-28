@@ -585,6 +585,10 @@ RelationBuildTupleDesc(Relation relation)
 			   attp,
 			   ATTRIBUTE_FIXED_PART_SIZE);
 
+		populate_TupleDescAttr(TupleDescDeformAttr(relation->rd_att,
+												   attnum - 1),
+							   attp);
+
 		/* Update constraint/default info */
 		if (attp->attnotnull)
 			constr->has_not_null = true;
@@ -1966,6 +1970,9 @@ formrdesc(const char *relationName, Oid relationReltype,
 		has_not_null |= attrs[i].attnotnull;
 		/* make sure attcacheoff is valid */
 		TupleDescAttr(relation->rd_att, i)->attcacheoff = -1;
+
+		populate_TupleDescAttr(TupleDescDeformAttr(relation->rd_att, i),
+							   TupleDescAttr(relation->rd_att, i));
 	}
 
 	/* initialize first attribute's attcacheoff, cf RelationBuildTupleDesc */
@@ -4393,6 +4400,9 @@ BuildHardcodedDescriptor(int natts, const FormData_pg_attribute *attrs)
 		memcpy(TupleDescAttr(result, i), &attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
 		/* make sure attcacheoff is valid */
 		TupleDescAttr(result, i)->attcacheoff = -1;
+
+		populate_TupleDescAttr(TupleDescDeformAttr(result, i),
+							   TupleDescAttr(result, i));
 	}
 
 	/* initialize first attribute's attcacheoff, cf RelationBuildTupleDesc */
@@ -6131,6 +6141,8 @@ load_relcache_init_file(bool shared)
 				goto read_failed;
 
 			has_not_null |= attr->attnotnull;
+
+			populate_TupleDescAttr(TupleDescDeformAttr(rel->rd_att, i), attr);
 		}
 
 		/* next read the access method specific field */

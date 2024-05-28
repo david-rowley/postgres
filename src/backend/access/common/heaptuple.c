@@ -83,6 +83,9 @@
 #define VARLENA_ATT_IS_PACKABLE(att) \
 	((att)->attstorage != TYPSTORAGE_PLAIN)
 
+#define ATT_IS_PACKABLE_FAST(att) \
+	((att)->attlen == -1 && DeformAttrIsPackable(att))
+
 /*
  * Setup for caching pass-by-ref missing attributes in a way that survives
  * tupleDesc destruction.
@@ -147,14 +150,14 @@ Datum
 getmissingattr(TupleDesc tupleDesc,
 			   int attnum, bool *isnull)
 {
-	Form_pg_attribute att;
+	TupleDescDeformAttr *att;
 
 	Assert(attnum <= tupleDesc->natts);
 	Assert(attnum > 0);
 
-	att = TupleDescAttr(tupleDesc, attnum - 1);
+	att = TupleDescDeformAttr(tupleDesc, attnum - 1);
 
-	if (att->atthasmissing)
+	if (DeformAttrHasMissing(att))
 	{
 		AttrMissing *attrmiss;
 
@@ -173,7 +176,7 @@ getmissingattr(TupleDesc tupleDesc,
 			*isnull = false;
 
 			/* no  need to cache by-value attributes */
-			if (att->attbyval)
+			if (DeformAttrByVal(att))
 				return attrmiss->am_value;
 
 			/* set up cache if required */
@@ -223,15 +226,15 @@ heap_compute_data_size(TupleDesc tupleDesc,
 	for (i = 0; i < numberOfAttributes; i++)
 	{
 		Datum		val;
-		Form_pg_attribute atti;
+		TupleDescDeformAttr *atti;
 
 		if (isnull[i])
 			continue;
 
 		val = values[i];
-		atti = TupleDescAttr(tupleDesc, i);
+		atti = TupleDescDeformAttr(tupleDesc, i);
 
-		if (ATT_IS_PACKABLE(atti) &&
+		if (ATT_IS_PACKABLE_FAST(atti) &&
 			VARATT_CAN_MAKE_SHORT(DatumGetPointer(val)))
 		{
 			/*
@@ -268,7 +271,7 @@ heap_compute_data_size(TupleDesc tupleDesc,
  * Fill in either a data value or a bit in the null bitmask
  */
 static inline void
-fill_val(Form_pg_attribute att,
+fill_val(TupleDescDeformAttr *att,
 		 bits8 **bit,
 		 int *bitmask,
 		 char **dataP,
@@ -307,7 +310,7 @@ fill_val(Form_pg_attribute att,
 	 * XXX we use the att_align macros on the pointer value itself, not on an
 	 * offset.  This is a bit of a hack.
 	 */
-	if (att->attbyval)
+	if (DeformAttrByVal(att))
 	{
 		/* pass-by-value */
 		data = (char *) att_align_nominal(data, att->attalign);
@@ -349,7 +352,7 @@ fill_val(Form_pg_attribute att,
 			data_length = VARSIZE_SHORT(val);
 			memcpy(data, val, data_length);
 		}
-		else if (VARLENA_ATT_IS_PACKABLE(att) &&
+		else if (DeformAttrIsPackable(att) &&
 				 VARATT_CAN_MAKE_SHORT(val))
 		{
 			/* convert to short varlena -- no alignment */
@@ -427,7 +430,7 @@ heap_fill_tuple(TupleDesc tupleDesc,
 
 	for (i = 0; i < numberOfAttributes; i++)
 	{
-		Form_pg_attribute attr = TupleDescAttr(tupleDesc, i);
+		TupleDescDeformAttr *attr = TupleDescDeformAttr(tupleDesc, i);
 
 		fill_val(attr,
 				 bitP ? &bitP : NULL,
@@ -461,7 +464,8 @@ heap_attisnull(HeapTuple tup, int attnum, TupleDesc tupleDesc)
 	Assert(!tupleDesc || attnum <= tupleDesc->natts);
 	if (attnum > (int) HeapTupleHeaderGetNatts(tup->t_data))
 	{
-		if (tupleDesc && TupleDescAttr(tupleDesc, attnum - 1)->atthasmissing)
+		if (tupleDesc &&
+			DeformAttrHasMissing(TupleDescDeformAttr(tupleDesc, attnum - 1)))
 			return false;
 		else
 			return true;
@@ -570,15 +574,15 @@ nocachegetattr(HeapTuple tup,
 
 	if (!slow)
 	{
-		Form_pg_attribute att;
+		TupleDescDeformAttr *att;
 
 		/*
 		 * If we get here, there are no nulls up to and including the target
 		 * attribute.  If we have a cached offset, we can use it.
 		 */
-		att = TupleDescAttr(tupleDesc, attnum);
+		att = TupleDescDeformAttr(tupleDesc, attnum);
 		if (att->attcacheoff >= 0)
-			return fetchatt(att, tp + att->attcacheoff);
+			return fetchatt_fast(att, tp + att->attcacheoff);
 
 		/*
 		 * Otherwise, check for non-fixed-length attrs up to and including
@@ -591,7 +595,7 @@ nocachegetattr(HeapTuple tup,
 
 			for (j = 0; j <= attnum; j++)
 			{
-				if (TupleDescAttr(tupleDesc, j)->attlen <= 0)
+				if (TupleDescDeformAttr(tupleDesc, j)->attlen <= 0)
 				{
 					slow = true;
 					break;
@@ -614,18 +618,18 @@ nocachegetattr(HeapTuple tup,
 		 * fixed-width columns, in hope of avoiding future visits to this
 		 * routine.
 		 */
-		TupleDescAttr(tupleDesc, 0)->attcacheoff = 0;
+		TupleDescDeformAttr(tupleDesc, 0)->attcacheoff = 0;
 
 		/* we might have set some offsets in the slow path previously */
-		while (j < natts && TupleDescAttr(tupleDesc, j)->attcacheoff > 0)
+		while (j < natts && TupleDescDeformAttr(tupleDesc, j)->attcacheoff > 0)
 			j++;
 
-		off = TupleDescAttr(tupleDesc, j - 1)->attcacheoff +
-			TupleDescAttr(tupleDesc, j - 1)->attlen;
+		off = TupleDescDeformAttr(tupleDesc, j - 1)->attcacheoff +
+			  TupleDescDeformAttr(tupleDesc, j - 1)->attlen;
 
 		for (; j < natts; j++)
 		{
-			Form_pg_attribute att = TupleDescAttr(tupleDesc, j);
+			TupleDescDeformAttr *att = TupleDescDeformAttr(tupleDesc, j);
 
 			if (att->attlen <= 0)
 				break;
@@ -639,7 +643,7 @@ nocachegetattr(HeapTuple tup,
 
 		Assert(j > attnum);
 
-		off = TupleDescAttr(tupleDesc, attnum)->attcacheoff;
+		off = TupleDescDeformAttr(tupleDesc, attnum)->attcacheoff;
 	}
 	else
 	{
@@ -659,7 +663,7 @@ nocachegetattr(HeapTuple tup,
 		off = 0;
 		for (i = 0;; i++)		/* loop exit is at "break" */
 		{
-			Form_pg_attribute att = TupleDescAttr(tupleDesc, i);
+			TupleDescDeformAttr *att = TupleDescDeformAttr(tupleDesc, i);
 
 			if (HeapTupleHasNulls(tup) && att_isnull(i, bp))
 			{
@@ -707,7 +711,7 @@ nocachegetattr(HeapTuple tup,
 		}
 	}
 
-	return fetchatt(TupleDescAttr(tupleDesc, attnum), tp + off);
+	return fetchatt_fast(TupleDescDeformAttr(tupleDesc, attnum), tp + off);
 }
 
 /* ----------------
@@ -892,7 +896,7 @@ expand_tuple(HeapTuple *targetHeapTuple,
 		{
 			if (attrmiss[attnum].am_present)
 			{
-				Form_pg_attribute att = TupleDescAttr(tupleDesc, attnum);
+				TupleDescDeformAttr *att = TupleDescDeformAttr(tupleDesc, attnum);
 
 				targetDataLen = att_align_datum(targetDataLen,
 												att->attalign,
@@ -1021,7 +1025,7 @@ expand_tuple(HeapTuple *targetHeapTuple,
 	for (attnum = sourceNatts; attnum < natts; attnum++)
 	{
 
-		Form_pg_attribute attr = TupleDescAttr(tupleDesc, attnum);
+		TupleDescDeformAttr *attr = TupleDescDeformAttr(tupleDesc, attnum);
 
 		if (attrmiss && attrmiss[attnum].am_present)
 		{
@@ -1370,7 +1374,7 @@ heap_deform_tuple(HeapTuple tuple, TupleDesc tupleDesc,
 
 	for (attnum = 0; attnum < natts; attnum++)
 	{
-		Form_pg_attribute thisatt = TupleDescAttr(tupleDesc, attnum);
+		TupleDescDeformAttr *thisatt = TupleDescDeformAttr(tupleDesc, attnum);
 
 		if (hasnulls && att_isnull(attnum, bp))
 		{
@@ -1411,7 +1415,7 @@ heap_deform_tuple(HeapTuple tuple, TupleDesc tupleDesc,
 				thisatt->attcacheoff = off;
 		}
 
-		values[attnum] = fetchatt(thisatt, tp + off);
+		values[attnum] = fetchatt_fast(thisatt, tp + off);
 
 		off = att_addlength_pointer(off, thisatt->attlen, tp + off);
 

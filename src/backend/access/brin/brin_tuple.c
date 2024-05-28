@@ -699,7 +699,7 @@ brin_deconstruct_tuple(BrinDesc *brdesc,
 			 datumno < brdesc->bd_info[attnum]->oi_nstored;
 			 datumno++)
 		{
-			Form_pg_attribute thisatt = TupleDescAttr(diskdsc, stored);
+			TupleDescDeformAttr *thisatt = TupleDescDeformAttr(diskdsc, stored);
 
 			if (thisatt->attlen == -1)
 			{
@@ -712,7 +712,7 @@ brin_deconstruct_tuple(BrinDesc *brdesc,
 				off = att_align_nominal(off, thisatt->attalign);
 			}
 
-			values[stored++] = fetchatt(thisatt, tp + off);
+			values[stored++] = fetchatt_fast(thisatt, tp + off);
 
 			off = att_addlength_pointer(off, thisatt->attlen, tp + off);
 		}

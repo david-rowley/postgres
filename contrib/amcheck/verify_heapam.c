@@ -1567,11 +1567,11 @@ check_tuple_attribute(HeapCheckContext *ctx)
 	struct varlena *attr;
 	char	   *tp;				/* pointer to the tuple data */
 	uint16		infomask;
-	Form_pg_attribute thisatt;
+	TupleDescDeformAttr *thisatt;
 	struct varatt_external toast_pointer;
 
 	infomask = ctx->tuphdr->t_infomask;
-	thisatt = TupleDescAttr(RelationGetDescr(ctx->rel), ctx->attnum);
+	thisatt = TupleDescDeformAttr(RelationGetDescr(ctx->rel), ctx->attnum);
 
 	tp = (char *) ctx->tuphdr + ctx->tuphdr->t_hoff;
 
@@ -1612,7 +1612,7 @@ check_tuple_attribute(HeapCheckContext *ctx)
 									tp + ctx->offset);
 
 	/* Get the (possibly corrupt) varlena datum */
-	attdatum = fetchatt(thisatt, tp + ctx->offset);
+	attdatum = fetchatt_fast(thisatt, tp + ctx->offset);
 
 	/*
 	 * We have the datum, but we cannot decode it carelessly, as it may still

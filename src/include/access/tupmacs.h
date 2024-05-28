@@ -45,6 +45,8 @@ att_isnull(int ATT, const bits8 *BITS)
  */
 #define fetchatt(A,T) fetch_att(T, (A)->attbyval, (A)->attlen)
 
+#define fetchatt_fast(A, T) fetch_att(T, DeformAttrByVal(A), (A)->attlen)
+
 /*
  * Same, but work from byval/len parameters rather than Form_pg_attribute.
  */

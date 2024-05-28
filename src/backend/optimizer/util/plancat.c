@@ -174,19 +174,19 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 	{
 		for (int i = 0; i < relation->rd_att->natts; i++)
 		{
-			Form_pg_attribute attr = TupleDescAttr(relation->rd_att, i);
+			TupleDescDeformAttr *attr = TupleDescDeformAttr(relation->rd_att, i);
 
-			if (attr->attnotnull)
+			if (DeformAttrIsNotNull(attr))
 			{
 				rel->notnullattnums = bms_add_member(rel->notnullattnums,
-													 attr->attnum);
+													 i + 1);
 
 				/*
 				 * Per RemoveAttributeById(), dropped columns will have their
 				 * attnotnull unset, so we needn't check for dropped columns
 				 * in the above condition.
 				 */
-				Assert(!attr->attisdropped);
+				Assert(!DeformAttrIsDropped(attr));
 			}
 		}
 	}

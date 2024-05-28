@@ -56,6 +56,30 @@ ResourceOwnerForgetTupleDesc(ResourceOwner owner, TupleDesc tupdesc)
 	ResourceOwnerForget(owner, PointerGetDatum(tupdesc), &tupdesc_resowner_desc);
 }
 
+void
+populate_TupleDescAttr(TupleDescDeformAttr *dst, Form_pg_attribute src)
+{
+	dst->attcacheoff = -1;
+	dst->attlen = src->attlen;
+
+	dst->attflags = 0;
+
+	if (src->attbyval)
+		dst->attflags |= DEFORM_ATTR_FLAG_BYVAL;
+	if (src->attstorage != TYPSTORAGE_PLAIN)
+		dst->attflags |= DEFORM_ATTR_FLAG_IS_PACKABLE;
+	if (src->atthasmissing)
+		dst->attflags |= DEFORM_ATTR_FLAG_HAS_MISSING;
+	if (src->attisdropped)
+		dst->attflags |= DEFORM_ATTR_FLAG_IS_DROPPED;
+	if (src->attgenerated)
+		dst->attflags |= DEFORM_ATTR_FLAG_IS_GENERATED;
+	if (src->attnotnull)
+		dst->attflags |= DEFORM_ATTR_FLAG_IS_NOTNULL;
+
+	dst->attalign = src->attalign;
+}
+
 /*
  * CreateTemplateTupleDesc
  *		This function allocates an empty tuple descriptor structure.
@@ -85,7 +109,8 @@ CreateTemplateTupleDesc(int natts)
 	 * could be less due to trailing padding, although with the current
 	 * definition of pg_attribute there probably isn't any padding.
 	 */
-	desc = (TupleDesc) palloc(MAXALIGN(sizeof(TupleDescData)) +
+	desc = (TupleDesc) palloc(offsetof(struct TupleDescData, deform_attrs) +
+							  natts * sizeof(TupleDescDeformAttr) +
 							  natts * sizeof(FormData_pg_attribute));
 
 	/*
@@ -118,8 +143,11 @@ CreateTupleDesc(int natts, Form_pg_attribute *attrs)
 	desc = CreateTemplateTupleDesc(natts);
 
 	for (i = 0; i < natts; ++i)
+	{
 		memcpy(TupleDescAttr(desc, i), attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
-
+		populate_TupleDescAttr(TupleDescDeformAttr(desc, i),
+							   TupleDescAttr(desc, i));
+	}
 	return desc;
 }
 
@@ -156,6 +184,9 @@ CreateTupleDescCopy(TupleDesc tupdesc)
 		att->atthasmissing = false;
 		att->attidentity = '\0';
 		att->attgenerated = '\0';
+
+		populate_TupleDescAttr(TupleDescDeformAttr(desc, i),
+							   TupleDescAttr(desc, i));
 	}
 
 	/* We can copy the tuple type identification, too */
@@ -184,6 +215,10 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 		   TupleDescAttr(tupdesc, 0),
 		   desc->natts * sizeof(FormData_pg_attribute));
 
+	for (i = 0; i < desc->natts; i++)
+		populate_TupleDescAttr(TupleDescDeformAttr(desc, i),
+							   TupleDescAttr(desc, i));
+
 	/* Copy the TupleConstr data structure, if any */
 	if (constr)
 	{
@@ -208,10 +243,10 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 			{
 				if (constr->missing[i].am_present)
 				{
-					Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+					TupleDescDeformAttr *attr = TupleDescDeformAttr(tupdesc, i);
 
 					cpy->missing[i].am_value = datumCopy(constr->missing[i].am_value,
-														 attr->attbyval,
+														 DeformAttrByVal(attr),
 														 attr->attlen);
 				}
 			}
@@ -275,6 +310,9 @@ TupleDescCopy(TupleDesc dst, TupleDesc src)
 		att->atthasmissing = false;
 		att->attidentity = '\0';
 		att->attgenerated = '\0';
+
+		populate_TupleDescAttr(TupleDescDeformAttr(dst, i),
+							   TupleDescAttr(dst, i));
 	}
 	dst->constr = NULL;
 
@@ -329,6 +367,8 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 	dstAtt->atthasmissing = false;
 	dstAtt->attidentity = '\0';
 	dstAtt->attgenerated = '\0';
+
+	populate_TupleDescAttr(TupleDescDeformAttr(dst, dstAttno - 1), dstAtt);
 }
 
 /*
@@ -528,10 +568,10 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 					return false;
 				if (missval1->am_present)
 				{
-					Form_pg_attribute missatt1 = TupleDescAttr(tupdesc1, i);
+					TupleDescDeformAttr *missatt1 = TupleDescDeformAttr(tupdesc1, i);
 
 					if (!datumIsEqual(missval1->am_value, missval2->am_value,
-									  missatt1->attbyval, missatt1->attlen))
+									  DeformAttrByVal(missatt1), missatt1->attlen))
 						return false;
 				}
 			}
@@ -721,6 +761,9 @@ TupleDescInitEntry(TupleDesc desc,
 	att->attcompression = InvalidCompressionMethod;
 	att->attcollation = typeForm->typcollation;
 
+	populate_TupleDescAttr(TupleDescDeformAttr(desc, attributeNumber - 1),
+						   att);
+
 	ReleaseSysCache(tuple);
 }
 
@@ -828,6 +871,9 @@ TupleDescInitBuiltinEntry(TupleDesc desc,
 		default:
 			elog(ERROR, "unsupported type %u", oidtypeid);
 	}
+
+	populate_TupleDescAttr(TupleDescDeformAttr(desc, attributeNumber - 1),
+						   att);
 }
 
 /*

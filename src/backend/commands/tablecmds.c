@@ -943,6 +943,9 @@ DefineRelation(CreateStmt *stmt, char relkind, Oid ownerId,
 			cookedDefaults = lappend(cookedDefaults, cooked);
 			attr->atthasdef = true;
 		}
+
+		populate_TupleDescAttr(TupleDescDeformAttr(descriptor, attnum - 1),
+							   attr);
 	}
 
 	/*
@@ -1349,6 +1352,8 @@ BuildDescForRelation(const List *columns)
 			att->attstorage = entry->storage;
 		else if (entry->storage_name)
 			att->attstorage = GetAttributeStorage(att->atttypid, entry->storage_name);
+
+		populate_TupleDescAttr(TupleDescDeformAttr(desc, attnum - 1), att);
 	}
 
 	if (has_not_null)

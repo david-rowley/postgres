@@ -2833,9 +2833,9 @@ ri_KeysEqual(Relation rel, TupleTableSlot *oldslot, TupleTableSlot *newslot,
 			 * difference for ON UPDATE CASCADE, but for consistency we treat
 			 * all changes to the PK the same.
 			 */
-			Form_pg_attribute att = TupleDescAttr(oldslot->tts_tupleDescriptor, attnums[i] - 1);
+			TupleDescDeformAttr *att = TupleDescDeformAttr(oldslot->tts_tupleDescriptor, attnums[i] - 1);
 
-			if (!datum_image_eq(oldvalue, newvalue, att->attbyval, att->attlen))
+			if (!datum_image_eq(oldvalue, newvalue, DeformAttrByVal(att), att->attlen))
 				return false;
 		}
 		else

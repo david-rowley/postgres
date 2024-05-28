@@ -117,18 +117,21 @@ IndexInfoFindDataOffset(unsigned short t_info)
 static inline Datum
 index_getattr(IndexTuple tup, int attnum, TupleDesc tupleDesc, bool *isnull)
 {
+	TupleDescDeformAttr *attr;
+
 	Assert(PointerIsValid(isnull));
 	Assert(attnum > 0);
 
 	*isnull = false;
+	attr = TupleDescDeformAttr(tupleDesc, attnum - 1);
 
 	if (!IndexTupleHasNulls(tup))
 	{
-		if (TupleDescAttr(tupleDesc, attnum - 1)->attcacheoff >= 0)
+		if (attr->attcacheoff >= 0)
 		{
-			return fetchatt(TupleDescAttr(tupleDesc, attnum - 1),
-							(char *) tup + IndexInfoFindDataOffset(tup->t_info)
-							+ TupleDescAttr(tupleDesc, attnum - 1)->attcacheoff);
+			return fetchatt_fast(attr,
+								 (char *) tup + IndexInfoFindDataOffset(tup->t_info) +
+								 attr->attcacheoff);
 		}
 		else
 			return nocache_index_getattr(tup, attnum, tupleDesc);
