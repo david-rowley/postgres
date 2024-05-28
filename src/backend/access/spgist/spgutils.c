@@ -331,6 +331,9 @@ getSpGistTupleDesc(Relation index, SpGistTypeDesc *keyType)
 		/* In case we changed typlen, we'd better reset following offsets */
 		for (int i = spgFirstIncludeColumn; i < outTupDesc->natts; i++)
 			TupleDescAttr(outTupDesc, i)->attcacheoff = -1;
+
+		populate_TupleDescAttr(TupleDescDeformAttr(outTupDesc, spgKeyColumn),
+							   att);
 	}
 	return outTupDesc;
 }
