@@ -477,6 +477,8 @@ ConstructTupleDescriptor(Relation heapRelation,
 
 			ReleaseSysCache(tuple);
 		}
+
+		populate_compact_attribute(TupleDescCompactAttr(indexTupDesc, i), to);
 	}
 
 	pfree(amroutine);

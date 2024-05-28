@@ -496,14 +496,14 @@ ExecComputeStoredGenerated(ResultRelInfo *resultRelInfo,
 
 	for (int i = 0; i < natts; i++)
 	{
-		Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+		CompactAttribute *attr = TupleDescCompactAttr(tupdesc, i);
 
 		if (ri_GeneratedExprs[i])
 		{
 			Datum		val;
 			bool		isnull;
 
-			Assert(attr->attgenerated == ATTRIBUTE_GENERATED_STORED);
+			Assert(TupleDescAttr(tupdesc, i)->attgenerated == ATTRIBUTE_GENERATED_STORED);
 
 			econtext->ecxt_scantuple = slot;
 
@@ -514,7 +514,7 @@ ExecComputeStoredGenerated(ResultRelInfo *resultRelInfo,
 			 * memory for a pass-by-reference Datum is located.
 			 */
 			if (!isnull)
-				val = datumCopy(val, attr->attbyval, attr->attlen);
+				val = datumCopy(val, CompactAttrByVal(attr), attr->attlen);
 
 			values[i] = val;
 			nulls[i] = isnull;
@@ -522,7 +522,7 @@ ExecComputeStoredGenerated(ResultRelInfo *resultRelInfo,
 		else
 		{
 			if (!nulls[i])
-				values[i] = datumCopy(slot->tts_values[i], attr->attbyval, attr->attlen);
+				values[i] = datumCopy(slot->tts_values[i], CompactAttrByVal(attr), attr->attlen);
 		}
 	}
 

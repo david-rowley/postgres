@@ -2824,7 +2824,7 @@ ExecEvalRowNullInt(ExprState *state, ExprEvalStep *op,
 	for (int att = 1; att <= tupDesc->natts; att++)
 	{
 		/* ignore dropped columns */
-		if (TupleDescAttr(tupDesc, att - 1)->attisdropped)
+		if (CompactAttrIsDropped(TupleDescCompactAttr(tupDesc, att - 1)))
 			continue;
 		if (heap_attisnull(&tmptup, att, tupDesc))
 		{
@@ -4962,10 +4962,10 @@ ExecEvalWholeRowVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 
 		for (int i = 0; i < var_tupdesc->natts; i++)
 		{
-			Form_pg_attribute vattr = TupleDescAttr(var_tupdesc, i);
-			Form_pg_attribute sattr = TupleDescAttr(tupleDesc, i);
+			CompactAttribute *vattr = TupleDescCompactAttr(var_tupdesc, i);
+			CompactAttribute *sattr = TupleDescCompactAttr(tupleDesc, i);
 
-			if (!vattr->attisdropped)
+			if (!CompactAttrIsDropped(vattr))
 				continue;		/* already checked non-dropped cols */
 			if (slot->tts_isnull[i])
 				continue;		/* null is always okay */

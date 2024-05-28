@@ -598,9 +598,9 @@ ExecBuildUpdateProjection(List *targetList,
 	 */
 	for (int attnum = relDesc->natts; attnum > 0; attnum--)
 	{
-		Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
+		CompactAttribute *attr = TupleDescCompactAttr(relDesc, attnum - 1);
 
-		if (attr->attisdropped)
+		if (CompactAttrIsDropped(attr))
 			continue;
 		if (bms_is_member(attnum, assignedCols))
 			continue;
@@ -694,9 +694,9 @@ ExecBuildUpdateProjection(List *targetList,
 	 */
 	for (int attnum = 1; attnum <= relDesc->natts; attnum++)
 	{
-		Form_pg_attribute attr = TupleDescAttr(relDesc, attnum - 1);
+		CompactAttribute *attr = TupleDescCompactAttr(relDesc, attnum - 1);
 
-		if (attr->attisdropped)
+		if (CompactAttrIsDropped(attr))
 		{
 			/* Put a null into the ExprState's resvalue/resnull ... */
 			scratch.opcode = EEOP_CONST;

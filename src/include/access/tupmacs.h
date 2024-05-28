@@ -30,7 +30,7 @@ att_isnull(int ATT, const bits8 *BITS)
 
 #ifndef FRONTEND
 /*
- * Given a Form_pg_attribute and a pointer into a tuple's data area,
+ * Given a CompactAttribute pointer and a pointer into a tuple's data area,
  * return the correct value or pointer.
  *
  * We return a Datum value in all cases.  If the attribute has "byval" false,
@@ -43,7 +43,7 @@ att_isnull(int ATT, const bits8 *BITS)
  *
  * Note that T must already be properly aligned for this to work correctly.
  */
-#define fetchatt(A,T) fetch_att(T, (A)->attbyval, (A)->attlen)
+#define fetchatt(A, T) fetch_att(T, CompactAttrByVal(A), (A)->attlen)
 
 /*
  * Same, but work from byval/len parameters rather than Form_pg_attribute.
