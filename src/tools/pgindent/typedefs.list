@@ -453,6 +453,7 @@ CommitTimestampEntry
 CommitTimestampShared
 CommonEntry
 CommonTableExpr
+CompactAttribute
 CompareScalarsContext
 CompiledExprState
 CompositeIOData

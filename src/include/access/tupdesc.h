@@ -46,6 +46,46 @@ typedef struct TupleConstr
 } TupleConstr;
 
 /*
+ * CompactAttribute
+ *		Cut-down version of FormData_pg_attribute for faster access for tasks
+ *		such as tuple deformation.
+ */
+typedef struct CompactAttribute
+{
+	int32		attcacheoff;	/* fixed offset into tuple, if known, or -1 */
+	int16		attlen;			/* attr len in bytes or -1 = varlen, -2 =
+								 * cstring */
+	uint8		attflags;		/* bit flags for compact storage of bool
+								 * fields */
+	char		attalign;		/* alignment requirement */
+} CompactAttribute;
+
+#define COMPACT_ATTR_FLAG_BYVAL (1 << 0)
+#define COMPACT_ATTR_FLAG_IS_PACKABLE (1 << 1)
+#define COMPACT_ATTR_FLAG_HAS_MISSING (1 << 2)
+#define COMPACT_ATTR_FLAG_IS_DROPPED (1 << 3)
+#define COMPACT_ATTR_FLAG_IS_GENERATED (1 << 4)
+#define COMPACT_ATTR_FLAG_IS_NOTNULL (1 << 5)
+
+#define CompactAttrByVal(att) \
+	(((att)->attflags & COMPACT_ATTR_FLAG_BYVAL) != 0)
+
+#define CompactAttrIsPackable(att) \
+	(((att)->attflags & COMPACT_ATTR_FLAG_IS_PACKABLE) != 0)
+
+#define CompactAttrHasMissing(att) \
+	(((att)->attflags & COMPACT_ATTR_FLAG_HAS_MISSING) != 0)
+
+#define CompactAttrIsDropped(att) \
+	(((att)->attflags & COMPACT_ATTR_FLAG_IS_DROPPED) != 0)
+
+#define CompactAttrIsGenerated(att) \
+	(((att)->attflags & COMPACT_ATTR_FLAG_IS_GENERATED) != 0)
+
+#define CompactAttrIsNotNull(att) \
+	(((att)->attflags & COMPACT_ATTR_FLAG_IS_NOTNULL) != 0)
+
+/*
  * This struct is passed around within the backend to describe the structure
  * of tuples.  For tuples coming from on-disk relations, the information is
  * collected from the pg_attribute, pg_attrdef, and pg_constraint catalogs.
@@ -75,6 +115,18 @@ typedef struct TupleConstr
  * context and go away when the context is freed.  We set the tdrefcount
  * field of such a descriptor to -1, while reference-counted descriptors
  * always have tdrefcount >= 0.
+ *
+ * The attrs field stores the fixed-sized portion of FormData_pg_attribute.
+ * Because that struct is large, we also store a corresponding
+ * CompactAttribute for each attribute in compact_attrs.  This is stored
+ * inline with the struct.  Because CompactAttribute is significantly smaller
+ * than FormData_pg_attribute, code, especially performance-critical code
+ * should prioritize using the fields from the CompactAttribute over the
+ * equivalent fields in FormData_pg_attribute whenever possible.
+ *
+ * Any code making changes manually to the fields in 'attrs' must subsequently
+ * call populate_compact_attribute() to flush the changes out to the
+ * corresponding 'compact_attrs' element.
  */
 typedef struct TupleDescData
 {
@@ -85,11 +137,18 @@ typedef struct TupleDescData
 	TupleConstr *constr;		/* constraints, or NULL if none */
 	/* attrs[N] is the description of Attribute Number N+1 */
 	FormData_pg_attribute *attrs;
+	CompactAttribute compact_attrs[FLEXIBLE_ARRAY_MEMBER];
 }			TupleDescData;
 typedef struct TupleDescData *TupleDesc;
 
-/* Accessor for the i'th attribute of tupdesc. */
+/* Accessor for the i'th FormData_pg_attribute of tupdesc. */
 #define TupleDescAttr(tupdesc, i) (&(tupdesc)->attrs[(i)])
+
+/* Accessor for the i'th CompactAttribute of tupdesc */
+#define TupleDescCompactAttr(tupdesc, i) (&(tupdesc)->compact_attrs[(i)])
+
+extern void populate_compact_attribute(CompactAttribute *dst,
+									   Form_pg_attribute src);
 
 extern TupleDesc CreateTemplateTupleDesc(int natts);
 
@@ -99,13 +158,15 @@ extern TupleDesc CreateTupleDescCopy(TupleDesc tupdesc);
 
 extern TupleDesc CreateTupleDescCopyConstr(TupleDesc tupdesc);
 
-#define TupleDescSize(src) MAXALIGN(sizeof(TupleDescData))
+#define TupleDescSize(src) \
+	(offsetof(struct TupleDescData, compact_attrs) + \
+	 (src)->natts * sizeof(CompactAttribute))
 
 #define TupleDescFullSize(src) \
-	(MAXALIGN(sizeof(TupleDescData)) + sizeof(FormData_pg_attribute) * (src)->natts)
+	(TupleDescSize(src) + sizeof(FormData_pg_attribute) * (src)->natts)
 
 #define TupleDescAttrAddress(desc) \
-	(Form_pg_attribute) ((char *) (desc) + MAXALIGN(sizeof(TupleDescData)))
+	(Form_pg_attribute) ((char *) (desc) + TupleDescSize(desc))
 
 extern void TupleDescCopy(TupleDesc dst, TupleDesc src);
 

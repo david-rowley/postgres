@@ -56,6 +56,30 @@ ResourceOwnerForgetTupleDesc(ResourceOwner owner, TupleDesc tupdesc)
 	ResourceOwnerForget(owner, PointerGetDatum(tupdesc), &tupdesc_resowner_desc);
 }
 
+void
+populate_compact_attribute(CompactAttribute *dst, Form_pg_attribute src)
+{
+	dst->attcacheoff = -1;
+	dst->attlen = src->attlen;
+
+	dst->attflags = 0;
+
+	if (src->attbyval)
+		dst->attflags |= COMPACT_ATTR_FLAG_BYVAL;
+	if (src->attstorage != TYPSTORAGE_PLAIN)
+		dst->attflags |= COMPACT_ATTR_FLAG_IS_PACKABLE;
+	if (src->atthasmissing)
+		dst->attflags |= COMPACT_ATTR_FLAG_HAS_MISSING;
+	if (src->attisdropped)
+		dst->attflags |= COMPACT_ATTR_FLAG_IS_DROPPED;
+	if (src->attgenerated)
+		dst->attflags |= COMPACT_ATTR_FLAG_IS_GENERATED;
+	if (src->attnotnull)
+		dst->attflags |= COMPACT_ATTR_FLAG_IS_NOTNULL;
+
+	dst->attalign = src->attalign;
+}
+
 /*
  * CreateTemplateTupleDesc
  *		This function allocates an empty tuple descriptor structure.
@@ -74,18 +98,20 @@ CreateTemplateTupleDesc(int natts)
 	Assert(natts >= 0);
 
 	/*
-	 * Allocate enough memory for the tuple descriptor, including the
-	 * attribute rows.
+	 * Allocate enough memory for the tuple descriptor, the CompactAttribute
+	 * array and also an array of the full FormData_pg_attribute data.  We
+	 * store a pointer to this in the 'attrs' field.
 	 *
-	 * Note: the attribute array stride is sizeof(FormData_pg_attribute),
-	 * since we declare the array elements as FormData_pg_attribute for
-	 * notational convenience.  However, we only guarantee that the first
+	 * Note: the 'attrs' array stride is sizeof(FormData_pg_attribute), since
+	 * we declare the array elements as FormData_pg_attribute for notational
+	 * convenience.  However, we only guarantee that the first
 	 * ATTRIBUTE_FIXED_PART_SIZE bytes of each entry are valid; most code that
 	 * copies tupdesc entries around copies just that much.  In principle that
 	 * could be less due to trailing padding, although with the current
 	 * definition of pg_attribute there probably isn't any padding.
 	 */
-	desc = (TupleDesc) palloc(MAXALIGN(sizeof(TupleDescData)) +
+	desc = (TupleDesc) palloc(offsetof(struct TupleDescData, compact_attrs) +
+							  natts * sizeof(CompactAttribute) +
 							  natts * sizeof(FormData_pg_attribute));
 
 	/*
@@ -118,8 +144,11 @@ CreateTupleDesc(int natts, Form_pg_attribute *attrs)
 	desc = CreateTemplateTupleDesc(natts);
 
 	for (i = 0; i < natts; ++i)
+	{
 		memcpy(TupleDescAttr(desc, i), attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
-
+		populate_compact_attribute(TupleDescCompactAttr(desc, i),
+								   TupleDescAttr(desc, i));
+	}
 	return desc;
 }
 
@@ -156,6 +185,9 @@ CreateTupleDescCopy(TupleDesc tupdesc)
 		att->atthasmissing = false;
 		att->attidentity = '\0';
 		att->attgenerated = '\0';
+
+		populate_compact_attribute(TupleDescCompactAttr(desc, i),
+								   TupleDescAttr(desc, i));
 	}
 
 	/* We can copy the tuple type identification, too */
@@ -184,6 +216,10 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 		   TupleDescAttr(tupdesc, 0),
 		   desc->natts * sizeof(FormData_pg_attribute));
 
+	for (i = 0; i < desc->natts; i++)
+		populate_compact_attribute(TupleDescCompactAttr(desc, i),
+								   TupleDescAttr(desc, i));
+
 	/* Copy the TupleConstr data structure, if any */
 	if (constr)
 	{
@@ -208,10 +244,10 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 			{
 				if (constr->missing[i].am_present)
 				{
-					Form_pg_attribute attr = TupleDescAttr(tupdesc, i);
+					CompactAttribute *attr = TupleDescCompactAttr(tupdesc, i);
 
 					cpy->missing[i].am_value = datumCopy(constr->missing[i].am_value,
-														 attr->attbyval,
+														 CompactAttrByVal(attr),
 														 attr->attlen);
 				}
 			}
@@ -275,6 +311,9 @@ TupleDescCopy(TupleDesc dst, TupleDesc src)
 		att->atthasmissing = false;
 		att->attidentity = '\0';
 		att->attgenerated = '\0';
+
+		populate_compact_attribute(TupleDescCompactAttr(dst, i),
+								   TupleDescAttr(dst, i));
 	}
 	dst->constr = NULL;
 
@@ -329,6 +368,8 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 	dstAtt->atthasmissing = false;
 	dstAtt->attidentity = '\0';
 	dstAtt->attgenerated = '\0';
+
+	populate_compact_attribute(TupleDescCompactAttr(dst, dstAttno - 1), dstAtt);
 }
 
 /*
@@ -528,10 +569,10 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 					return false;
 				if (missval1->am_present)
 				{
-					Form_pg_attribute missatt1 = TupleDescAttr(tupdesc1, i);
+					CompactAttribute *missatt1 = TupleDescCompactAttr(tupdesc1, i);
 
 					if (!datumIsEqual(missval1->am_value, missval2->am_value,
-									  missatt1->attbyval, missatt1->attlen))
+									  CompactAttrByVal(missatt1), missatt1->attlen))
 						return false;
 				}
 			}
@@ -721,6 +762,9 @@ TupleDescInitEntry(TupleDesc desc,
 	att->attcompression = InvalidCompressionMethod;
 	att->attcollation = typeForm->typcollation;
 
+	populate_compact_attribute(TupleDescCompactAttr(desc, attributeNumber - 1),
+							   att);
+
 	ReleaseSysCache(tuple);
 }
 
@@ -828,6 +872,9 @@ TupleDescInitBuiltinEntry(TupleDesc desc,
 		default:
 			elog(ERROR, "unsupported type %u", oidtypeid);
 	}
+
+	populate_compact_attribute(TupleDescCompactAttr(desc, attributeNumber - 1),
+							   att);
 }
 
 /*
