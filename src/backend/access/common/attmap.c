@@ -323,7 +323,7 @@ check_attrmap_match(TupleDesc indesc,
 		if (attrMap->attnums[i] == 0 &&
 			CompactAttrIsDropped(inatt) &&
 			inatt->attlen == outatt->attlen &&
-			inatt->attalign == outatt->attalign)
+			inatt->attalignby == outatt->attalignby)
 			continue;
 
 		return false;

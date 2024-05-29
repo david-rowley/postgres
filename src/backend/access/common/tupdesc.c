@@ -77,7 +77,25 @@ populate_compact_attribute(CompactAttribute *dst, Form_pg_attribute src)
 	if (src->attnotnull)
 		dst->attflags |= COMPACT_ATTR_FLAG_IS_NOTNULL;
 
-	dst->attalign = src->attalign;
+	switch (src->attalign)
+	{
+		case TYPALIGN_INT:
+			dst->attalignby = ALIGNOF_INT;
+			break;
+		case TYPALIGN_CHAR:
+			dst->attalignby = sizeof(char);
+			break;
+		case TYPALIGN_DOUBLE:
+			dst->attalignby = ALIGNOF_DOUBLE;
+			break;
+		case TYPALIGN_SHORT:
+			dst->attalignby = ALIGNOF_SHORT;
+			break;
+		default:
+			dst->attalignby = 0;
+			elog(ERROR, "invalid attalign value: %c", src->attalign);
+			break;
+	}
 }
 
 /*

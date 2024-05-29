@@ -57,7 +57,7 @@ typedef struct CompactAttribute
 								 * cstring */
 	uint8		attflags;		/* bit flags for compact storage of bool
 								 * fields */
-	char		attalign;		/* alignment requirement */
+	uint8		attalignby;		/* alignment requirement in bytes */
 } CompactAttribute;
 
 #define COMPACT_ATTR_FLAG_BYVAL (1 << 0)
