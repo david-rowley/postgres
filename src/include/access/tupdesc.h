@@ -51,10 +51,10 @@ typedef struct TupleConstr
  */
 typedef struct TupleDescDeformAttr
 {
-	int32	attcacheoff;
-	int16	attlen;
-	uint8	attflags;
-	char	attalign;
+	int32	attcacheoff; /* fixed offset into tuple, if known, or -1 */
+	int16	attlen;		/* attr len in bytes or -1 = varlen, -2 = cstring */
+	uint8	attflags;	/* bit flags for compact storage of bool fields */
+	uint8	attalign;	/* alignment requirement in bytes */
 } TupleDescDeformAttr;
 
 #define DEFORM_ATTR_FLAG_BYVAL			(1 << 0)

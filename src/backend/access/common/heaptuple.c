@@ -250,13 +250,13 @@ heap_compute_data_size(TupleDesc tupleDesc,
 			 * we want to flatten the expanded value so that the constructed
 			 * tuple doesn't depend on it
 			 */
-			data_length = att_align_nominal(data_length, atti->attalign);
+			data_length = att_align_nominal_fast(data_length, atti->attalign);
 			data_length += EOH_get_flat_size(DatumGetEOHP(val));
 		}
 		else
 		{
-			data_length = att_align_datum(data_length, atti->attalign,
-										  atti->attlen, val);
+			data_length = att_align_datum_fast(data_length, atti->attalign,
+											   atti->attlen, val);
 			data_length = att_addlength_datum(data_length, atti->attlen,
 											  val);
 		}
@@ -307,13 +307,13 @@ fill_val(TupleDescDeformAttr *att,
 	}
 
 	/*
-	 * XXX we use the att_align macros on the pointer value itself, not on an
-	 * offset.  This is a bit of a hack.
+	 * XXX we use the att_align_nominal_fast macro on the pointer value
+	 * itself, not on an offset.  This is a bit of a hack.
 	 */
 	if (DeformAttrByVal(att))
 	{
 		/* pass-by-value */
-		data = (char *) att_align_nominal(data, att->attalign);
+		data = (char *) att_align_nominal_fast(data, att->attalign);
 		store_att_byval(data, datum, att->attlen);
 		data_length = att->attlen;
 	}
@@ -333,8 +333,7 @@ fill_val(TupleDescDeformAttr *att,
 				 */
 				ExpandedObjectHeader *eoh = DatumGetEOHP(datum);
 
-				data = (char *) att_align_nominal(data,
-												  att->attalign);
+				data = (char *) att_align_nominal_fast(data, att->attalign);
 				data_length = EOH_get_flat_size(eoh);
 				EOH_flatten_into(eoh, data, data_length);
 			}
@@ -363,8 +362,7 @@ fill_val(TupleDescDeformAttr *att,
 		else
 		{
 			/* full 4-byte header varlena */
-			data = (char *) att_align_nominal(data,
-											  att->attalign);
+			data = (char *) att_align_nominal_fast(data, att->attalign);
 			data_length = VARSIZE(val);
 			memcpy(data, val, data_length);
 		}
@@ -373,14 +371,14 @@ fill_val(TupleDescDeformAttr *att,
 	{
 		/* cstring ... never needs alignment */
 		*infomask |= HEAP_HASVARWIDTH;
-		Assert(att->attalign == TYPALIGN_CHAR);
+		Assert(att->attalign == sizeof(char));
 		data_length = strlen(DatumGetCString(datum)) + 1;
 		memcpy(data, DatumGetPointer(datum), data_length);
 	}
 	else
 	{
 		/* fixed-length pass-by-reference */
-		data = (char *) att_align_nominal(data, att->attalign);
+		data = (char *) att_align_nominal_fast(data, att->attalign);
 		Assert(att->attlen > 0);
 		data_length = att->attlen;
 		memcpy(data, DatumGetPointer(datum), data_length);
@@ -634,7 +632,7 @@ nocachegetattr(HeapTuple tup,
 			if (att->attlen <= 0)
 				break;
 
-			off = att_align_nominal(off, att->attalign);
+			off = att_align_nominal_fast(off, att->attalign);
 
 			att->attcacheoff = off;
 
@@ -683,19 +681,19 @@ nocachegetattr(HeapTuple tup,
 				 * either an aligned or unaligned value.
 				 */
 				if (usecache &&
-					off == att_align_nominal(off, att->attalign))
+					off == att_align_nominal_fast(off, att->attalign))
 					att->attcacheoff = off;
 				else
 				{
-					off = att_align_pointer(off, att->attalign, -1,
-											tp + off);
+					off = att_align_pointer_fast(off, att->attalign, -1,
+												 tp + off);
 					usecache = false;
 				}
 			}
 			else
 			{
-				/* not varlena, so safe to use att_align_nominal */
-				off = att_align_nominal(off, att->attalign);
+				/* not varlena, so safe to use att_align_nominal_fast */
+				off = att_align_nominal_fast(off, att->attalign);
 
 				if (usecache)
 					att->attcacheoff = off;
@@ -898,10 +896,10 @@ expand_tuple(HeapTuple *targetHeapTuple,
 			{
 				TupleDescDeformAttr *att = TupleDescDeformAttr(tupleDesc, attnum);
 
-				targetDataLen = att_align_datum(targetDataLen,
-												att->attalign,
-												att->attlen,
-												attrmiss[attnum].am_value);
+				targetDataLen = att_align_datum_fast(targetDataLen,
+													 att->attalign,
+													 att->attlen,
+													 attrmiss[attnum].am_value);
 
 				targetDataLen = att_addlength_pointer(targetDataLen,
 													  att->attlen,
@@ -1397,19 +1395,19 @@ heap_deform_tuple(HeapTuple tuple, TupleDesc tupleDesc,
 			 * an aligned or unaligned value.
 			 */
 			if (!slow &&
-				off == att_align_nominal(off, thisatt->attalign))
+				off == att_align_nominal_fast(off, thisatt->attalign))
 				thisatt->attcacheoff = off;
 			else
 			{
-				off = att_align_pointer(off, thisatt->attalign, -1,
-										tp + off);
+				off = att_align_pointer_fast(off, thisatt->attalign, -1,
+											 tp + off);
 				slow = true;
 			}
 		}
 		else
 		{
-			/* not varlena, so safe to use att_align_nominal */
-			off = att_align_nominal(off, thisatt->attalign);
+			/* not varlena, so safe to use att_align_nominal_fast */
+			off = att_align_nominal_fast(off, thisatt->attalign);
 
 			if (!slow)
 				thisatt->attcacheoff = off;

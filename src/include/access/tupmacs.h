@@ -92,6 +92,12 @@ fetch_att(const void *T, bool attbyval, int attlen)
 	att_align_nominal(cur_offset, attalign) \
 )
 
+#define att_align_datum_fast(cur_offset, attalign, attlen, attdatum) \
+( \
+	((attlen) == -1 && VARATT_IS_SHORT(DatumGetPointer(attdatum))) ? \
+	(uintptr_t) (cur_offset) : \
+	TYPEALIGN(attalign, cur_offset))
+
 /*
  * att_align_pointer performs the same calculation as att_align_datum,
  * but is used when walking a tuple.  attptr is the current actual data
@@ -112,6 +118,12 @@ fetch_att(const void *T, bool attbyval, int attlen)
 	(uintptr_t) (cur_offset) : \
 	att_align_nominal(cur_offset, attalign) \
 )
+
+#define att_align_pointer_fast(cur_offset, attalign, attlen, attptr) \
+( \
+	((attlen) == -1 && VARATT_NOT_PAD_BYTE(attptr)) ? \
+	(uintptr_t) (cur_offset) : \
+	TYPEALIGN(attalign, cur_offset))
 
 /*
  * att_align_nominal aligns the given offset as needed for a datum of alignment
@@ -138,6 +150,9 @@ fetch_att(const void *T, bool attbyval, int attlen)
 			SHORTALIGN(cur_offset) \
 	   ))) \
 )
+
+#define att_align_nominal_fast(cur_offset, attalign) \
+	TYPEALIGN(attalign, (uintptr_t) cur_offset)
 
 /*
  * att_addlength_datum increments the given offset by the space needed for

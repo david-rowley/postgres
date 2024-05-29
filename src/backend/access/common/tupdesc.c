@@ -77,7 +77,25 @@ populate_TupleDescAttr(TupleDescDeformAttr *dst, Form_pg_attribute src)
 	if (src->attnotnull)
 		dst->attflags |= DEFORM_ATTR_FLAG_IS_NOTNULL;
 
-	dst->attalign = src->attalign;
+	switch (src->attalign)
+	{
+		case TYPALIGN_INT:
+			dst->attalign = ALIGNOF_INT;
+			break;
+		case TYPALIGN_CHAR:
+			dst->attalign = sizeof(char);
+			break;
+		case TYPALIGN_DOUBLE:
+			dst->attalign = ALIGNOF_DOUBLE;
+			break;
+		case TYPALIGN_SHORT:
+			dst->attalign = ALIGNOF_SHORT;
+			break;
+		default:
+			dst->attalign = 0;
+			elog(ERROR, "invalid attalign value: %c", src->attalign);
+			break;
+	}
 }
 
 /*
