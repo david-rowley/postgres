@@ -323,7 +323,7 @@ getSpGistTupleDesc(Relation index, SpGistTypeDesc *keyType)
 		att->atttypmod = -1;
 		att->attlen = keyType->attlen;
 		att->attbyval = keyType->attbyval;
-		att->attalign = keyType->attalign;
+		att->attalignby = TypeAlignToByteAlign(keyType->attalign);
 		att->attstorage = keyType->attstorage;
 		/* We shouldn't need to bother with making these valid: */
 		att->attcompression = InvalidCompressionMethod;

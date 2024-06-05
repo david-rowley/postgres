@@ -354,7 +354,7 @@ ConstructTupleDescriptor(Relation heapRelation,
 			to->attndims = from->attndims;
 			to->atttypmod = from->atttypmod;
 			to->attbyval = from->attbyval;
-			to->attalign = from->attalign;
+			to->attalignby = from->attalignby;
 			to->attstorage = from->attstorage;
 			to->attcompression = from->attcompression;
 		}
@@ -384,7 +384,7 @@ ConstructTupleDescriptor(Relation heapRelation,
 			to->attlen = typeTup->typlen;
 			to->atttypmod = exprTypmod(indexkey);
 			to->attbyval = typeTup->typbyval;
-			to->attalign = typeTup->typalign;
+			to->attalignby = TypeAlignToByteAlign(typeTup->typalign);
 			to->attstorage = typeTup->typstorage;
 
 			/*
@@ -470,7 +470,7 @@ ConstructTupleDescriptor(Relation heapRelation,
 			to->atttypmod = -1;
 			to->attlen = typeTup->typlen;
 			to->attbyval = typeTup->typbyval;
-			to->attalign = typeTup->typalign;
+			to->attalignby = TypeAlignToByteAlign(typeTup->typalign);
 			to->attstorage = typeTup->typstorage;
 			/* As above, use the default compression method in this case */
 			to->attcompression = InvalidCompressionMethod;

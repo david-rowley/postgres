@@ -4762,7 +4762,7 @@ ExecEvalWholeRowVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 									   format_type_be(vattr->atttypid))));
 
 				if (vattr->attlen != sattr->attlen ||
-					vattr->attalign != sattr->attalign)
+					vattr->attalignby != sattr->attalignby)
 					op->d.wholerow.slow = true; /* need to check for nulls */
 			}
 
@@ -4851,7 +4851,7 @@ ExecEvalWholeRowVar(ExprState *state, ExprEvalStep *op, ExprContext *econtext)
 			if (slot->tts_isnull[i])
 				continue;		/* null is always okay */
 			if (vattr->attlen != sattr->attlen ||
-				vattr->attalign != sattr->attalign)
+				vattr->attalignby != sattr->attalignby)
 				ereport(ERROR,
 						(errcode(ERRCODE_DATATYPE_MISMATCH),
 						 errmsg("table row type and query-specified row type do not match"),

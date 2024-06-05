@@ -354,7 +354,7 @@ tuple_data_split_internal(Oid relid, char *tupdata,
 
 			if (attr->attlen == -1)
 			{
-				off = att_align_pointer(off, attr->attalign, -1,
+				off = att_align_pointer(off, attr->attalignby, -1,
 										tupdata + off);
 
 				/*
@@ -373,7 +373,7 @@ tuple_data_split_internal(Oid relid, char *tupdata,
 			}
 			else
 			{
-				off = att_align_nominal(off, attr->attalign);
+				off = att_align_nominal(off, attr->attalignby);
 				len = attr->attlen;
 			}
 

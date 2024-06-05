@@ -77,17 +77,17 @@ fetch_att(const void *T, bool attbyval, int attlen)
 
 /*
  * att_align_datum aligns the given offset as needed for a datum of alignment
- * requirement attalign and typlen attlen.  attdatum is the Datum variable
+ * requirement attalignby and typlen attlen.  attdatum is the Datum variable
  * we intend to pack into a tuple (it's only accessed if we are dealing with
  * a varlena type).  Note that this assumes the Datum will be stored as-is;
  * callers that are intending to convert non-short varlena datums to short
  * format have to account for that themselves.
  */
-#define att_align_datum(cur_offset, attalign, attlen, attdatum) \
+#define att_align_datum(cur_offset, attalignby, attlen, attdatum) \
 ( \
 	((attlen) == -1 && VARATT_IS_SHORT(DatumGetPointer(attdatum))) ? \
 	(uintptr_t) (cur_offset) : \
-	att_align_nominal(cur_offset, attalign) \
+	att_align_nominal(cur_offset, attalignby) \
 )
 
 /*
@@ -104,16 +104,16 @@ fetch_att(const void *T, bool attbyval, int attlen)
  * a bit of a hack but should work all right as long as uintptr_t is the
  * correct width.
  */
-#define att_align_pointer(cur_offset, attalign, attlen, attptr) \
+#define att_align_pointer(cur_offset, attalignby, attlen, attptr) \
 ( \
 	((attlen) == -1 && VARATT_NOT_PAD_BYTE(attptr)) ? \
 	(uintptr_t) (cur_offset) : \
-	att_align_nominal(cur_offset, attalign) \
+	att_align_nominal(cur_offset, attalignby) \
 )
 
 /*
  * att_align_nominal aligns the given offset as needed for a datum of alignment
- * requirement attalign, ignoring any consideration of packed varlena datums.
+ * requirement attalignby, ignoring any consideration of packed varlena datums.
  * There are three main use cases for using this macro directly:
  *	* we know that the att in question is not varlena (attlen != -1);
  *	  in this case it is cheaper than the above macros and just as good.
@@ -123,19 +123,10 @@ fetch_att(const void *T, bool attbyval, int attlen)
  *	* within arrays and multiranges, we unconditionally align varlenas (XXX this
  *	  should be revisited, probably).
  *
- * The attalign cases are tested in what is hopefully something like their
+ * The attalignby cases are tested in what is hopefully something like their
  * frequency of occurrence.
  */
-#define att_align_nominal(cur_offset, attalign) \
-( \
-	((attalign) == TYPALIGN_INT) ? INTALIGN(cur_offset) : \
-	 (((attalign) == TYPALIGN_CHAR) ? (uintptr_t) (cur_offset) : \
-	  (((attalign) == TYPALIGN_DOUBLE) ? DOUBLEALIGN(cur_offset) : \
-	   ( \
-			AssertMacro((attalign) == TYPALIGN_SHORT), \
-			SHORTALIGN(cur_offset) \
-	   ))) \
-)
+#define att_align_nominal(cur_offset, attalignby) TYPEALIGN(attalignby, cur_offset)
 
 /*
  * att_addlength_datum increments the given offset by the space needed for

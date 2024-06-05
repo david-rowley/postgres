@@ -313,13 +313,13 @@ check_attrmap_match(TupleDesc indesc,
 
 		/*
 		 * If it's a dropped column and the corresponding input column is also
-		 * dropped, we don't need a conversion.  However, attlen and attalign
+		 * dropped, we don't need a conversion.  However, attlen and attalignby
 		 * must agree.
 		 */
 		if (attrMap->attnums[i] == 0 &&
 			inatt->attisdropped &&
 			inatt->attlen == outatt->attlen &&
-			inatt->attalign == outatt->attalign)
+			inatt->attalignby == outatt->attalignby)
 			continue;
 
 		return false;
