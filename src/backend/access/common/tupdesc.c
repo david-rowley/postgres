@@ -437,7 +437,7 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 		 * We do not need to check every single field here: we can disregard
 		 * attrelid and attnum (which were used to place the row in the attrs
 		 * array in the first place).  It might look like we could dispense
-		 * with checking attlen/attbyval/attalign, since these are derived
+		 * with checking attlen/attbyval/attalignby, since these are derived
 		 * from atttypid; but in the case of dropped columns we must check
 		 * them (since atttypid will be zero for all dropped columns) and in
 		 * general it seems safer to check them always.
@@ -458,7 +458,7 @@ equalTupleDescs(TupleDesc tupdesc1, TupleDesc tupdesc2)
 			return false;
 		if (attr1->attbyval != attr2->attbyval)
 			return false;
-		if (attr1->attalign != attr2->attalign)
+		if (attr1->attalignby != attr2->attalignby)
 			return false;
 		if (attr1->attstorage != attr2->attstorage)
 			return false;
@@ -709,7 +709,7 @@ TupleDescInitEntry(TupleDesc desc,
 	att->atttypid = oidtypeid;
 	att->attlen = typeForm->typlen;
 	att->attbyval = typeForm->typbyval;
-	att->attalign = typeForm->typalign;
+	att->attalignby = TypeAlignToByteAlign(typeForm->typalign);
 	att->attstorage = typeForm->typstorage;
 	att->attcompression = InvalidCompressionMethod;
 	att->attcollation = typeForm->typcollation;
@@ -776,7 +776,7 @@ TupleDescInitBuiltinEntry(TupleDesc desc,
 		case TEXTARRAYOID:
 			att->attlen = -1;
 			att->attbyval = false;
-			att->attalign = TYPALIGN_INT;
+			att->attalignby = TypeAlignToByteAlign(TYPALIGN_INT);
 			att->attstorage = TYPSTORAGE_EXTENDED;
 			att->attcompression = InvalidCompressionMethod;
 			att->attcollation = DEFAULT_COLLATION_OID;
@@ -785,7 +785,7 @@ TupleDescInitBuiltinEntry(TupleDesc desc,
 		case BOOLOID:
 			att->attlen = 1;
 			att->attbyval = true;
-			att->attalign = TYPALIGN_CHAR;
+			att->attalignby = TypeAlignToByteAlign(TYPALIGN_CHAR);
 			att->attstorage = TYPSTORAGE_PLAIN;
 			att->attcompression = InvalidCompressionMethod;
 			att->attcollation = InvalidOid;
@@ -794,7 +794,7 @@ TupleDescInitBuiltinEntry(TupleDesc desc,
 		case INT4OID:
 			att->attlen = 4;
 			att->attbyval = true;
-			att->attalign = TYPALIGN_INT;
+			att->attalignby = TypeAlignToByteAlign(TYPALIGN_INT);
 			att->attstorage = TYPSTORAGE_PLAIN;
 			att->attcompression = InvalidCompressionMethod;
 			att->attcollation = InvalidOid;
@@ -803,7 +803,7 @@ TupleDescInitBuiltinEntry(TupleDesc desc,
 		case INT8OID:
 			att->attlen = 8;
 			att->attbyval = FLOAT8PASSBYVAL;
-			att->attalign = TYPALIGN_DOUBLE;
+			att->attalignby = TypeAlignToByteAlign(TYPALIGN_DOUBLE);
 			att->attstorage = TYPSTORAGE_PLAIN;
 			att->attcompression = InvalidCompressionMethod;
 			att->attcollation = InvalidOid;
@@ -812,7 +812,7 @@ TupleDescInitBuiltinEntry(TupleDesc desc,
 		case OIDOID:
 			att->attlen = 4;
 			att->attbyval = true;
-			att->attalign = TYPALIGN_INT;
+			att->attalignby = TypeAlignToByteAlign(TYPALIGN_INT);
 			att->attstorage = TYPSTORAGE_PLAIN;
 			att->attcompression = InvalidCompressionMethod;
 			att->attcollation = InvalidOid;
@@ -820,6 +820,44 @@ TupleDescInitBuiltinEntry(TupleDesc desc,
 
 		default:
 			elog(ERROR, "unsupported type %u", oidtypeid);
+	}
+}
+
+int16
+TypeAlignToByteAlign(char typalign)
+{
+	switch (typalign)
+	{
+		case TYPALIGN_INT:
+			return ALIGNOF_INT;
+		case TYPALIGN_CHAR:
+			return sizeof(char);
+		case TYPALIGN_DOUBLE:
+			return ALIGNOF_DOUBLE;
+		case TYPALIGN_SHORT:
+			return ALIGNOF_SHORT;
+		default:
+			elog(ERROR, "invalid type alignment: %c", typalign);
+			return 0;
+	}
+}
+
+char
+ByteAlignToTypeAlign(int16 attalignby)
+{
+	switch (attalignby)
+	{
+		case ALIGNOF_INT:
+			return TYPALIGN_INT;
+		case sizeof(char):
+			return TYPALIGN_CHAR;
+		case ALIGNOF_DOUBLE:
+			return TYPALIGN_DOUBLE;
+		case ALIGNOF_SHORT:
+			return TYPALIGN_SHORT;
+		default:
+			elog(ERROR, "invalid type alignment: %d", (int) attalignby);
+			return 0;
 	}
 }
 

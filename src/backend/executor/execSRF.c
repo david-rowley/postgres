@@ -970,7 +970,7 @@ tupledesc_match(TupleDesc dst_tupdesc, TupleDesc src_tupdesc)
 							   format_type_be(dattr->atttypid))));
 
 		if (dattr->attlen != sattr->attlen ||
-			dattr->attalign != sattr->attalign)
+			dattr->attalignby != sattr->attalignby)
 			ereport(ERROR,
 					(errcode(ERRCODE_DATATYPE_MISMATCH),
 					 errmsg("function return row and query-specified return row do not match"),

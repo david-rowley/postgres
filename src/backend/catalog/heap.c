@@ -147,7 +147,7 @@ static const FormData_pg_attribute a1 = {
 	.attcacheoff = -1,
 	.atttypmod = -1,
 	.attbyval = false,
-	.attalign = TYPALIGN_SHORT,
+	.attalignby = ALIGNOF_SHORT,
 	.attstorage = TYPSTORAGE_PLAIN,
 	.attnotnull = true,
 	.attislocal = true,
@@ -161,7 +161,7 @@ static const FormData_pg_attribute a2 = {
 	.attcacheoff = -1,
 	.atttypmod = -1,
 	.attbyval = true,
-	.attalign = TYPALIGN_INT,
+	.attalignby = ALIGNOF_INT,
 	.attstorage = TYPSTORAGE_PLAIN,
 	.attnotnull = true,
 	.attislocal = true,
@@ -175,7 +175,7 @@ static const FormData_pg_attribute a3 = {
 	.attcacheoff = -1,
 	.atttypmod = -1,
 	.attbyval = true,
-	.attalign = TYPALIGN_INT,
+	.attalignby = ALIGNOF_INT,
 	.attstorage = TYPSTORAGE_PLAIN,
 	.attnotnull = true,
 	.attislocal = true,
@@ -189,7 +189,7 @@ static const FormData_pg_attribute a4 = {
 	.attcacheoff = -1,
 	.atttypmod = -1,
 	.attbyval = true,
-	.attalign = TYPALIGN_INT,
+	.attalignby = ALIGNOF_INT,
 	.attstorage = TYPSTORAGE_PLAIN,
 	.attnotnull = true,
 	.attislocal = true,
@@ -203,7 +203,7 @@ static const FormData_pg_attribute a5 = {
 	.attcacheoff = -1,
 	.atttypmod = -1,
 	.attbyval = true,
-	.attalign = TYPALIGN_INT,
+	.attalignby = ALIGNOF_INT,
 	.attstorage = TYPSTORAGE_PLAIN,
 	.attnotnull = true,
 	.attislocal = true,
@@ -223,7 +223,7 @@ static const FormData_pg_attribute a6 = {
 	.attcacheoff = -1,
 	.atttypmod = -1,
 	.attbyval = true,
-	.attalign = TYPALIGN_INT,
+	.attalignby = ALIGNOF_INT,
 	.attstorage = TYPSTORAGE_PLAIN,
 	.attnotnull = true,
 	.attislocal = true,
@@ -744,7 +744,7 @@ InsertPgAttributeTuples(Relation pg_attribute_rel,
 		slot[slotCount]->tts_values[Anum_pg_attribute_atttypmod - 1] = Int32GetDatum(attrs->atttypmod);
 		slot[slotCount]->tts_values[Anum_pg_attribute_attndims - 1] = Int16GetDatum(attrs->attndims);
 		slot[slotCount]->tts_values[Anum_pg_attribute_attbyval - 1] = BoolGetDatum(attrs->attbyval);
-		slot[slotCount]->tts_values[Anum_pg_attribute_attalign - 1] = CharGetDatum(attrs->attalign);
+		slot[slotCount]->tts_values[Anum_pg_attribute_attalignby - 1] = Int8GetDatum(attrs->attalignby);
 		slot[slotCount]->tts_values[Anum_pg_attribute_attstorage - 1] = CharGetDatum(attrs->attstorage);
 		slot[slotCount]->tts_values[Anum_pg_attribute_attcompression - 1] = CharGetDatum(attrs->attcompression);
 		slot[slotCount]->tts_values[Anum_pg_attribute_attnotnull - 1] = BoolGetDatum(attrs->attnotnull);
@@ -1698,7 +1698,7 @@ RemoveAttributeById(Oid relid, AttrNumber attnum)
 	 * relied on (once the attribute is dropped, the type might be too).
 	 * Fortunately we do not need the type row --- the only really essential
 	 * information is the type's typlen and typalign, which are preserved in
-	 * the attribute's attlen and attalign.  We set atttypid to zero here as a
+	 * the attribute's attlen and attalignby.  We set atttypid to zero here as a
 	 * means of catching code that incorrectly expects it to be valid.
 	 */
 	attStruct->atttypid = InvalidOid;

@@ -143,6 +143,9 @@ extern void TupleDescInitBuiltinEntry(TupleDesc desc,
 									  int32 typmod,
 									  int attdim);
 
+extern int16 TypeAlignToByteAlign(char typalign);
+extern char ByteAlignToTypeAlign(int16 attalignby);
+
 extern void TupleDescInitEntryCollation(TupleDesc desc,
 										AttrNumber attributeNumber,
 										Oid collationid);

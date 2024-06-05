@@ -623,7 +623,7 @@ RelationBuildTupleDesc(Relation relation)
 											-1,
 											attp->attlen,
 											attp->attbyval,
-											attp->attalign,
+											ByteAlignToTypeAlign(attp->attalignby),
 											&is_null);
 				Assert(!is_null);
 				if (attp->attbyval)

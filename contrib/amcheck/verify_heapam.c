@@ -1592,7 +1592,7 @@ check_tuple_attribute(HeapCheckContext *ctx)
 	/* Skip non-varlena values, but update offset first */
 	if (thisatt->attlen != -1)
 	{
-		ctx->offset = att_align_nominal(ctx->offset, thisatt->attalign);
+		ctx->offset = att_align_nominal(ctx->offset, thisatt->attalignby);
 		ctx->offset = att_addlength_pointer(ctx->offset, thisatt->attlen,
 											tp + ctx->offset);
 		if (ctx->tuphdr->t_hoff + ctx->offset > ctx->lp_len)
@@ -1608,7 +1608,7 @@ check_tuple_attribute(HeapCheckContext *ctx)
 	}
 
 	/* Ok, we're looking at a varlena attribute. */
-	ctx->offset = att_align_pointer(ctx->offset, thisatt->attalign, -1,
+	ctx->offset = att_align_pointer(ctx->offset, thisatt->attalignby, -1,
 									tp + ctx->offset);
 
 	/* Get the (possibly corrupt) varlena datum */

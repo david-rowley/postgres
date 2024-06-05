@@ -511,7 +511,7 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
 		attrtypes[attnum]->atttypid = Ap->am_oid;
 		attrtypes[attnum]->attlen = Ap->am_typ.typlen;
 		attrtypes[attnum]->attbyval = Ap->am_typ.typbyval;
-		attrtypes[attnum]->attalign = Ap->am_typ.typalign;
+		attrtypes[attnum]->attalignby = TypeAlignToByteAlign(Ap->am_typ.typalign);
 		attrtypes[attnum]->attstorage = Ap->am_typ.typstorage;
 		attrtypes[attnum]->attcompression = InvalidCompressionMethod;
 		attrtypes[attnum]->attcollation = Ap->am_typ.typcollation;
@@ -526,7 +526,7 @@ DefineAttr(char *name, char *type, int attnum, int nullness)
 		attrtypes[attnum]->atttypid = TypInfo[typeoid].oid;
 		attrtypes[attnum]->attlen = TypInfo[typeoid].len;
 		attrtypes[attnum]->attbyval = TypInfo[typeoid].byval;
-		attrtypes[attnum]->attalign = TypInfo[typeoid].align;
+		attrtypes[attnum]->attalignby = TypeAlignToByteAlign(TypInfo[typeoid].align);
 		attrtypes[attnum]->attstorage = TypInfo[typeoid].storage;
 		attrtypes[attnum]->attcompression = InvalidCompressionMethod;
 		attrtypes[attnum]->attcollation = TypInfo[typeoid].collation;

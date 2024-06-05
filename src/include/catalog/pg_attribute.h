@@ -43,11 +43,11 @@ CATALOG(pg_attribute,1249,AttributeRelationId) BKI_BOOTSTRAP BKI_ROWTYPE_OID(75,
 	/*
 	 * atttypid is the OID of the instance in Catalog Class pg_type that
 	 * defines the data type of this attribute (e.g. int4).  Information in
-	 * that instance is redundant with the attlen, attbyval, and attalign
+	 * that instance is redundant with the attlen, attbyval, and attalignby
 	 * attributes of this instance, so they had better match or Postgres will
 	 * fail.  In an entry for a dropped column, this field is set to zero
 	 * since the pg_type entry may no longer exist; but we rely on attlen,
-	 * attbyval, and attalign to still tell us how large the values in the
+	 * attbyval, and attalignby to still tell us how large the values in the
 	 * table are.
 	 */
 	Oid			atttypid BKI_LOOKUP_OPT(pg_type);
@@ -103,10 +103,11 @@ CATALOG(pg_attribute,1249,AttributeRelationId) BKI_BOOTSTRAP BKI_ROWTYPE_OID(75,
 	bool		attbyval;
 
 	/*
-	 * attalign is a copy of the typalign field from pg_type for this
-	 * attribute.  See atttypid comments above.
+	 * attalignby is derived from the typalign field from pg_type for this
+	 * attribute.  This stores the byte alignment requirements for this column
+	 * translated from the typalign char. See atttypid comments above.
 	 */
-	char		attalign;
+	int16		attalignby;
 
 	/*----------
 	 * attstorage tells for VARLENA attributes, what the heap access

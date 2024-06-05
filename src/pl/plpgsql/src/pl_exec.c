@@ -7321,7 +7321,7 @@ compatible_tupdescs(TupleDesc src_tupdesc, TupleDesc dst_tupdesc)
 		{
 			/* Dropped columns are OK as long as length/alignment match */
 			if (dattr->attlen != sattr->attlen ||
-				dattr->attalign != sattr->attalign)
+				dattr->attalignby != sattr->attalignby)
 				return false;
 		}
 	}

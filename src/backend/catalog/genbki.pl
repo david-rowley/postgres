@@ -924,6 +924,28 @@ sub gen_pg_attribute
 	return;
 }
 
+sub TypeAlignToByteAlign
+{
+	my $typalign = shift;
+
+	if ($typalign eq 'c')
+	{
+		return 1;
+	}
+	elsif ($typalign eq 's')
+	{
+		return 2;
+	}
+	elsif ($typalign eq 'i')
+	{
+		return 4;
+	}
+	elsif ($typalign eq 'd')
+	{
+		return 8;
+	}
+}
+
 # Given $pgattr_schema (the pg_attribute schema for a catalog sufficient for
 # AddDefaultValues), $attr (the description of a catalog row), and
 # $priorfixedwidth (all prior columns are fixed-width and not null),
@@ -944,7 +966,7 @@ sub morph_row_for_pgattr
 	$row->{atttypid} = $type->{oid};
 	$row->{attlen} = $type->{typlen};
 	$row->{attbyval} = $type->{typbyval};
-	$row->{attalign} = $type->{typalign};
+	$row->{attalignby} = TypeAlignToByteAlign($type->{typalign});
 	$row->{attstorage} = $type->{typstorage};
 
 	# set attndims if it's an array type

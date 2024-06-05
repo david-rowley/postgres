@@ -2048,7 +2048,7 @@ heapam_relation_needs_toast_table(Relation rel)
 
 		if (att->attisdropped)
 			continue;
-		data_length = att_align_nominal(data_length, att->attalign);
+		data_length = att_align_nominal(data_length, att->attalignby);
 		if (att->attlen > 0)
 		{
 			/* Fixed-length types are never toastable */

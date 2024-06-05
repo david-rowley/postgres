@@ -327,7 +327,7 @@ array_in(PG_FUNCTION_ARGS)
 			if (typlen == -1)
 				values[i] = PointerGetDatum(PG_DETOAST_DATUM(values[i]));
 			nbytes = att_addlength_datum(nbytes, typlen, values[i]);
-			nbytes = att_align_nominal(nbytes, typalign);
+			nbytes = att_align_nominal(nbytes, TypeAlignToByteAlign(typalign));
 			/* check for overflow of total request */
 			if (!AllocSizeIsValid(nbytes))
 				ereturn(escontext, (Datum) 0,
@@ -1525,7 +1525,7 @@ ReadArrayBinary(StringInfo buf,
 			if (typlen == -1)
 				values[i] = PointerGetDatum(PG_DETOAST_DATUM(values[i]));
 			totbytes = att_addlength_datum(totbytes, typlen, values[i]);
-			totbytes = att_align_nominal(totbytes, typalign);
+			totbytes = att_align_nominal(totbytes, TypeAlignToByteAlign(typalign));
 			/* check for overflow of total request */
 			if (!AllocSizeIsValid(totbytes))
 				ereport(ERROR,
@@ -2415,7 +2415,7 @@ array_set_element(Datum arraydatum,
 		else
 		{
 			olditemlen = att_addlength_pointer(0, elmlen, elt_ptr);
-			olditemlen = att_align_nominal(olditemlen, elmalign);
+			olditemlen = att_align_nominal(olditemlen, TypeAlignToByteAlign(elmalign));
 		}
 		lenafter = (int) (olddatasize - lenbefore - olditemlen);
 	}
@@ -2425,7 +2425,7 @@ array_set_element(Datum arraydatum,
 	else
 	{
 		newitemlen = att_addlength_datum(0, elmlen, dataValue);
-		newitemlen = att_align_nominal(newitemlen, elmalign);
+		newitemlen = att_align_nominal(newitemlen, TypeAlignToByteAlign(elmalign));
 	}
 
 	newsize = overheadlen + lenbefore + newitemlen + lenafter;
@@ -3297,7 +3297,7 @@ array_map(Datum arrayd,
 				values[i] = PointerGetDatum(PG_DETOAST_DATUM(values[i]));
 			/* Update total result size */
 			nbytes = att_addlength_datum(nbytes, typlen, values[i]);
-			nbytes = att_align_nominal(nbytes, typalign);
+			nbytes = att_align_nominal(nbytes, TypeAlignToByteAlign(typalign));
 			/* check for overflow of total request */
 			if (!AllocSizeIsValid(nbytes))
 				ereport(ERROR,
@@ -3525,7 +3525,7 @@ construct_md_array(Datum *elems,
 		if (elmlen == -1)
 			elems[i] = PointerGetDatum(PG_DETOAST_DATUM(elems[i]));
 		nbytes = att_addlength_datum(nbytes, elmlen, elems[i]);
-		nbytes = att_align_nominal(nbytes, elmalign);
+		nbytes = att_align_nominal(nbytes, TypeAlignToByteAlign(elmalign));
 		/* check for overflow of total request */
 		if (!AllocSizeIsValid(nbytes))
 			ereport(ERROR,
@@ -3660,7 +3660,7 @@ deconstruct_array(ArrayType *array,
 		{
 			elems[i] = fetch_att(p, elmbyval, elmlen);
 			p = att_addlength_pointer(p, elmlen, p);
-			p = (char *) att_align_nominal(p, elmalign);
+			p = (char *) att_align_nominal(p, TypeAlignToByteAlign(elmalign));
 		}
 
 		/* advance bitmap pointer if any */
@@ -4687,7 +4687,7 @@ array_iterate(ArrayIterator iterator, Datum *value, bool *isnull)
 
 			/* Move our data pointer forward to the next element */
 			p = att_addlength_pointer(p, iterator->typlen, p);
-			p = (char *) att_align_nominal(p, iterator->typalign);
+			p = (char *) att_align_nominal(p, TypeAlignToByteAlign(iterator->typalign));
 			iterator->data_ptr = p;
 		}
 	}
@@ -4717,7 +4717,7 @@ array_iterate(ArrayIterator iterator, Datum *value, bool *isnull)
 
 				/* Move our data pointer forward to the next element */
 				p = att_addlength_pointer(p, iterator->typlen, p);
-				p = (char *) att_align_nominal(p, iterator->typalign);
+				p = (char *) att_align_nominal(p, TypeAlignToByteAlign(iterator->typalign));
 			}
 		}
 
@@ -4826,14 +4826,14 @@ ArrayCastAndSet(Datum src,
 			store_att_byval(dest, src, typlen);
 		else
 			memmove(dest, DatumGetPointer(src), typlen);
-		inc = att_align_nominal(typlen, typalign);
+		inc = att_align_nominal(typlen, TypeAlignToByteAlign(typalign));
 	}
 	else
 	{
 		Assert(!typbyval);
 		inc = att_addlength_datum(0, typlen, src);
 		memmove(dest, DatumGetPointer(src), inc);
-		inc = att_align_nominal(inc, typalign);
+		inc = att_align_nominal(inc, TypeAlignToByteAlign(typalign));
 	}
 
 	return inc;
@@ -4859,7 +4859,7 @@ array_seek(char *ptr, int offset, bits8 *nullbitmap, int nitems,
 
 	/* easy if fixed-size elements and no NULLs */
 	if (typlen > 0 && !nullbitmap)
-		return ptr + nitems * ((Size) att_align_nominal(typlen, typalign));
+		return ptr + nitems * ((Size) att_align_nominal(typlen, TypeAlignToByteAlign(typalign)));
 
 	/* seems worth having separate loops for NULL and no-NULLs cases */
 	if (nullbitmap)
@@ -4872,7 +4872,7 @@ array_seek(char *ptr, int offset, bits8 *nullbitmap, int nitems,
 			if (*nullbitmap & bitmask)
 			{
 				ptr = att_addlength_pointer(ptr, typlen, ptr);
-				ptr = (char *) att_align_nominal(ptr, typalign);
+				ptr = (char *) att_align_nominal(ptr, TypeAlignToByteAlign(typalign));
 			}
 			bitmask <<= 1;
 			if (bitmask == 0x100)
@@ -4887,7 +4887,7 @@ array_seek(char *ptr, int offset, bits8 *nullbitmap, int nitems,
 		for (i = 0; i < nitems; i++)
 		{
 			ptr = att_addlength_pointer(ptr, typlen, ptr);
-			ptr = (char *) att_align_nominal(ptr, typalign);
+			ptr = (char *) att_align_nominal(ptr, TypeAlignToByteAlign(typalign));
 		}
 	}
 	return ptr;
@@ -5042,7 +5042,7 @@ array_slice_size(char *arraydataptr, bits8 *arraynullsptr,
 
 	/* Pretty easy for fixed element length without nulls ... */
 	if (typlen > 0 && !arraynullsptr)
-		return ArrayGetNItems(ndim, span) * att_align_nominal(typlen, typalign);
+		return ArrayGetNItems(ndim, span) * att_align_nominal(typlen, TypeAlignToByteAlign(typalign));
 
 	/* Else gotta do it the hard way */
 	src_offset = ArrayGetOffset(ndim, dim, lb, st);
@@ -5064,7 +5064,7 @@ array_slice_size(char *arraydataptr, bits8 *arraynullsptr,
 		if (!array_get_isnull(arraynullsptr, src_offset))
 		{
 			inc = att_addlength_pointer(0, typlen, ptr);
-			inc = att_align_nominal(inc, typalign);
+			inc = att_align_nominal(inc, TypeAlignToByteAlign(typalign));
 			ptr += inc;
 			count += inc;
 		}
@@ -6189,7 +6189,7 @@ array_fill_internal(ArrayType *dims, ArrayType *lbs,
 			value = PointerGetDatum(PG_DETOAST_DATUM(value));
 
 		nbytes = att_addlength_datum(0, elmlen, value);
-		nbytes = att_align_nominal(nbytes, elmalign);
+		nbytes = att_align_nominal(nbytes, TypeAlignToByteAlign(elmalign));
 		Assert(nbytes > 0);
 
 		totbytes = nbytes * nitems;
@@ -6491,7 +6491,7 @@ array_replace_internal(ArrayType *array,
 			isNull = false;
 			elt = fetch_att(arraydataptr, typbyval, typlen);
 			arraydataptr = att_addlength_datum(arraydataptr, typlen, elt);
-			arraydataptr = (char *) att_align_nominal(arraydataptr, typalign);
+			arraydataptr = (char *) att_align_nominal(arraydataptr, TypeAlignToByteAlign(typalign));
 
 			if (search_isnull)
 			{
@@ -6538,7 +6538,7 @@ array_replace_internal(ArrayType *array,
 			{
 				/* Update total result size */
 				nbytes = att_addlength_datum(nbytes, typlen, values[nresult]);
-				nbytes = att_align_nominal(nbytes, typalign);
+				nbytes = att_align_nominal(nbytes, TypeAlignToByteAlign(typalign));
 				/* check for overflow of total request */
 				if (!AllocSizeIsValid(nbytes))
 					ereport(ERROR,
@@ -6868,7 +6868,7 @@ width_bucket_array_variable(Datum operand,
 		for (i = left; i < mid; i++)
 		{
 			ptr = att_addlength_pointer(ptr, typlen, ptr);
-			ptr = (char *) att_align_nominal(ptr, typalign);
+			ptr = (char *) att_align_nominal(ptr, TypeAlignToByteAlign(typalign));
 		}
 
 		locfcinfo->args[0].value = operand;
@@ -6893,7 +6893,7 @@ width_bucket_array_variable(Datum operand,
 			 * ensures we do only O(N) array indexing work, not O(N^2).
 			 */
 			ptr = att_addlength_pointer(ptr, typlen, ptr);
-			thresholds_data = (char *) att_align_nominal(ptr, typalign);
+			thresholds_data = (char *) att_align_nominal(ptr, TypeAlignToByteAlign(typalign));
 		}
 	}
 

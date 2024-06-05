@@ -4232,6 +4232,8 @@ PostgresMain(const char *dbname, const char *username)
 
 	Assert(GetProcessingMode() == InitProcessing);
 
+	Sleep(10000);
+
 	/*
 	 * Set up signal handlers.  (InitPostmasterChild or InitStandaloneProcess
 	 * has already set up BlockSig and made that the active signal mask.)

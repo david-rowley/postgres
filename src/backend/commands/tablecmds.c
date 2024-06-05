@@ -13182,7 +13182,7 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 										   0,
 										   attTup->attlen,
 										   attTup->attbyval,
-										   attTup->attalign,
+										   ByteAlignToTypeAlign(attTup->attalignby),
 										   &isNull);
 			missingval = PointerGetDatum(construct_array(&missingval,
 														 1,
@@ -13213,7 +13213,7 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 	attTup->attndims = list_length(typeName->arrayBounds);
 	attTup->attlen = tform->typlen;
 	attTup->attbyval = tform->typbyval;
-	attTup->attalign = tform->typalign;
+	attTup->attalignby = TypeAlignToByteAlign(tform->typalign);
 	attTup->attstorage = tform->typstorage;
 	attTup->attcompression = InvalidCompressionMethod;
 
