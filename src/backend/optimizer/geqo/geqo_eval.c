@@ -279,6 +279,27 @@ merge_clump(PlannerInfo *root, List *clumps, Clump *new_clump, int num_gene,
 				/* Find and save the cheapest paths for this joinrel */
 				set_cheapest(joinrel);
 
+				/*
+				 * Except for the topmost scan/join rel, consider generating
+				 * partial aggregation paths for the grouped relation on top
+				 * of the paths of this rel.  After that, we're done creating
+				 * paths for the grouped relation, so run set_cheapest().
+				 */
+				if (!bms_equal(joinrel->relids, root->all_query_rels))
+				{
+					RelOptInfo *grouped_rel;
+
+					grouped_rel = joinrel->grouped_rel;
+					if (grouped_rel)
+					{
+						Assert(IS_GROUPED_REL(grouped_rel));
+
+						generate_grouped_paths(root, grouped_rel, joinrel,
+											   grouped_rel->agg_info);
+						set_cheapest(grouped_rel);
+					}
+				}
+
 				/* Absorb new clump into old */
 				old_clump->joinrel = joinrel;
 				old_clump->size += new_clump->size;
