@@ -37,12 +37,12 @@ typedef struct MemoryContextId
 } MemoryContextId;
 
 /*
- * get_memory_context_name_and_indent
+ * get_memory_context_name_and_ident
  *		Populate *name and *ident from the name and ident from 'context'.
  */
 static void
-get_memory_context_name_and_indent(MemoryContext context, const char **name,
-								   const char **ident)
+get_memory_context_name_and_ident(MemoryContext context, const char **name,
+								  const char **ident)
 {
 	*name = context->name;
 	*ident = context->ident;
@@ -123,7 +123,7 @@ PutMemoryContextsStatsTupleStore(Tuplestorestate *tupstore,
 	memset(values, 0, sizeof(values));
 	memset(nulls, 0, sizeof(nulls));
 
-	get_memory_context_name_and_indent(context, &name, &ident);
+	get_memory_context_name_and_ident(context, &name, &ident);
 
 	if (name)
 		values[0] = CStringGetTextDatum(name);
@@ -132,17 +132,15 @@ PutMemoryContextsStatsTupleStore(Tuplestorestate *tupstore,
 
 	if (ident)
 	{
-		int idlen = strlen(ident);
-		char clipped_ident[MEMORY_CONTEXT_IDENT_DISPLAY_SIZE];
+		int			idlen = strlen(ident);
+		char		clipped_ident[MEMORY_CONTEXT_IDENT_DISPLAY_SIZE];
 
 		/*
-		* Some identifiers such as SQL query string can be very long,
-		* truncate oversize identifiers.
-		*/
+		 * Some identifiers such as SQL query string can be very long,
+		 * truncate oversize identifiers.
+		 */
 		if (idlen >= MEMORY_CONTEXT_IDENT_DISPLAY_SIZE)
-			idlen = pg_mbcliplen(ident,
-									idlen,
-									MEMORY_CONTEXT_IDENT_DISPLAY_SIZE - 1);
+			idlen = pg_mbcliplen(ident, idlen, MEMORY_CONTEXT_IDENT_DISPLAY_SIZE - 1);
 
 		memcpy(clipped_ident, ident, idlen);
 		clipped_ident[idlen] = '\0';
@@ -155,9 +153,9 @@ PutMemoryContextsStatsTupleStore(Tuplestorestate *tupstore,
 	{
 		char *parent_name, *parent_ident;
 
-		get_memory_context_name_and_indent(context->parent,
-										   &parent_name,
-										   &parent_ident);
+		get_memory_context_name_and_ident(context->parent,
+										  &parent_name,
+										  &parent_ident);
 		values[2] = CStringGetTextDatum(parent_name);
 	}
 	else
@@ -225,8 +223,8 @@ pg_get_backend_memory_contexts(PG_FUNCTION_ARGS)
 	 * I.e. all context at level 1 are assigned ids before contexts at level 2.
 	 * Because lower-leveled contexts are less likely to change, this makes the
 	 * assigned context_id more stable.  Otherwise, if the first child of
-	 * TopMemoryContext obtained an additional grand child, the context_id for
-	 * the second child of TopMemoryContext would change.
+	 * TopMemoryContext obtained an additional child, the context_id for the
+	 * second child of TopMemoryContext would change.
 	 */
 	queue = list_make1(TopMemoryContext);
 
