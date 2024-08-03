@@ -1188,7 +1188,13 @@ AlterPublicationTables(AlterPublicationStmt *stmt, HeapTuple tup,
 						char	   *colname = strVal(lfirst(lc));
 						AttrNumber	attnum = get_attnum(newrelid, colname);
 
-						newcolumns = bms_add_member(newcolumns, attnum);
+						/*
+						 * Ignore any unknown columns or system columns, we'll
+						 * validate the columns list later during the call to
+						 * PublicationAddTables.
+						 */
+						if (attnum >= 0)
+							newcolumns = bms_add_member(newcolumns, attnum);
 					}
 				}
 

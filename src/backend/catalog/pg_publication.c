@@ -48,9 +48,8 @@ typedef struct
 								 * table. */
 } published_rel;
 
-static void publication_translate_columns(Relation targetrel, List *columns,
-										  int *natts, AttrNumber **attrs);
-
+static Bitmapset *publication_validate_column_list(Relation targetrel,
+												   List *columns);
 /*
  * Check if relation can be in given publication and throws appropriate
  * error if not.
@@ -351,6 +350,26 @@ GetTopMostAncestorInPublication(Oid puboid, List *ancestors, int *ancestor_level
 	return topmost_relid;
 }
 
+int2vector *
+attnumstoint2vector(Bitmapset *set)
+{
+	int2vector *result;
+	int			n = bms_num_members(set);
+	int i = -1;
+	int j = 0;
+
+	result = buildint2vector(NULL, n);
+
+	while ((i = bms_next_member(set, i)) >= 0)
+	{
+		Assert(i <= PG_INT16_MAX);
+
+		result->values[j++] = (int16) i;
+	}
+
+	return result;
+}
+
 /*
  * Insert new publication / relation mapping.
  */
@@ -365,12 +384,12 @@ publication_add_relation(Oid pubid, PublicationRelInfo *pri,
 	Relation	targetrel = pri->relation;
 	Oid			relid = RelationGetRelid(targetrel);
 	Oid			pubreloid;
+	Bitmapset  *columns;
 	Publication *pub = GetPublication(pubid);
-	AttrNumber *attarray = NULL;
-	int			natts = 0;
 	ObjectAddress myself,
 				referenced;
 	List	   *relids = NIL;
+	int			i;
 
 	rel = table_open(PublicationRelRelationId, RowExclusiveLock);
 
@@ -395,13 +414,8 @@ publication_add_relation(Oid pubid, PublicationRelInfo *pri,
 
 	check_publication_add_relation(targetrel);
 
-	/*
-	 * Translate column names to attnums and make sure the column list
-	 * contains only allowed elements (no system or generated columns etc.).
-	 * Also build an array of attnums, for storing in the catalog.
-	 */
-	publication_translate_columns(pri->relation, pri->columns,
-								  &natts, &attarray);
+	/* validate and translate column names into a Bitmapset of attnums */
+	columns = publication_validate_column_list(pri->relation, pri->columns);
 
 	/* Form a tuple. */
 	memset(values, 0, sizeof(values));
@@ -423,7 +437,7 @@ publication_add_relation(Oid pubid, PublicationRelInfo *pri,
 
 	/* Add column list, if available */
 	if (pri->columns)
-		values[Anum_pg_publication_rel_prattrs - 1] = PointerGetDatum(buildint2vector(attarray, natts));
+		values[Anum_pg_publication_rel_prattrs - 1] = PointerGetDatum(attnumstoint2vector(columns));
 	else
 		nulls[Anum_pg_publication_rel_prattrs - 1] = true;
 
@@ -451,9 +465,10 @@ publication_add_relation(Oid pubid, PublicationRelInfo *pri,
 										false);
 
 	/* Add dependency on the columns, if any are listed */
-	for (int i = 0; i < natts; i++)
+	i = -1;
+	while ((i = bms_next_member(columns, i)) >= 0)
 	{
-		ObjectAddressSubSet(referenced, RelationRelationId, relid, attarray[i]);
+		ObjectAddressSubSet(referenced, RelationRelationId, relid, i);
 		recordDependencyOn(&myself, &referenced, DEPENDENCY_NORMAL);
 	}
 
@@ -476,47 +491,23 @@ publication_add_relation(Oid pubid, PublicationRelInfo *pri,
 	return myself;
 }
 
-/* qsort comparator for attnums */
-static int
-compare_int16(const void *a, const void *b)
-{
-	int			av = *(const int16 *) a;
-	int			bv = *(const int16 *) b;
-
-	/* this can't overflow if int is wider than int16 */
-	return (av - bv);
-}
-
 /*
- * Translate a list of column names to an array of attribute numbers
- * and a Bitmapset with them; verify that each attribute is appropriate
- * to have in a publication column list (no system or generated attributes,
- * no duplicates).  Additional checks with replica identity are done later;
- * see pub_collist_contains_invalid_column.
+ * publication_validate_column_list
+ *		Process and validate the 'columns' list and ensure the columns are all
+ *		valid to use for a publication.  Checks for and raises an ERROR for
+ * 		any; unknown columns, system columns, duplicate columns or generated
+ *		columns.
  *
- * Note that the attribute numbers are *not* offset by
- * FirstLowInvalidHeapAttributeNumber; system columns are forbidden so this
- * is okay.
+ * Looks up each column's attnum and returns a 0-based Bitmapset of the
+ * corresponding attnums.
  */
-static void
-publication_translate_columns(Relation targetrel, List *columns,
-							  int *natts, AttrNumber **attrs)
+static Bitmapset *
+publication_validate_column_list(Relation targetrel, List *columns)
 {
-	AttrNumber *attarray = NULL;
 	Bitmapset  *set = NULL;
 	ListCell   *lc;
-	int			n = 0;
 	TupleDesc	tupdesc = RelationGetDescr(targetrel);
 
-	/* Bail out when no column list defined. */
-	if (!columns)
-		return;
-
-	/*
-	 * Translate list of columns to attnums. We prohibit system attributes and
-	 * make sure there are no duplicate columns.
-	 */
-	attarray = palloc(sizeof(AttrNumber) * list_length(columns));
 	foreach(lc, columns)
 	{
 		char	   *colname = strVal(lfirst(lc));
@@ -547,16 +538,9 @@ publication_translate_columns(Relation targetrel, List *columns,
 						   colname));
 
 		set = bms_add_member(set, attnum);
-		attarray[n++] = attnum;
 	}
 
-	/* Be tidy, so that the catalog representation is always sorted */
-	qsort(attarray, n, sizeof(AttrNumber), compare_int16);
-
-	*natts = n;
-	*attrs = attarray;
-
-	bms_free(set);
+	return set;
 }
 
 /*
@@ -569,18 +553,11 @@ publication_translate_columns(Relation targetrel, List *columns,
 Bitmapset *
 pub_collist_to_bitmapset(Bitmapset *columns, Datum pubcols, MemoryContext mcxt)
 {
-	Bitmapset  *result = NULL;
+	Bitmapset  *result = columns;
 	ArrayType  *arr;
 	int			nelems;
 	int16	   *elems;
 	MemoryContext oldcxt = NULL;
-
-	/*
-	 * If an existing bitmap was provided, use it. Otherwise just use NULL and
-	 * build a new bitmap.
-	 */
-	if (columns)
-		result = columns;
 
 	arr = DatumGetArrayTypeP(pubcols);
 	nelems = ARR_DIMS(arr)[0];
