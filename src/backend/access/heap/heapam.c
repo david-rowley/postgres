@@ -533,6 +533,7 @@ page_collect_tuples(HeapScanDesc scan, Snapshot snapshot,
 		if (valid)
 		{
 			scan->rs_vistuples[ntup] = lineoff;
+			scan->rs_tuples[ntup] = loctup.t_data;
 			ntup++;
 		}
 	}
@@ -1064,7 +1065,7 @@ continue_page:
 			lpp = PageGetItemId(page, lineoff);
 			Assert(ItemIdIsNormal(lpp));
 
-			tuple->t_data = (HeapTupleHeader) PageGetItem(page, lpp);
+			tuple->t_data = scan->rs_tuples[lineindex];
 			tuple->t_len = ItemIdGetLength(lpp);
 			ItemPointerSetOffsetNumber(&tuple->t_self, lineoff);
 
