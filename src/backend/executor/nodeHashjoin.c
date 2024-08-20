@@ -208,17 +208,20 @@ static void ExecParallelHashJoinPartitionOuter(HashJoinState *hjstate);
  *		ExecHashJoinImpl
  *
  *		This function implements the Hybrid Hashjoin algorithm.  It is marked
- *		with an always-inline attribute so that ExecHashJoin() and
- *		ExecParallelHashJoin() can inline it.  Compilers that respect the
- *		attribute should create versions specialized for parallel == true and
- *		parallel == false with unnecessary branches removed.
+ *		with an always-inline attribute so that it can be inlined by the
+ *		calling function.  We, for example pass parallel as false in
+ *		ExecHashJoin to allow the compiler to remove the branches that aren't
+ *		reached with parallel == false.  Compilers that respect the
+ *		pg_attribute_always_inline attribute should emit more optimal versions
+ *		with unrelated branches removed.
  *
  *		Note: the relation we build hash table on is the "inner"
  *			  the other one is "outer".
  * ----------------------------------------------------------------
  */
 static pg_attribute_always_inline TupleTableSlot *
-ExecHashJoinImpl(PlanState *pstate, bool parallel)
+ExecHashJoinImpl(PlanState *pstate, bool parallel, bool fillOuter,
+				 bool fillInner)
 {
 	HashJoinState *node = castNode(HashJoinState, pstate);
 	PlanState  *outerNode;
@@ -294,7 +297,7 @@ ExecHashJoinImpl(PlanState *pstate, bool parallel)
 				 * from the outer plan node.  If we succeed, we have to stash
 				 * it away for later consumption by ExecHashJoinOuterGetTuple.
 				 */
-				if (HJ_FILL_INNER(node))
+				if (fillInner)
 				{
 					/* no chance to not build the hash table */
 					node->hj_FirstOuterTupleSlot = NULL;
@@ -311,7 +314,7 @@ ExecHashJoinImpl(PlanState *pstate, bool parallel)
 					 */
 					node->hj_FirstOuterTupleSlot = NULL;
 				}
-				else if (HJ_FILL_OUTER(node) ||
+				else if (fillOuter ||
 						 (outerNode->plan->startup_cost < hashNode->ps.plan->total_cost &&
 						  !node->hj_OuterNotEmpty))
 				{
@@ -348,7 +351,7 @@ ExecHashJoinImpl(PlanState *pstate, bool parallel)
 				 * doing a left outer join, we can quit without scanning the
 				 * outer relation.
 				 */
-				if (hashtable->totalTuples == 0 && !HJ_FILL_OUTER(node))
+				if (hashtable->totalTuples == 0 && !fillOuter)
 				{
 					if (parallel)
 					{
@@ -434,7 +437,7 @@ ExecHashJoinImpl(PlanState *pstate, bool parallel)
 				if (TupIsNull(outerTupleSlot))
 				{
 					/* end of batch, or maybe whole join */
-					if (HJ_FILL_INNER(node))
+					if (fillInner)
 					{
 						/* set up to scan for unmatched inner tuples */
 						if (parallel)
@@ -556,7 +559,7 @@ ExecHashJoinImpl(PlanState *pstate, bool parallel)
 					node->hj_MatchedOuter = true;
 
 					/*
-					 * This is really only needed if HJ_FILL_INNER(node) or if
+					 * This is really only needed if fillInner == true or if
 					 * we are in a right-semijoin, but we'll avoid the branch
 					 * and just set it always.
 					 */
@@ -605,8 +608,7 @@ ExecHashJoinImpl(PlanState *pstate, bool parallel)
 				 */
 				node->hj_JoinState = HJ_NEED_NEW_OUTER;
 
-				if (!node->hj_MatchedOuter &&
-					HJ_FILL_OUTER(node))
+				if (!node->hj_MatchedOuter && fillOuter)
 				{
 					/*
 					 * Generate a fake join tuple with nulls for the inner
@@ -677,33 +679,57 @@ ExecHashJoinImpl(PlanState *pstate, bool parallel)
 /* ----------------------------------------------------------------
  *		ExecHashJoin
  *
- *		Parallel-oblivious version.
+ *		Parallel-oblivious versions.
  * ----------------------------------------------------------------
  */
 static TupleTableSlot *			/* return: a tuple or NULL */
 ExecHashJoin(PlanState *pstate)
 {
+	HashJoinState *node = castNode(HashJoinState, pstate);
+
 	/*
 	 * On sufficiently smart compilers this should be inlined with the
 	 * parallel-aware branches removed.
 	 */
-	return ExecHashJoinImpl(pstate, false);
+	return ExecHashJoinImpl(pstate, false, HJ_FILL_OUTER(node), HJ_FILL_INNER(node));
+}
+
+/*
+ * ExecHashJoinInner
+ *		As ExecHashJoin, but optimized for INNER JOIN.
+ */
+static TupleTableSlot *			/* return: a tuple or NULL */
+ExecHashJoinInner(PlanState *pstate)
+{
+	return ExecHashJoinImpl(pstate, false, false, false);
 }
 
 /* ----------------------------------------------------------------
  *		ExecParallelHashJoin
  *
- *		Parallel-aware version.
+ *		Parallel-aware versions.
  * ----------------------------------------------------------------
  */
 static TupleTableSlot *			/* return: a tuple or NULL */
 ExecParallelHashJoin(PlanState *pstate)
 {
+	HashJoinState *node = castNode(HashJoinState, pstate);
+
 	/*
 	 * On sufficiently smart compilers this should be inlined with the
 	 * parallel-oblivious branches removed.
 	 */
-	return ExecHashJoinImpl(pstate, true);
+	return ExecHashJoinImpl(pstate, true, HJ_FILL_OUTER(node), HJ_FILL_INNER(node));
+}
+
+/*
+ * ExecParallelHashJoinInner
+ *		As ExecParallelHashJoin, but optimized for INNER JOIN.
+ */
+static TupleTableSlot *			/* return: a tuple or NULL */
+ExecParallelHashJoinInner(PlanState *pstate)
+{
+	return ExecHashJoinImpl(pstate, true, false, false);
 }
 
 /* ----------------------------------------------------------------
@@ -737,7 +763,11 @@ ExecInitHashJoin(HashJoin *node, EState *estate, int eflags)
 	 * where this function may be replaced with a parallel version, if we
 	 * managed to launch a parallel query.
 	 */
-	hjstate->js.ps.ExecProcNode = ExecHashJoin;
+	if (node->join.jointype == JOIN_INNER)
+		hjstate->js.ps.ExecProcNode = ExecHashJoinInner;
+	else
+		hjstate->js.ps.ExecProcNode = ExecHashJoin;
+
 	hjstate->js.jointype = node->join.jointype;
 
 	/*
@@ -1666,7 +1696,10 @@ ExecHashJoinInitializeDSM(HashJoinState *state, ParallelContext *pcxt)
 	if (pcxt->seg == NULL)
 		return;
 
-	ExecSetExecProcNode(&state->js.ps, ExecParallelHashJoin);
+	if (state->js.jointype == JOIN_INNER)
+		ExecSetExecProcNode(&state->js.ps, ExecParallelHashJoinInner);
+	else
+		ExecSetExecProcNode(&state->js.ps, ExecParallelHashJoin);
 
 	/*
 	 * Set up the state needed to coordinate access to the shared hash
@@ -1764,5 +1797,8 @@ ExecHashJoinInitializeWorker(HashJoinState *state,
 	hashNode = (HashState *) innerPlanState(state);
 	hashNode->parallel_state = pstate;
 
-	ExecSetExecProcNode(&state->js.ps, ExecParallelHashJoin);
+	if (state->js.jointype == JOIN_INNER)
+		ExecSetExecProcNode(&state->js.ps, ExecParallelHashJoinInner);
+	else
+		ExecSetExecProcNode(&state->js.ps, ExecParallelHashJoin);
 }
