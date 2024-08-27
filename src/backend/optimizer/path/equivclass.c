@@ -3006,6 +3006,7 @@ add_setop_child_rel_equivalences(PlannerInfo *root, RelOptInfo *child_rel,
 	{
 		TargetEntry *tle = lfirst_node(TargetEntry, lc);
 		EquivalenceMember *parent_em;
+		EquivalenceMember *child_em;
 		PathKey    *pk;
 
 		if (tle->resjunk)
@@ -3023,12 +3024,41 @@ add_setop_child_rel_equivalences(PlannerInfo *root, RelOptInfo *child_rel,
 		 * likewise, the JoinDomain can be that of the initial member of the
 		 * Pathkey's EquivalenceClass.
 		 */
-		add_eq_member(pk->pk_eclass,
-					  tle->expr,
-					  child_rel->relids,
-					  parent_em->em_jdomain,
-					  /* parent_em, */ /* Will be fixed in the next commit*/
-					  exprType((Node *) tle->expr));
+		child_em = make_eq_member(pk->pk_eclass,
+								  tle->expr,
+								  child_rel->relids,
+								  parent_em->em_jdomain,
+								  parent_em,
+								  exprType((Node *) tle->expr));
+		child_rel->eclass_child_members =
+			lappend(child_rel->eclass_child_members, child_em);
+
+		/*
+		 * Make an UNION parent-child relationship between parent_em and
+		 * child_rel->relid. We record this relationship in
+		 * root->append_rel_array, which generally has AppendRelInfo
+		 * relationships. We use the same array here to retrieve UNION child
+		 * members.
+		 *
+		 * XXX Here we create a dummy AppendRelInfo object to know that the
+		 * relation of 'child_rel->relid' is a child and there are some
+		 * children because root->append_rel_array is not NULL. However this
+		 * is just a workaround. We must consider better way.
+		 *
+		 * XXX Here we treat the first member of parent_em->em_relids as a
+		 * parent of child_rel. Is this correct? What happens if
+		 * parent_em->em_relids has two or more members?
+		 */
+		if (root->append_rel_array == NULL)
+		{
+			root->append_rel_array = palloc0_array(AppendRelInfo *, root->simple_rel_array_size);
+			root->eclass_indexes_array = palloc0_array(EquivalenceClassIndexes, root->simple_rel_array_size);
+		}
+		root->append_rel_array[child_rel->relid] = makeNode(AppendRelInfo);
+		root->append_rel_array[child_rel->relid]->parent_relid =
+			bms_next_member(parent_em->em_relids, -1);
+		root->append_rel_array[child_rel->relid]->child_relid =
+			child_rel->relid;
 
 		lc2 = lnext(setop_pathkeys, lc2);
 	}
