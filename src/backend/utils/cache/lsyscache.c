@@ -2328,6 +2328,7 @@ get_type_io_data(Oid typid,
 				 bool *typbyval,
 				 char *typalign,
 				 char *typdelim,
+				 char *typioversion,
 				 Oid *typioparam,
 				 Oid *func)
 {
@@ -2348,6 +2349,7 @@ get_type_io_data(Oid typid,
 							  typbyval,
 							  typalign,
 							  typdelim,
+							  typioversion,
 							  typioparam,
 							  &typinput,
 							  &typoutput);
@@ -2375,6 +2377,7 @@ get_type_io_data(Oid typid,
 	*typbyval = typeStruct->typbyval;
 	*typalign = typeStruct->typalign;
 	*typdelim = typeStruct->typdelim;
+	*typioversion = typeStruct->typioversion;
 	*typioparam = getTypeIOParam(typeTuple);
 	switch (which_func)
 	{
@@ -2904,7 +2907,7 @@ getTypeInputInfo(Oid type, Oid *typInput, Oid *typIOParam)
  *		Get info needed for printing values of a type
  */
 void
-getTypeOutputInfo(Oid type, Oid *typOutput, bool *typIsVarlena, int16 *outputNargs)
+getTypeOutputInfo(Oid type, Oid *typOutput, bool *typIsVarlena, char *typIOVersion)
 {
 	HeapTuple	typeTuple;
 	Form_pg_type pt;
@@ -2925,21 +2928,9 @@ getTypeOutputInfo(Oid type, Oid *typOutput, bool *typIsVarlena, int16 *outputNar
 				 errmsg("no output function available for type %s",
 						format_type_be(type))));
 
-	if (outputNargs != NULL)
-	{
-		HeapTuple procTuple;
-		Form_pg_proc proc;
-
-		procTuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(pt->typoutput));
-		if (!HeapTupleIsValid(typeTuple))
-			elog(ERROR, "cache lookup failed for function %u", pt->typoutput);
-		proc = (Form_pg_proc) GETSTRUCT(procTuple);
-		*outputNargs = proc->pronargs;
-		ReleaseSysCache(procTuple);
-	}
-
 	*typOutput = pt->typoutput;
 	*typIsVarlena = (!pt->typbyval) && (pt->typlen == -1);
+	*typIOVersion = pt->typioversion;
 
 	ReleaseSysCache(typeTuple);
 }

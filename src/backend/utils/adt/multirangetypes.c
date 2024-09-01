@@ -51,6 +51,7 @@ typedef struct MultirangeIOData
 	TypeCacheEntry *typcache;	/* multirange type's typcache entry */
 	FmgrInfo	typioproc;		/* range type's I/O proc */
 	Oid			typioparam;		/* range type's I/O parameter */
+	char		typioversion;
 } MultirangeIOData;
 
 typedef enum
@@ -320,7 +321,7 @@ multirange_out(PG_FUNCTION_ARGS)
 		if (i > 0)
 			appendStringInfoChar(&buf, ',');
 		range = ranges[i];
-		rangeStr = OutputFunctionCall(&cache->typioproc, RangeTypePGetDatum(range));
+		rangeStr = OutputFunctionCall(&cache->typioproc, cache->typioversion, RangeTypePGetDatum(range));
 		appendStringInfoString(&buf, rangeStr);
 	}
 
@@ -424,6 +425,7 @@ get_multirange_io_data(FunctionCallInfo fcinfo, Oid mltrngtypid, IOFuncSelector 
 		bool		typbyval;
 		char		typalign;
 		char		typdelim;
+		char		typioversion;
 
 		cache = (MultirangeIOData *) MemoryContextAlloc(fcinfo->flinfo->fn_mcxt,
 														sizeof(MultirangeIOData));
@@ -438,6 +440,7 @@ get_multirange_io_data(FunctionCallInfo fcinfo, Oid mltrngtypid, IOFuncSelector 
 						 &typbyval,
 						 &typalign,
 						 &typdelim,
+						 &cache->typioversion,
 						 &cache->typioparam,
 						 &typiofunc);
 

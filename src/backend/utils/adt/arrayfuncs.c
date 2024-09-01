@@ -223,6 +223,7 @@ array_in(PG_FUNCTION_ARGS)
 		get_type_io_data(element_type, IOFunc_input,
 						 &my_extra->typlen, &my_extra->typbyval,
 						 &my_extra->typalign, &my_extra->typdelim,
+						 &my_extra->typioversion,
 						 &my_extra->typioparam, &my_extra->typiofunc);
 		fmgr_info_cxt(my_extra->typiofunc, &my_extra->proc,
 					  fcinfo->flinfo->fn_mcxt);
@@ -1068,6 +1069,7 @@ array_out(PG_FUNCTION_ARGS)
 		get_type_io_data(element_type, IOFunc_output,
 						 &my_extra->typlen, &my_extra->typbyval,
 						 &my_extra->typalign, &my_extra->typdelim,
+						 &my_extra->typioversion,
 						 &my_extra->typioparam, &my_extra->typiofunc);
 		fmgr_info_cxt(my_extra->typiofunc, &my_extra->proc,
 					  fcinfo->flinfo->fn_mcxt);
@@ -1131,7 +1133,7 @@ array_out(PG_FUNCTION_ARGS)
 		}
 		else
 		{
-			values[i] = OutputFunctionCall(&my_extra->proc, itemvalue);
+			values[i] = OutputFunctionCall(&my_extra->proc, my_extra->typioversion, itemvalue);
 
 			/* count data plus backslashes; detect chars needing quotes */
 			if (values[i][0] == '\0')
@@ -1371,6 +1373,7 @@ array_recv(PG_FUNCTION_ARGS)
 		get_type_io_data(element_type, IOFunc_receive,
 						 &my_extra->typlen, &my_extra->typbyval,
 						 &my_extra->typalign, &my_extra->typdelim,
+						 &my_extra->typioversion,
 						 &my_extra->typioparam, &my_extra->typiofunc);
 		if (!OidIsValid(my_extra->typiofunc))
 			ereport(ERROR,
@@ -1581,6 +1584,7 @@ array_send(PG_FUNCTION_ARGS)
 		get_type_io_data(element_type, IOFunc_send,
 						 &my_extra->typlen, &my_extra->typbyval,
 						 &my_extra->typalign, &my_extra->typdelim,
+						 &my_extra->typioversion,
 						 &my_extra->typioparam, &my_extra->typiofunc);
 		if (!OidIsValid(my_extra->typiofunc))
 			ereport(ERROR,

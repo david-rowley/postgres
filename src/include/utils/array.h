@@ -240,6 +240,7 @@ typedef struct ArrayMetaState
 	bool		typbyval;
 	char		typalign;
 	char		typdelim;
+	char		typioversion;
 	Oid			typioparam;
 	Oid			typiofunc;
 	FmgrInfo	proc;

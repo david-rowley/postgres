@@ -2957,11 +2957,11 @@ eval_const_expressions_mutator(Node *node,
 				List	   *args;
 				Oid			outfunc;
 				bool		outtypisvarlena;
+				char		typIOVersion;
 				Oid			infunc;
 				Oid			intypioparam;
 				Expr	   *simple;
 				CoerceViaIO *newexpr;
-				int16		outputArgs;
 
 				/*
 				 * CoerceViaIO represents calling the source type's output
@@ -2975,7 +2975,7 @@ eval_const_expressions_mutator(Node *node,
 				getTypeOutputInfo(exprType((Node *) expr->arg),
 								  &outfunc,
 								  &outtypisvarlena,
-								  &outputArgs);
+								  &typIOVersion);
 				getTypeInputInfo(expr->resulttype,
 								 &infunc, &intypioparam);
 

@@ -51,6 +51,7 @@ extern void boot_get_type_io_data(Oid typid,
 								  bool *typbyval,
 								  char *typalign,
 								  char *typdelim,
+								  char *typioversion,
 								  Oid *typioparam,
 								  Oid *typinput,
 								  Oid *typoutput);

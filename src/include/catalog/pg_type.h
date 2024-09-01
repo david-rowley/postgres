@@ -202,6 +202,22 @@ CATALOG(pg_type,1247,TypeRelationId) BKI_BOOTSTRAP BKI_ROWTYPE_OID(71,TypeRelati
 	bool		typnotnull BKI_DEFAULT(f);
 
 	/*
+	 * Defines which API the typinput and typoutput functions use.
+	 *
+	 * 's' (standard) types use the original method where input functions have a
+	 * single cstring parameter and return a Datum of the given type.  Output
+	 * functions take a single Datum parameter and return a cstring.
+	 *
+	 * 'x' (extended) type's input function take a cstring parameter and an int32
+	 * length parameter.  Output functions accept a StringInfo as the first
+	 * parameter and the Datum to write to the given StringInfo as the 2nd
+	 * parameter.  Callers of the output function must ensure they call
+	 * enlargeStringInfo() to ensure there is enough bytes available to write
+	 * the output into.
+	 */
+	char		typioversion BKI_DEFAULT('s');
+
+	/*
 	 * Domains use typbasetype to show the base (or domain) type that the
 	 * domain is based on.  Zero if the type is not a domain.
 	 */
@@ -308,6 +324,9 @@ MAKE_SYSCACHE(TYPENAMENSP, pg_type_typname_nsp_index, 64);
 #define  TYPSTORAGE_EXTERNAL	'e' /* toastable, don't try to compress */
 #define  TYPSTORAGE_EXTENDED	'x' /* fully toastable */
 #define  TYPSTORAGE_MAIN		'm' /* like 'x' but try to store inline */
+
+#define  TYPIOVERSION_STANDARD	's'
+#define  TYPIOVERSION_EXTENDED	'x'
 
 /* Is a type OID a polymorphic pseudotype?	(Beware of multiple evaluation) */
 #define IsPolymorphicType(typid)  \

@@ -1684,22 +1684,24 @@ DirectInputFunctionCallSafe(PGFunction func, char *str,
  * OutputFunctionCallWithLen.
  */
 char *
-OutputFunctionCall(FmgrInfo *flinfo, Datum val)
+OutputFunctionCall(FmgrInfo *flinfo, char ioversion, Datum val)
 {
-	if (flinfo->fn_nargs == 1)
+	if (ioversion == TYPIOVERSION_STANDARD)
 	{
 		/* no need to call strlen as the caller does not need it */
 		return DatumGetCString(FunctionCall1(flinfo, val));
 	}
 	else
 	{
-		OutputFunctionData output;
+		StringInfoData buf;
 
-		Assert(flinfo->fn_nargs == 2);
+		Assert(ioversion == TYPIOVERSION_EXTENDED);
 
-		return DatumGetCString(FunctionCall2(flinfo,
-											 PointerGetDatum(&output),
-											 val));
+		/* this will allocate more bytes than most output functions need */
+		initStringInfo(&buf);
+
+		FunctionCall2(flinfo, PointerGetDatum(&buf), val);
+		return DatumGetCString(buf.data);
 	}
 }
 
@@ -1815,12 +1817,12 @@ OidInputFunctionCall(Oid functionId, char *str, Oid typioparam, int32 typmod)
 }
 
 char *
-OidOutputFunctionCall(Oid functionId, Datum val)
+OidOutputFunctionCall(Oid functionId, char ioversion, Datum val)
 {
 	FmgrInfo	flinfo;
 
 	fmgr_info(functionId, &flinfo);
-	return OutputFunctionCall(&flinfo, val);
+	return OutputFunctionCall(&flinfo, ioversion, val);
 }
 
 Datum
