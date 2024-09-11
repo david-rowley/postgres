@@ -18,7 +18,9 @@
 #include "funcapi.h"
 #include "libpq/pqformat.h"
 #include "miscadmin.h"
+#include "nodes/supportnodes.h"
 #include "utils/builtins.h"
+#include "utils/fmgroids.h"
 #include "utils/json.h"
 #include "utils/jsonb.h"
 #include "utils/jsonfuncs.h"
@@ -2068,6 +2070,64 @@ jsonb_numeric(PG_FUNCTION_ARGS)
 
 	PG_RETURN_NUMERIC(retValue);
 }
+
+Datum
+jsonb_object_field_numeric(PG_FUNCTION_ARGS)
+{
+	Jsonb *jb = PG_GETARG_JSONB_P(0);
+	text *key = PG_GETARG_TEXT_PP(1);
+	JsonbValue *v;
+	JsonbValue vbuf;
+
+	if (!JB_ROOT_IS_OBJECT(jb))
+		PG_RETURN_NULL();
+
+	v = getKeyJsonValueFromContainer(&jb->root,
+									 VARDATA_ANY(key),
+									 VARSIZE_ANY_EXHDR(key),
+									 &vbuf);
+
+	if (v != NULL)
+	{
+		if (v->type == jbvNumeric)
+			PG_RETURN_NUMERIC(v->val.numeric);
+
+		cannotCastJsonbValue(v->type, "numeric");
+	}
+
+	PG_RETURN_NULL();
+}
+
+Datum
+jsonb_numeric_support(PG_FUNCTION_ARGS)
+{
+	Node	   *rawreq = (Node *) PG_GETARG_POINTER(0);
+	Node *ret = NULL;
+
+	if (IsA(rawreq, SupportRequestSimplify))
+	{
+		SupportRequestSimplify *req = (SupportRequestSimplify *) rawreq;
+		FuncExpr *func = req->fcall;
+		OpExpr *opexpr = list_nth(func->args, 0);
+
+		/*
+		 * Transform jsonb_object_field calls that directly cast to numeric
+		 * into a direct call to jsonb_object_field_numeric.  This allows us
+		 * to directly access the numeric field and return it directly thus
+		 * saving casting from jsonb to numeric.
+		 */
+		if (IsA(opexpr, OpExpr) && opexpr->opfuncid == F_JSONB_OBJECT_FIELD)
+		{
+			opexpr->opfuncid = F_JSONB_OBJECT_FIELD_NUMERIC;
+			PG_RETURN_POINTER(opexpr);
+		}
+
+		PG_RETURN_POINTER(ret);
+	}
+
+	PG_RETURN_POINTER(ret);
+}
+
 
 Datum
 jsonb_int2(PG_FUNCTION_ARGS)
