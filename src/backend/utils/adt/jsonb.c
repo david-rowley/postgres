@@ -2118,6 +2118,7 @@ jsonb_numeric_support(PG_FUNCTION_ARGS)
 		 */
 		if (IsA(opexpr, OpExpr) && opexpr->opfuncid == F_JSONB_OBJECT_FIELD)
 		{
+			/* XXX this should probably flatcopy the OpExpr rather than inplace update */
 			opexpr->opfuncid = F_JSONB_OBJECT_FIELD_NUMERIC;
 			PG_RETURN_POINTER(opexpr);
 		}
