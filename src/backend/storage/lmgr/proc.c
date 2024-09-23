@@ -175,8 +175,8 @@ InitProcGlobal(void)
 	uint32		TotalProcs = MaxBackends + NUM_AUXILIARY_PROCS + max_prepared_xacts;
 
 	/* Used for setup of per-backend fast-path slots. */
-	char	   *fpPtr,
-			   *fpEndPtr PG_USED_FOR_ASSERTS_ONLY;
+	char	   *fpRelIdPtr;
+	char	   *fpBitsPtr;
 	Size		fpLockBitsSize,
 				fpRelIdSize;
 
@@ -236,11 +236,14 @@ InitProcGlobal(void)
 	fpLockBitsSize = MAXALIGN(FastPathLockGroupsPerBackend * sizeof(uint64));
 	fpRelIdSize = MAXALIGN(FastPathLockGroupsPerBackend * sizeof(Oid) * FP_LOCK_SLOTS_PER_GROUP);
 
-	fpPtr = ShmemAlloc(TotalProcs * (fpLockBitsSize + fpRelIdSize));
-	MemSet(fpPtr, 0, TotalProcs * (fpLockBitsSize + fpRelIdSize));
+	fpRelIdPtr = ShmemAlloc(TotalProcs * (fpLockBitsSize + fpRelIdSize));
+	MemSet(fpRelIdPtr, 0, TotalProcs * (fpLockBitsSize + fpRelIdSize));
 
-	/* For asserts checking we did not overflow. */
-	fpEndPtr = fpPtr + (TotalProcs * (fpLockBitsSize + fpRelIdSize));
+	/*
+	 * We store the lock bits after the fpRelid array.  This keeps the fpRelid
+	 * arrays cache aligned
+	 */
+	fpBitsPtr = fpRelIdPtr + (fpRelIdSize * TotalProcs);
 
 	for (i = 0; i < TotalProcs; i++)
 	{
@@ -252,13 +255,11 @@ InitProcGlobal(void)
 		 * Set the fast-path lock arrays, and move the pointer. We interleave
 		 * the two arrays, to (hopefully) get some locality for each backend.
 		 */
-		proc->fpLockBits = (uint64 *) fpPtr;
-		fpPtr += fpLockBitsSize;
+		proc->fpLockBits = (uint64 *) fpBitsPtr;
+		fpBitsPtr += fpLockBitsSize;
 
-		proc->fpRelId = (Oid *) fpPtr;
-		fpPtr += fpRelIdSize;
-
-		Assert(fpPtr <= fpEndPtr);
+		proc->fpRelId = (Oid *) fpRelIdPtr;
+		fpRelIdPtr += fpRelIdSize;
 
 		/*
 		 * Set up per-PGPROC semaphore, latch, and fpInfoLock.  Prepared xact
@@ -320,9 +321,6 @@ InitProcGlobal(void)
 		pg_atomic_init_u32(&(proc->clogGroupNext), INVALID_PROC_NUMBER);
 		pg_atomic_init_u64(&(proc->waitStart), 0);
 	}
-
-	/* Should have consumed exactly the expected amount of fast-path memory. */
-	Assert(fpPtr = fpEndPtr);
 
 	/*
 	 * Save pointers to the blocks of PGPROC structures reserved for auxiliary
