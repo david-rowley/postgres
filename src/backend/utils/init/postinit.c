@@ -579,19 +579,19 @@ InitializeFastPathLocks(void)
 	/* Should be initialized only once. */
 	Assert(FastPathLockGroupsPerBackend == 0);
 
-	/* we need at least one group */
-	FastPathLockGroupsPerBackend = 1;
+	/*
+	 * FP_LOCK_SLOTS_PER_GROUP is always a power-of-two value and a power of
+	 * two divided by a power of two is still a power of two.  Ensure we never
+	 * go below 1.  Technically the minimum value for max_locks_per_xact is 10
+	 * and the next power of two for that is 16, so we shouldn't ever go below
+	 * 1 anyway, but... paranoia.
+	 */
+	FastPathLockGroupsPerBackend =
+			Max(Min(pg_nextpower2_32(max_locks_per_xact) / FP_LOCK_SLOTS_PER_GROUP,
+				FP_LOCK_GROUPS_PER_BACKEND_MAX), 1);
 
-	while (FastPathLockGroupsPerBackend < FP_LOCK_GROUPS_PER_BACKEND_MAX)
-	{
-		/* stop once we exceed max_locks_per_xact */
-		if (FastPathLockGroupsPerBackend * FP_LOCK_SLOTS_PER_GROUP >= max_locks_per_xact)
-			break;
-
-		FastPathLockGroupsPerBackend *= 2;
-	}
-
-	Assert(FastPathLockGroupsPerBackend <= FP_LOCK_GROUPS_PER_BACKEND_MAX);
+	Assert(FastPathLockGroupsPerBackend ==
+		   pg_nextpower2_32(FastPathLockGroupsPerBackend));
 }
 
 /*
