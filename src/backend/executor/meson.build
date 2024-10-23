@@ -43,6 +43,7 @@ backend_sources += files(
   'nodeMaterial.c',
   'nodeMemoize.c',
   'nodeMergeAppend.c',
+  'nodeMergeUnique.c',
   'nodeMergejoin.c',
   'nodeModifyTable.c',
   'nodeNamedtuplestorescan.c',

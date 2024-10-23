@@ -88,6 +88,8 @@ static Plan *create_append_plan(PlannerInfo *root, AppendPath *best_path,
 								int flags);
 static Plan *create_merge_append_plan(PlannerInfo *root, MergeAppendPath *best_path,
 									  int flags);
+static Plan *create_merge_unique_plan(PlannerInfo *root,
+									  MergeUniquePath *best_path, int flags);
 static Result *create_group_result_plan(PlannerInfo *root,
 										GroupResultPath *best_path);
 static ProjectSet *create_project_set_plan(PlannerInfo *root, ProjectSetPath *best_path);
@@ -429,6 +431,11 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 		case T_MergeAppend:
 			plan = create_merge_append_plan(root,
 											(MergeAppendPath *) best_path,
+											flags);
+			break;
+		case T_MergeUnique:
+			plan = create_merge_unique_plan(root,
+											(MergeUniquePath *) best_path,
 											flags);
 			break;
 		case T_Result:
@@ -1564,6 +1571,143 @@ create_merge_append_plan(PlannerInfo *root, MergeAppendPath *best_path,
 
 	node->mergeplans = subplans;
 	node->part_prune_info = partpruneinfo;
+
+	/*
+	 * If prepare_sort_from_pathkeys added sort columns, but we were told to
+	 * produce either the exact tlist or a narrow tlist, we should get rid of
+	 * the sort columns again.  We must inject a projection node to do so.
+	 */
+	if (tlist_was_changed && (flags & (CP_EXACT_TLIST | CP_SMALL_TLIST)))
+	{
+		tlist = list_copy_head(plan->targetlist, orig_tlist_length);
+		return inject_projection_plan(plan, tlist, plan->parallel_safe);
+	}
+	else
+		return plan;
+}
+
+/*
+ * create_merge_unique_plan
+ *	  Create a MergeUnique plan for 'best_path' and (recursively) plans
+ *	  for its subpaths.
+ *
+ *	  Returns a Plan node.
+ */
+static Plan *
+create_merge_unique_plan(PlannerInfo *root, MergeUniquePath *best_path,
+						 int flags)
+{
+	MergeUnique *node = makeNode(MergeUnique);
+	Plan *plan = &node->plan;
+	List *tlist = build_path_tlist(root, &best_path->path);
+	int orig_tlist_length = list_length(tlist);
+	bool tlist_was_changed;
+	List *pathkeys = best_path->path.pathkeys;
+	List *subplans = NIL;
+	ListCell *subpaths;
+	RelOptInfo *rel = best_path->path.parent;
+
+	/*
+	 * We don't have the actual creation of the MergeUnique node split out
+	 * into a separate make_xxx function.  This is because we want to run
+	 * prepare_sort_from_pathkeys on it before we do so on the individual
+	 * child plans, to make cross-checking the sort info easier.
+	 */
+	copy_generic_path_info(plan, (Path *) best_path);
+	plan->targetlist = tlist;
+	plan->qual = NIL;
+	plan->lefttree = NULL;
+	plan->righttree = NULL;
+	node->apprelids = rel->relids;
+
+	/*
+	 * Compute sort column info, and adjust MergeUnique's tlist as needed.
+	 * Because we pass adjust_tlist_in_place = true, we may ignore the
+	 * function result; it must be the same plan node.  However, we then need
+	 * to detect whether any tlist entries were added.
+	 */
+	(void) prepare_sort_from_pathkeys(plan,
+									  pathkeys,
+									  best_path->path.parent->relids,
+									  NULL,
+									  true,
+									  &node->numCols,
+									  &node->sortColIdx,
+									  &node->sortOperators,
+									  &node->collations,
+									  &node->nullsFirst);
+	tlist_was_changed = (orig_tlist_length != list_length(plan->targetlist));
+
+	/*
+	 * Now prepare the child plans.  We must apply prepare_sort_from_pathkeys
+	 * even to subplans that don't need an explicit sort, to make sure they
+	 * are returning the same sort key columns the MergeUnique expects.
+	 */
+	foreach (subpaths, best_path->subpaths)
+	{
+		Path *subpath = (Path *) lfirst(subpaths);
+		Plan *subplan;
+		int numsortkeys;
+		AttrNumber *sortColIdx;
+		Oid *sortOperators;
+		Oid *collations;
+		bool *nullsFirst;
+
+		/* Build the child plan */
+		/* Must insist that all children return the same tlist */
+		subplan = create_plan_recurse(root, subpath, CP_EXACT_TLIST);
+
+		/* Compute sort column info, and adjust subplan's tlist as needed */
+		subplan = prepare_sort_from_pathkeys(subplan,
+											 pathkeys,
+											 subpath->parent->relids,
+											 node->sortColIdx,
+											 false,
+											 &numsortkeys,
+											 &sortColIdx,
+											 &sortOperators,
+											 &collations,
+											 &nullsFirst);
+
+		/*
+		 * Check that we got the same sort key information.  We just Assert
+		 * that the sortops match, since those depend only on the pathkeys;
+		 * but it seems like a good idea to check the sort column numbers
+		 * explicitly, to ensure the tlists really do match up.
+		 */
+		Assert(numsortkeys == node->numCols);
+		if (memcmp(sortColIdx,
+				   node->sortColIdx,
+				   numsortkeys * sizeof(AttrNumber)) != 0)
+			elog(ERROR,
+				 "MergeAppend child's targetlist doesn't match MergeAppend");
+		Assert(memcmp(sortOperators,
+					  node->sortOperators,
+					  numsortkeys * sizeof(Oid)) == 0);
+		Assert(memcmp(collations, node->collations, numsortkeys * sizeof(Oid)) ==
+			   0);
+		Assert(memcmp(nullsFirst,
+					  node->nullsFirst,
+					  numsortkeys * sizeof(bool)) == 0);
+
+		/* Now, insert a Sort node if subplan isn't sufficiently ordered */
+		if (!pathkeys_contained_in(pathkeys, subpath->pathkeys))
+		{
+			Sort *sort = make_sort(subplan,
+								   numsortkeys,
+								   sortColIdx,
+								   sortOperators,
+								   collations,
+								   nullsFirst);
+
+			label_sort_with_costsize(root, sort, best_path->limit_tuples);
+			subplan = (Plan *) sort;
+		}
+
+		subplans = lappend(subplans, subplan);
+	}
+
+	node->mergeplans = subplans;
 
 	/*
 	 * If prepare_sort_from_pathkeys added sort columns, but we were told to

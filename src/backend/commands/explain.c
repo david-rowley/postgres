@@ -104,6 +104,8 @@ static void show_incremental_sort_keys(IncrementalSortState *incrsortstate,
 									   List *ancestors, ExplainState *es);
 static void show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 								   ExplainState *es);
+static void show_merge_unique_keys(MergeUniqueState *mstate, List *ancestors,
+								   ExplainState *es);
 static void show_agg_keys(AggState *astate, List *ancestors,
 						  ExplainState *es);
 static void show_grouping_sets(PlanState *planstate, Agg *agg,
@@ -1356,6 +1358,11 @@ ExplainPreScanNode(PlanState *planstate, Bitmapset **rels_used)
 			*rels_used = bms_add_members(*rels_used,
 										 ((MergeAppend *) plan)->apprelids);
 			break;
+		case T_MergeUnique:
+			*rels_used = bms_add_members(*rels_used,
+										 ((MergeUnique *) plan)->apprelids);
+			break;
+
 		default:
 			break;
 	}
@@ -1535,6 +1542,9 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			break;
 		case T_MergeAppend:
 			pname = sname = "Merge Append";
+			break;
+		case T_MergeUnique:
+			pname = sname = "Merge Unique";
 			break;
 		case T_RecursiveUnion:
 			pname = sname = "Recursive Union";
@@ -2358,6 +2368,11 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			show_merge_append_keys(castNode(MergeAppendState, planstate),
 								   ancestors, es);
 			break;
+		case T_MergeUnique:
+			show_merge_unique_keys(castNode(MergeUniqueState, planstate),
+								   ancestors,
+								   es);
+			break;
 		case T_Result:
 			show_upper_qual((List *) ((Result *) plan)->resconstantqual,
 							"One-Time Filter", planstate, ancestors, es);
@@ -2510,6 +2525,12 @@ ExplainNode(PlanState *planstate, List *ancestors,
 			ExplainMemberNodes(((MergeAppendState *) planstate)->mergeplans,
 							   ((MergeAppendState *) planstate)->ms_nplans,
 							   ancestors, es);
+			break;
+		case T_MergeUnique:
+			ExplainMemberNodes(((MergeUniqueState *) planstate)->mergeplans,
+							   ((MergeUniqueState *) planstate)->ms_nplans,
+							   ancestors,
+							   es);
 			break;
 		case T_BitmapAnd:
 			ExplainMemberNodes(((BitmapAndState *) planstate)->bitmapplans,
@@ -2729,6 +2750,27 @@ show_merge_append_keys(MergeAppendState *mstate, List *ancestors,
 						 plan->sortOperators, plan->collations,
 						 plan->nullsFirst,
 						 ancestors, es);
+}
+
+/*
+ * Likewise, for a MergeUnique node.
+ */
+static void
+show_merge_unique_keys(MergeUniqueState *mstate, List *ancestors,
+					   ExplainState *es)
+{
+	MergeUnique *plan = (MergeUnique *) mstate->ps.plan;
+
+	show_sort_group_keys((PlanState *) mstate,
+						 "Sort Key",
+						 plan->numCols,
+						 0,
+						 plan->sortColIdx,
+						 plan->sortOperators,
+						 plan->collations,
+						 plan->nullsFirst,
+						 ancestors,
+						 es);
 }
 
 /*

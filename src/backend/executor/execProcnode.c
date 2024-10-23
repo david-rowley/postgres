@@ -96,6 +96,7 @@
 #include "executor/nodeMaterial.h"
 #include "executor/nodeMemoize.h"
 #include "executor/nodeMergeAppend.h"
+#include "executor/nodeMergeUnique.h"
 #include "executor/nodeMergejoin.h"
 #include "executor/nodeModifyTable.h"
 #include "executor/nodeNamedtuplestorescan.h"
@@ -186,6 +187,12 @@ ExecInitNode(Plan *node, EState *estate, int eflags)
 		case T_MergeAppend:
 			result = (PlanState *) ExecInitMergeAppend((MergeAppend *) node,
 													   estate, eflags);
+			break;
+
+		case T_MergeUnique:
+			result = (PlanState *) ExecInitMergeUnique((MergeUnique *) node,
+													   estate,
+													   eflags);
 			break;
 
 		case T_RecursiveUnion:
@@ -603,6 +610,10 @@ ExecEndNode(PlanState *node)
 
 		case T_MergeAppendState:
 			ExecEndMergeAppend((MergeAppendState *) node);
+			break;
+
+		case T_MergeUniqueState:
+			ExecEndMergeUnique((MergeUniqueState *) node);
 			break;
 
 		case T_RecursiveUnionState:

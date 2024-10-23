@@ -55,6 +55,7 @@ OBJS = \
 	nodeMaterial.o \
 	nodeMemoize.o \
 	nodeMergeAppend.o \
+	nodeMergeUnique.o \
 	nodeMergejoin.o \
 	nodeModifyTable.o \
 	nodeNamedtuplestorescan.o \

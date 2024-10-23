@@ -5116,6 +5116,8 @@ set_deparse_plan(deparse_namespace *dpns, Plan *plan)
 		dpns->outer_plan = linitial(((Append *) plan)->appendplans);
 	else if (IsA(plan, MergeAppend))
 		dpns->outer_plan = linitial(((MergeAppend *) plan)->mergeplans);
+	else if (IsA(plan, MergeUnique))
+		dpns->outer_plan = linitial(((MergeUnique *) plan)->mergeplans);
 	else
 		dpns->outer_plan = outerPlan(plan);
 
@@ -7798,8 +7800,8 @@ resolve_special_varno(Node *node, deparse_context *context,
 			elog(ERROR, "bogus varattno for OUTER_VAR var: %d", var->varattno);
 
 		/*
-		 * If we're descending to the first child of an Append or MergeAppend,
-		 * update appendparents.  This will affect deparsing of all Vars
+		 * If we're descending to the first child of an Append, MergeAppend or
+		 * MergeUnique update appendparents.  This will affect deparsing of all Vars
 		 * appearing within the eventually-resolved subexpression.
 		 */
 		save_appendparents = context->appendparents;
@@ -7810,6 +7812,9 @@ resolve_special_varno(Node *node, deparse_context *context,
 		else if (IsA(dpns->plan, MergeAppend))
 			context->appendparents = bms_union(context->appendparents,
 											   ((MergeAppend *) dpns->plan)->apprelids);
+		else if (IsA(dpns->plan, MergeUnique))
+			context->appendparents = bms_union(context->appendparents,
+											   ((MergeUnique *) dpns->plan)->apprelids);
 
 		push_child_plan(dpns, dpns->outer_plan, &save_dpns);
 		resolve_special_varno((Node *) tle->expr, context,

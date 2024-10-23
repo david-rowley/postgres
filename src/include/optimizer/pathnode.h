@@ -78,6 +78,11 @@ extern MergeAppendPath *create_merge_append_path(PlannerInfo *root,
 												 List *subpaths,
 												 List *pathkeys,
 												 Relids required_outer);
+extern MergeUniquePath *create_merge_unique_path(PlannerInfo *root,
+												 RelOptInfo *rel,
+												 List *subpaths,
+												 List *pathkeys,
+												 Relids required_outer);
 extern GroupResultPath *create_group_result_path(PlannerInfo *root,
 												 RelOptInfo *rel,
 												 PathTarget *target,

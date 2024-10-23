@@ -1504,6 +1504,34 @@ typedef struct MergeAppendState
 } MergeAppendState;
 
 /* ----------------
+ *	 MergeUniqueState information
+ *
+ *		nplans			how many plans are in the array
+ *		nkeys			number of sort key columns
+ *		sortkeys		sort keys in SortSupport representation
+ *		slots			current output tuple of each subplan
+ *		heap			heap of active tuples
+ *		initialized		true if we have fetched first tuple from each subplan
+ *		prune_state		details required to allow partitions to be
+ *						eliminated from the scan, or NULL if not possible.
+ *		valid_subplans	for runtime pruning, valid mergeplans indexes to
+ *						scan.
+ * ----------------
+ */
+typedef struct MergeUniqueState
+{
+	PlanState ps;			/* its first field is NodeTag */
+	PlanState **mergeplans; /* array of PlanStates for my inputs */
+	int			ms_nplans;
+	int			ms_nkeys;
+	SortSupport ms_sortkeys;	/* array of length ms_nkeys */
+	TupleTableSlot **ms_slots;	/* array of length ms_nplans */
+	bool		   *ms_isduplicate; /* array to denote duplicate rows from other subplans */
+	struct binaryheap *ms_heap; /* binary heap of slot indices */
+	bool ms_initialized;		/* are subplans started? */
+} MergeUniqueState;
+
+/* ----------------
  *	 RecursiveUnionState information
  *
  *		RecursiveUnionState is used for performing a recursive union.

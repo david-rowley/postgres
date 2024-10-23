@@ -316,6 +316,39 @@ typedef struct MergeAppend
 } MergeAppend;
 
 /* ----------------
+ *	 MergeAppend node -
+ *		Merge the results of pre-sorted sub-plans to preserve the ordering.
+ * ----------------
+ */
+typedef struct MergeUnique
+{
+	Plan plan;
+
+	/* RTIs of appendrel(s) formed by this node */
+	Bitmapset *apprelids;
+
+	List *mergeplans;
+
+	/* these fields are just like the sort-key info in struct Sort: */
+
+	/* number of sort-key columns */
+	int numCols;
+
+	/* their indexes in the target list */
+	AttrNumber *sortColIdx pg_node_attr(array_size(numCols));
+
+	/* OIDs of operators to sort them by */
+	Oid *sortOperators pg_node_attr(array_size(numCols));
+
+	/* OIDs of collations */
+	Oid *collations pg_node_attr(array_size(numCols));
+
+	/* NULLS FIRST/LAST directions */
+	bool *nullsFirst pg_node_attr(array_size(numCols));
+
+} MergeUnique;
+
+/* ----------------
  *	RecursiveUnion node -
  *		Generate a recursive union of two subplans.
  *

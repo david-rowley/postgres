@@ -155,6 +155,9 @@ static Plan *set_append_references(PlannerInfo *root,
 static Plan *set_mergeappend_references(PlannerInfo *root,
 										MergeAppend *mplan,
 										int rtoffset);
+static Plan *set_mergeunique_references(PlannerInfo *root,
+										MergeUnique *mplan,
+										int rtoffset);
 static void set_hash_references(PlannerInfo *root, Plan *plan, int rtoffset);
 static Relids offset_relid_set(Relids relids, int rtoffset);
 static Node *fix_scan_expr(PlannerInfo *root, Node *node,
@@ -1255,6 +1258,11 @@ set_plan_refs(PlannerInfo *root, Plan *plan, int rtoffset)
 			return set_mergeappend_references(root,
 											  (MergeAppend *) plan,
 											  rtoffset);
+		case T_MergeUnique:
+			/* Needs special treatment, see comments below */
+			return set_mergeunique_references(root,
+											  (MergeUnique *) plan,
+											  rtoffset);
 		case T_RecursiveUnion:
 			/* This doesn't evaluate targetlist or check quals either */
 			set_dummy_tlist_references(plan, rtoffset);
@@ -1875,6 +1883,46 @@ set_mergeappend_references(PlannerInfo *root,
 			}
 		}
 	}
+
+	/* We don't need to recurse to lefttree or righttree ... */
+	Assert(mplan->plan.lefttree == NULL);
+	Assert(mplan->plan.righttree == NULL);
+
+	return (Plan *) mplan;
+}
+
+/*
+ * set_mergeunique_references
+ *		Do set_plan_references processing on a MergeUnique
+ */
+static Plan *
+set_mergeunique_references(PlannerInfo *root,
+						   MergeUnique *mplan,
+						   int rtoffset)
+{
+	ListCell   *l;
+
+	/*
+	 * MergeUnique, like Sort et al, doesn't actually evaluate its targetlist
+	 * or check quals.  If it's got exactly one child plan, then it's not
+	 * doing anything useful at all, and we can strip it out.
+	 */
+	Assert(mplan->plan.qual == NIL);
+
+	/* First, we gotta recurse on the children */
+	foreach(l, mplan->mergeplans)
+	{
+		lfirst(l) = set_plan_refs(root, (Plan *) lfirst(l), rtoffset);
+	}
+
+	/*
+	 * Otherwise, clean up the MergeUnique as needed.  It's okay to do this
+	 * after recursing to the children, because set_dummy_tlist_references
+	 * doesn't look at those.
+	 */
+	set_dummy_tlist_references((Plan *) mplan, rtoffset);
+
+	mplan->apprelids = offset_relid_set(mplan->apprelids, rtoffset);
 
 	/* We don't need to recurse to lefttree or righttree ... */
 	Assert(mplan->plan.lefttree == NULL);

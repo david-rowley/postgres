@@ -983,18 +983,11 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 		{
 			Path	   *path;
 
-			path = (Path *) create_merge_append_path(root,
+			path = (Path *) create_merge_unique_path(root,
 													 result_rel,
 													 ordered_pathlist,
 													 union_pathkeys,
 													 NULL);
-
-			/* and make the MergeAppend unique */
-			path = (Path *) create_upper_unique_path(root,
-													 result_rel,
-													 path,
-													 list_length(tlist),
-													 dNumGroups);
 
 			add_path(result_rel, path);
 		}

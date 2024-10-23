@@ -1968,6 +1968,18 @@ typedef struct MergeAppendPath
 } MergeAppendPath;
 
 /*
+ * MergeUniquePath represents a MergeUnique plan, ie, the merging of sorted
+ * results from several member plans to produce similarly-sorted output and
+ * de-duplicate the results.
+ */
+typedef struct MergeUniquePath
+{
+	Path		path;
+	List	   *subpaths;			  /* list of component Paths */
+	Cardinality limit_tuples; /* hard limit on output tuples, or -1 */
+} MergeUniquePath;
+
+/*
  * GroupResultPath represents use of a Result plan node to compute the
  * output of a degenerate GROUP BY case, wherein we know we should produce
  * exactly one row, which might then be filtered by a HAVING qual.
