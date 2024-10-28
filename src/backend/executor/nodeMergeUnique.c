@@ -153,6 +153,31 @@ ExecInitMergeUnique(MergeUnique *node, EState *estate, int eflags)
 	return mergestate;
 }
 
+static void
+debugit(MergeUniqueState* node)
+{
+#if 0
+	int first;
+
+	if (binaryheap_empty(node->ms_heap))
+		return;
+
+	first = DatumGetInt32(binaryheap_first(node->ms_heap));
+	for (int a = 0; a < node->ms_heap->bh_size; a++)
+	{
+		int idx = DatumGetInt32(node->ms_heap->bh_nodes[a]);
+		elog(DEBUG1,
+			 "dup = %s child_idx = %d value = %lld first=%s",
+			 node->ms_isduplicate[idx] ? "true" : "false",
+			 idx,
+			 node->ms_slots[idx]->tts_values[0],
+			 first == idx ? "true" : "false");
+	}
+	elog(DEBUG1, "------------");
+
+#endif
+}
+
 /* ----------------------------------------------------------------
  *	   ExecMergeUnique
  *
@@ -163,7 +188,6 @@ static TupleTableSlot *
 ExecMergeUnique(PlanState *pstate)
 {
 	MergeUniqueState *node = castNode(MergeUniqueState, pstate);
-	TupleTableSlot *result;
 	SlotNumber i;
 
 	CHECK_FOR_INTERRUPTS();
@@ -174,7 +198,7 @@ ExecMergeUnique(PlanState *pstate)
 		 * First time through: pull the first tuple from each subplan,
 		 * and set up the heap.
 		 */
-		for (SlotNumber i = 0; i < node->ms_nplans; i++)
+		for (i = 0; i < node->ms_nplans; i++)
 		{
 			node->ms_isduplicate[i] = false; /* not until we discover it is */
 			node->ms_slots[i] = ExecProcNode(node->mergeplans[i]);
@@ -182,70 +206,58 @@ ExecMergeUnique(PlanState *pstate)
 				binaryheap_add_unordered(node->ms_heap, Int32GetDatum(i));
 		}
 		binaryheap_build(node->ms_heap);
+		debugit(node);
 		node->ms_initialized = true;
 	}
 	else
 	{
-		bool unique = false;
-
-		/*
-		 * Otherwise, pull the next tuple from whichever subplan we returned
-		 * from last time, and reinsert the subplan index into the heap,
-		 * because it might now compare differently against the existing
-		 * elements of the heap.  (We could perhaps simplify the logic a bit
-		 * by doing this before returning from the prior call, but it's better
-		 * to not pull tuples until necessary.)
-		 */
-		while (!unique)
-		{
-			i = DatumGetInt32(binaryheap_first(node->ms_heap));
-
-			node->ms_isduplicate[i] = false; /* not until we discover it is */
-			node->ms_slots[i] = ExecProcNode(node->mergeplans[i]);
-			if (!TupIsNull(node->ms_slots[i]))
-				binaryheap_replace_first(node->ms_heap, Int32GetDatum(i));
-			else
-				(void) binaryheap_remove_first(node->ms_heap);
-
-			if (binaryheap_empty(node->ms_heap))
-				break;
-
-			unique = !node->ms_isduplicate[i];
-		}
+		i = DatumGetInt32(binaryheap_first(node->ms_heap));
+		node->ms_isduplicate[i] = false;
+		node->ms_slots[i] = ExecProcNode(node->mergeplans[i]);
+		if (!TupIsNull(node->ms_slots[i]))
+			binaryheap_replace_first(node->ms_heap, Int32GetDatum(i));
+		else
+			(void) binaryheap_remove_first(node->ms_heap);
+		debugit(node);
 	}
 
-	if (binaryheap_empty(node->ms_heap))
+	if (!binaryheap_empty(node->ms_heap))
 	{
-		/* All the subplans are exhausted, and so is the heap */
-		result = ExecClearTuple(node->ps.ps_ResultTupleSlot);
-	}
-	else
-	{
-		bool unique = false;
-
 		i = DatumGetInt32(binaryheap_first(node->ms_heap));
 
-		while (!unique)
+		while (node->ms_isduplicate[i])
 		{
-			if (!node->ms_isduplicate[i])
-				return node->ms_slots[i];
-
-			binaryheap_remove_first(node->ms_heap);
-			node->ms_isduplicate[i] = false; /* not until we discover it is */
 			node->ms_slots[i] = ExecProcNode(node->mergeplans[i]);
-			if (!TupIsNull(node->ms_slots[i]))
-				binaryheap_add(node->ms_heap, Int32GetDatum(i));
-			else  if (binaryheap_empty(node->ms_heap))
-				break;
 
-			unique = !node->ms_isduplicate[i];
+			if (!TupIsNull(node->ms_slots[i]))
+			{
+				node->ms_isduplicate[i] = false;
+				binaryheap_replace_first(node->ms_heap, Int32GetDatum(i));
+				debugit(node);
+			}
+			else
+			{
+				(void) binaryheap_remove_first(node->ms_heap);
+				debugit(node);
+
+				if (binaryheap_empty(node->ms_heap))
+				{
+					ExecClearTuple(node->ps.ps_ResultTupleSlot);
+					return NULL;
+				}
+			}
+			
 			i = DatumGetInt32(binaryheap_first(node->ms_heap));
 		}
 
-		result = node->ms_slots[i];
+		elog(DEBUG1,
+			 "Output %lld from slot %d",
+			 node->ms_slots[i]->tts_values[0],
+			 i);
+		return node->ms_slots[i];
 	}
 
-	return result;
+	return NULL;
 }
 
 /*
@@ -284,8 +296,8 @@ heap_compare_slots(Datum a, Datum b, void *arg)
 			return compare;
 		}
 	}
-
-	node->ms_isduplicate[slot1] = true;
+	
+	node->ms_isduplicate[Max(slot1, slot2)] = true;
 	return 0;
 }
 
