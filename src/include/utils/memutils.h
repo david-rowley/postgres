@@ -197,12 +197,30 @@ static inline bool
 pg_memory_is_all_zeros(const void *ptr, size_t len)
 {
 	const char *p = (const char *) ptr;
+	const char *end = &p[len];
+	const char *aligned_end = (const char *) ((uintptr_t) end & (~(sizeof(size_t) - 1)));
 
-	for (size_t i = 0; i < len; i++)
+	while (((uintptr_t) p & (sizeof(size_t) - 1)) != 0)
 	{
-		if (p[i] != 0)
+		if (p == end)
+			return true;
+
+		if (*p++ != 0)
 			return false;
 	}
+
+	for (; p < aligned_end; p += sizeof(size_t))
+	{
+		if (*(size_t *) p != 0)
+			return false;
+	}
+
+	while (p < end)
+	{
+		if (*p++ != 0)
+			return false;
+	}
+
 	return true;
 }
 
