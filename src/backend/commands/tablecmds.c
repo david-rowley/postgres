@@ -14948,7 +14948,11 @@ ATExecAlterColumnType(AlteredTableInfo *tab, Relation rel,
 	/*
 	 * Drop any pg_statistic entry for the column, since it's now wrong type
 	 */
-	RemoveStatistics(RelationGetRelid(rel), attnum);
+	if (tab->rewrite)
+	{
+		RemoveStatistics(RelationGetRelid(rel), attnum);
+		pgstat_count_heap_insert(rel, (uint64) rel->rd_rel->reltuples);
+	}
 
 	InvokeObjectPostAlterHook(RelationRelationId,
 							  RelationGetRelid(rel), attnum);
