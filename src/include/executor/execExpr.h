@@ -241,6 +241,7 @@ typedef enum ExprEvalOp
 	EEOP_HASHDATUM_FIRST_STRICT,
 	EEOP_HASHDATUM_NEXT32,
 	EEOP_HASHDATUM_NEXT32_STRICT,
+	EEOP_HASHDATUM_MURMUR32_FINAL,
 
 	/* evaluate assorted special-purpose expression types */
 	EEOP_CONVERT_ROWTYPE,

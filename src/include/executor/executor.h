@@ -296,7 +296,8 @@ extern ExprState *ExecBuildHash32FromAttrs(TupleDesc desc,
 										   int numCols,
 										   AttrNumber *keyColIdx,
 										   PlanState *parent,
-										   uint32 init_value);
+										   uint32 init_value,
+										   bool murmurfinal);
 extern ExprState *ExecBuildHash32Expr(TupleDesc desc,
 									  const TupleTableSlotOps *ops,
 									  const Oid *hashfunc_oids,

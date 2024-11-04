@@ -231,7 +231,8 @@ BuildTupleHashTableExt(PlanState *parent,
 														numCols,
 														keyColIdx,
 														allow_jit ? parent : NULL,
-														hash_iv);
+														hash_iv,
+														true);
 
 	/* build comparator for all columns */
 	/* XXX: should we support non-minimal tuples for the inputslot? */
@@ -436,7 +437,6 @@ TupleHashTableHash_internal(struct tuplehash_hash *tb,
 							const MinimalTuple tuple)
 {
 	TupleHashTable hashtable = (TupleHashTable) tb->private_data;
-	uint32		hashkey;
 	TupleTableSlot *slot;
 	bool		isnull;
 
@@ -444,9 +444,9 @@ TupleHashTableHash_internal(struct tuplehash_hash *tb,
 	{
 		/* Process the current input tuple for the table */
 		hashtable->exprcontext->ecxt_innertuple = hashtable->inputslot;
-		hashkey = DatumGetUInt32(ExecEvalExpr(hashtable->in_hash_expr,
-											  hashtable->exprcontext,
-											  &isnull));
+		return DatumGetUInt32(ExecEvalExpr(hashtable->in_hash_expr,
+										   hashtable->exprcontext,
+										   &isnull));
 	}
 	else
 	{
@@ -458,17 +458,10 @@ TupleHashTableHash_internal(struct tuplehash_hash *tb,
 		 */
 		slot = hashtable->exprcontext->ecxt_innertuple = hashtable->tableslot;
 		ExecStoreMinimalTuple(tuple, slot, false);
-		hashkey = DatumGetUInt32(ExecEvalExpr(hashtable->tab_hash_expr,
-											  hashtable->exprcontext,
-											  &isnull));
+		return DatumGetUInt32(ExecEvalExpr(hashtable->tab_hash_expr,
+										   hashtable->exprcontext,
+										   &isnull));
 	}
-
-	/*
-	 * The hashing done above, even with an initial value, doesn't tend to
-	 * result in good hash perturbation.  Running the value produced above
-	 * through murmurhash32 leads to near perfect hash perturbation.
-	 */
-	return murmurhash32(hashkey);
 }
 
 /*

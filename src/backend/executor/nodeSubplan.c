@@ -1046,7 +1046,8 @@ ExecInitSubPlan(SubPlan *subplan, PlanState *parent)
 														 sstate->numCols,
 														 sstate->keyColIdx,
 														 parent,
-														 0);
+														 0,
+														 true);
 
 		/*
 		 * Create comparator for lookups of rows in the table (potentially

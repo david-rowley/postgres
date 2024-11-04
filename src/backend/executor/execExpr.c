@@ -3986,12 +3986,15 @@ ExecBuildAggTransCall(ExprState *state, AggState *aggstate,
  * init_value: Normally 0, but can be set to other values to seed the hash
  * with.  Non-zero is marginally slower, so best to only use if it's provably
  * worthwhile.
+ * murmurfinal: Can be set to true to have the final result hashed through
+ * murmur32.  This can improve the hash perturbation of the result.
  */
 ExprState *
 ExecBuildHash32FromAttrs(TupleDesc desc, const TupleTableSlotOps *ops,
 						 FmgrInfo *hashfunctions, Oid *collations,
 						 int numCols, AttrNumber *keyColIdx,
-						 PlanState *parent, uint32 init_value)
+						 PlanState *parent, uint32 init_value,
+						 bool murmurfinal)
 {
 	ExprState  *state = makeNode(ExprState);
 	ExprEvalStep scratch = {0};
@@ -4008,7 +4011,7 @@ ExecBuildHash32FromAttrs(TupleDesc desc, const TupleTableSlotOps *ops,
 	 * hashing of individual columns.  We only need this if there is more than
 	 * one column to hash or an initial value plus one column.
 	 */
-	if ((int64) numCols + (init_value != 0) > 1)
+	if ((int64) numCols + (init_value != 0) > 1 || murmurfinal)
 		iresult = palloc(sizeof(NullableDatum));
 
 	/* find the highest attnum so we deform the tuple to that point */
@@ -4081,7 +4084,7 @@ ExecBuildHash32FromAttrs(TupleDesc desc, const TupleTableSlotOps *ops,
 		/* Call the hash function */
 		scratch.opcode = opcode;
 
-		if (i == numCols - 1)
+		if (i == numCols - 1 && !murmurfinal)
 		{
 			/*
 			 * The result for hashing the final column is stored in the
@@ -4114,6 +4117,15 @@ ExecBuildHash32FromAttrs(TupleDesc desc, const TupleTableSlotOps *ops,
 
 		/* subsequent attnums must be combined with the previous */
 		opcode = EEOP_HASHDATUM_NEXT32;
+	}
+
+	if (murmurfinal)
+	{
+		scratch.opcode = EEOP_HASHDATUM_MURMUR32_FINAL;
+		scratch.resvalue = &state->resvalue;
+		scratch.resnull = &state->resnull;
+		scratch.d.hashdatum.iresult = iresult;
+		ExprEvalPushStep(state, &scratch);
 	}
 
 	scratch.resvalue = NULL;

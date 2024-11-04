@@ -59,6 +59,7 @@
 #include "access/heaptoast.h"
 #include "catalog/pg_type.h"
 #include "commands/sequence.h"
+#include "common/hashfn.h"
 #include "executor/execExpr.h"
 #include "executor/nodeSubplan.h"
 #include "funcapi.h"
@@ -482,6 +483,7 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 		&&CASE_EEOP_HASHDATUM_FIRST_STRICT,
 		&&CASE_EEOP_HASHDATUM_NEXT32,
 		&&CASE_EEOP_HASHDATUM_NEXT32_STRICT,
+		&&CASE_EEOP_HASHDATUM_MURMUR32_FINAL,
 		&&CASE_EEOP_CONVERT_ROWTYPE,
 		&&CASE_EEOP_SCALARARRAYOP,
 		&&CASE_EEOP_HASHED_SCALARARRAYOP,
@@ -1652,6 +1654,15 @@ ExecInterpExpr(ExprState *state, ExprContext *econtext, bool *isnull)
 				*op->resnull = false;
 			}
 
+			EEO_NEXT();
+		}
+
+		EEO_CASE(EEOP_HASHDATUM_MURMUR32_FINAL)
+		{
+			uint32		hashkey = DatumGetUInt32(op->d.hashdatum.iresult->value);
+
+			*op->resvalue = murmurhash32(hashkey);
+			*op->resnull = false;
 			EEO_NEXT();
 		}
 
