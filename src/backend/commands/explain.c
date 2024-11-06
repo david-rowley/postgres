@@ -199,6 +199,7 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt,
 	ListCell   *lc;
 	bool		timing_set = false;
 	bool		summary_set = false;
+	bool		buffers_set = false;
 
 	/* Parse options list. */
 	foreach(lc, stmt->options)
@@ -212,7 +213,10 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt,
 		else if (strcmp(opt->defname, "costs") == 0)
 			es->costs = defGetBoolean(opt);
 		else if (strcmp(opt->defname, "buffers") == 0)
+		{
 			es->buffers = defGetBoolean(opt);
+			buffers_set = true;
+		}
 		else if (strcmp(opt->defname, "wal") == 0)
 			es->wal = defGetBoolean(opt);
 		else if (strcmp(opt->defname, "settings") == 0)
@@ -291,6 +295,7 @@ ExplainQuery(ParseState *pstate, ExplainStmt *stmt,
 
 	/* if the timing was not set explicitly, set default value */
 	es->timing = (timing_set) ? es->timing : es->analyze;
+	es->buffers = (buffers_set) ? es->buffers : es->analyze;
 
 	/* check that timing is used with EXPLAIN ANALYZE */
 	if (es->timing && !es->analyze)
