@@ -190,6 +190,8 @@ extern MemoryContext BumpContextCreate(MemoryContext parent,
 #define SLAB_LARGE_BLOCK_SIZE		(8 * 1024 * 1024)
 
 /*
+ * pg_memory_is_all_zeros
+ *
  * Test if a memory region starting at "ptr" and of size "len" is full of
  * zeroes.
  */
@@ -197,13 +199,121 @@ static inline bool
 pg_memory_is_all_zeros(const void *ptr, size_t len)
 {
 	const char *p = (const char *) ptr;
+	const char *end = &p[len];
+	const char *aligned_end = (const char *)
+		((uintptr_t) end & (~(sizeof(size_t) - 1)));
 
-	for (size_t i = 0; i < len; i++)
+	/*
+	 * 'len' will predominantly be a const and because this is an inline
+	 * function we expect the following len checks will be eliminated during
+	 * compilation.
+	 *
+	 * The following code is written in such a way so that the compiler only
+	 * emits the minimum amount of code according to the size of the memory
+	 * being checked.  For example, lengths below sizeof(size_t) only need the
+	 * byte-at-a-time loop, whereas larger sizes we can emit instructions that
+	 * process larger chunks of memory per loop.  At the time of writing this,
+	 * a few common compilers were not smart enough to eliminate the unneeded
+	 * loops without the explicit len checks.
+	 */
+	if (len < sizeof(size_t))
 	{
-		if (p[i] != 0)
-			return false;
+		/*
+		 * Handle sizes smaller than sizeof(size_t) with a byte-at-a-time
+		 * check.
+		 */
+		while (p < end)
+		{
+			if (*p++ != 0)
+				return false;
+		}
+		return true;
 	}
-	return true;
+	else if (len < sizeof(size_t) * 8)
+	{
+		/*
+		 * Handle up to sizeof(size_t) * 8 bytes at a time */
+		 */
+
+		/* Check bytes until the pointer "p" is aligned */
+		while (((uintptr_t) p & (sizeof(size_t) - 1)) != 0)
+		{
+			/*
+			 * There should be no chance of reaching the end before we find
+			 * an aligned pointer as len is >= sizeof(size_t)
+			 */
+			Assert(p != end);
+
+			if (*p++ != 0)
+				return false;
+		}
+
+		/* Check remaining size_t-aligned chunks */
+		for (; p < aligned_end - (sizeof(size_t) - 1); p += sizeof(size_t))
+		{
+			if (*(size_t *) p != 0)
+				return false;
+		}
+
+		/* Check any remaining bytes until the end */
+		while (p < end)
+		{
+			if (*p++ != 0)
+				return false;
+		}
+		return true;
+	}
+	else
+	{
+		/* Handle lengths larger than 8 * sizeof(size_t) */
+
+		/* Check bytes until the pointer "p" is aligned */
+		while (((uintptr_t) p & (sizeof(size_t) - 1)) != 0)
+		{
+			/*
+			 * There should be no chance of reaching the end before we find
+			 * an aligned pointer as len is >= sizeof(size_t)
+			 */
+			Assert(p != end);
+
+			if (*p++ != 0)
+				return false;
+		}
+
+		/*
+		 * Check 8 * sizeof(size_t) bytes at once.
+		 *
+		 * For performance reasons, we manually unroll this loop and
+		 * purposefully use bitwise-ORs to combine each comparison.  This
+		 * prevents boolean short-circuiting and lets the compiler know that
+		 * it's safe to access all 8 elements regardless of the result of the
+		 * other comparisons.  This seems to be enough to coax a few compilers
+		 * into using SIMD instructions.
+		 */
+		for (; p < aligned_end - ((sizeof(size_t) * 8) - 1); p += sizeof(size_t) * 8)
+		{
+			if ((((size_t *) p)[0] != 0) | (((size_t *) p)[1] != 0) |
+				(((size_t *) p)[2] != 0) | (((size_t *) p)[3] != 0) |
+				(((size_t *) p)[4] != 0) | (((size_t *) p)[5] != 0) |
+				(((size_t *) p)[6] != 0) | (((size_t *) p)[7] != 0))
+				return false;
+		}
+
+		/* Check remaining size_t-aligned chunks */
+		for (; p < aligned_end - (sizeof(size_t) - 1); p += sizeof(size_t))
+		{
+			if (*(size_t *) p != 0)
+				return false;
+		}
+
+		/* Check any remaining bytes until the end */
+		while (p < end)
+		{
+			if (*p++ != 0)
+				return false;
+		}
+		return true;
+	}
 }
 
 #endif							/* MEMUTILS_H */
