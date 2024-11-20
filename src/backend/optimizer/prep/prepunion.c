@@ -40,8 +40,7 @@
 
 static RelOptInfo *recurse_set_operations(Node *setOp, PlannerInfo *root,
 										  List *colTypes, List *colCollations,
-										  bool junkOK,
-										  int flag, List *refnames_tlist,
+										  List *refnames_tlist,
 										  List **pTargetList,
 										  bool *istrivial_tlist);
 static RelOptInfo *generate_recursion_path(SetOperationStmt *setOp,
@@ -69,14 +68,12 @@ static bool choose_hashed_setop(PlannerInfo *root, List *groupClauses,
 								double dNumGroups, double dNumOutputRows,
 								const char *construct);
 static List *generate_setop_tlist(List *colTypes, List *colCollations,
-								  int flag,
 								  Index varno,
 								  bool hack_constants,
 								  List *input_tlist,
 								  List *refnames_tlist,
 								  bool *trivial_tlist);
 static List *generate_append_tlist(List *colTypes, List *colCollations,
-								   bool flag,
 								   List *input_tlists,
 								   List *refnames_tlist);
 static List *generate_setop_grouplist(SetOperationStmt *op, List *targetlist);
@@ -160,12 +157,10 @@ plan_set_operations(PlannerInfo *root)
 		/*
 		 * Recurse on setOperations tree to generate paths for set ops. The
 		 * final output paths should have just the column types shown as the
-		 * output from the top-level node, plus possibly resjunk working
-		 * columns (we can rely on upper-level nodes to deal with that).
+		 * output from the top-level node.
 		 */
 		setop_rel = recurse_set_operations((Node *) topop, root,
 										   topop->colTypes, topop->colCollations,
-										   true, -1,
 										   leftmostQuery->targetList,
 										   &top_tlist,
 										   &trivial_tlist);
@@ -208,8 +203,6 @@ set_operation_ordered_results_useful(SetOperationStmt *setop)
  *
  * colTypes: OID list of set-op's result column datatypes
  * colCollations: OID list of set-op's result column collations
- * junkOK: if true, child resjunk columns may be left in the result
- * flag: if >= 0, add a resjunk output column indicating value of flag
  * refnames_tlist: targetlist to take column names from
  *
  * Returns a RelOptInfo for the subtree, as well as these output parameters:
@@ -220,7 +213,8 @@ set_operation_ordered_results_useful(SetOperationStmt *setop)
  * The pTargetList output parameter is mostly redundant with the pathtarget
  * of the returned RelOptInfo, but for the moment we need it because much of
  * the logic in this file depends on flag columns being marked resjunk.
- * Pending a redesign of how that works, this is the easy way out.
+ * XXX Now that there are no flag columns and hence no resjunk columns, we
+ * could probably refactor this file to deal only in pathtargets.
  *
  * We don't have to care about typmods here: the only allowed difference
  * between set-op input and output typmods is input is a specific typmod
@@ -229,8 +223,7 @@ set_operation_ordered_results_useful(SetOperationStmt *setop)
 static RelOptInfo *
 recurse_set_operations(Node *setOp, PlannerInfo *root,
 					   List *colTypes, List *colCollations,
-					   bool junkOK,
-					   int flag, List *refnames_tlist,
+					   List *refnames_tlist,
 					   List **pTargetList,
 					   bool *istrivial_tlist)
 {
@@ -279,7 +272,6 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 
 		/* Figure out the appropriate target list for this subquery. */
 		tlist = generate_setop_tlist(colTypes, colCollations,
-									 flag,
 									 rtr->rtindex,
 									 true,
 									 subroot->processed_tlist,
@@ -318,16 +310,14 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 		 * generate_append_tlist() or generate_setop_tlist(), this will work.
 		 * We just tell generate_setop_tlist() to use varno 0.
 		 */
-		if (flag >= 0 ||
-			!tlist_same_datatypes(*pTargetList, colTypes, junkOK) ||
-			!tlist_same_collations(*pTargetList, colCollations, junkOK))
+		if (!tlist_same_datatypes(*pTargetList, colTypes, false) ||
+			!tlist_same_collations(*pTargetList, colCollations, false))
 		{
 			PathTarget *target;
 			bool		trivial_tlist;
 			ListCell   *lc;
 
 			*pTargetList = generate_setop_tlist(colTypes, colCollations,
-												flag,
 												0,
 												false,
 												*pTargetList,
@@ -411,7 +401,6 @@ generate_recursion_path(SetOperationStmt *setOp, PlannerInfo *root,
 	 */
 	lrel = recurse_set_operations(setOp->larg, root,
 								  setOp->colTypes, setOp->colCollations,
-								  false, -1,
 								  refnames_tlist,
 								  &lpath_tlist,
 								  &lpath_trivial_tlist);
@@ -423,7 +412,6 @@ generate_recursion_path(SetOperationStmt *setOp, PlannerInfo *root,
 	root->non_recursive_path = lpath;
 	rrel = recurse_set_operations(setOp->rarg, root,
 								  setOp->colTypes, setOp->colCollations,
-								  false, -1,
 								  refnames_tlist,
 								  &rpath_tlist,
 								  &rpath_trivial_tlist);
@@ -436,7 +424,7 @@ generate_recursion_path(SetOperationStmt *setOp, PlannerInfo *root,
 	/*
 	 * Generate tlist for RecursiveUnion path node --- same as in Append cases
 	 */
-	tlist = generate_append_tlist(setOp->colTypes, setOp->colCollations, false,
+	tlist = generate_append_tlist(setOp->colTypes, setOp->colCollations,
 								  list_make2(lpath_tlist, rpath_tlist),
 								  refnames_tlist);
 
@@ -736,7 +724,7 @@ generate_union_paths(SetOperationStmt *op, PlannerInfo *root,
 	 * concerned, but we must make it look real anyway for the benefit of the
 	 * next plan level up.
 	 */
-	tlist = generate_append_tlist(op->colTypes, op->colCollations, false,
+	tlist = generate_append_tlist(op->colTypes, op->colCollations,
 								  tlist_list, refnames_tlist);
 	*pTargetList = tlist;
 
@@ -1048,7 +1036,6 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 	/* Recurse on children */
 	lrel = recurse_set_operations(op->larg, root,
 								  op->colTypes, op->colCollations,
-								  false, -1,
 								  refnames_tlist,
 								  &lpath_tlist,
 								  &lpath_trivial_tlist);
@@ -1060,7 +1047,6 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 
 	rrel = recurse_set_operations(op->rarg, root,
 								  op->colTypes, op->colCollations,
-								  false, -1,
 								  refnames_tlist,
 								  &rpath_tlist,
 								  &rpath_trivial_tlist);
@@ -1109,7 +1095,7 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 	 * concerned, but we must make it look real anyway for the benefit of the
 	 * next plan level up.
 	 */
-	tlist = generate_setop_tlist(op->colTypes, op->colCollations, -1,
+	tlist = generate_setop_tlist(op->colTypes, op->colCollations,
 								 0, false, lpath_tlist, refnames_tlist,
 								 &result_trivial_tlist);
 
@@ -1258,18 +1244,10 @@ plan_union_children(PlannerInfo *root,
 
 		/*
 		 * Not same, so plan this child separately.
-		 *
-		 * Note we disallow any resjunk columns in child results.  This is
-		 * necessary since the Append node that implements the union won't do
-		 * any projection, and upper levels will get confused if some of our
-		 * output tuples have junk and some don't.  This case only arises when
-		 * we have an EXCEPT or INTERSECT as child, else there won't be
-		 * resjunk anyway.
 		 */
 		result = lappend(result, recurse_set_operations(setOp, root,
 														top_union->colTypes,
 														top_union->colCollations,
-														false, -1,
 														refnames_tlist,
 														&child_tlist,
 														&trivial_tlist));
@@ -1412,7 +1390,6 @@ choose_hashed_setop(PlannerInfo *root, List *groupClauses,
  *
  * colTypes: OID list of set-op's result column datatypes
  * colCollations: OID list of set-op's result column collations
- * flag: -1 if no flag column needed, 0 or 1 to create a const flag column
  * varno: varno to use in generated Vars
  * hack_constants: true to copy up constants (see comments in code)
  * input_tlist: targetlist of this node's input node
@@ -1421,7 +1398,6 @@ choose_hashed_setop(PlannerInfo *root, List *groupClauses,
  */
 static List *
 generate_setop_tlist(List *colTypes, List *colCollations,
-					 int flag,
 					 Index varno,
 					 bool hack_constants,
 					 List *input_tlist,
@@ -1520,32 +1496,13 @@ generate_setop_tlist(List *colTypes, List *colCollations,
 							  false);
 
 		/*
-		 * By convention, all non-resjunk columns in a setop tree have
+		 * By convention, all output columns in a setop tree have
 		 * ressortgroupref equal to their resno.  In some cases the ref isn't
 		 * needed, but this is a cleaner way than modifying the tlist later.
 		 */
 		tle->ressortgroupref = tle->resno;
 
 		tlist = lappend(tlist, tle);
-	}
-
-	if (flag >= 0)
-	{
-		/* Add a resjunk flag column */
-		/* flag value is the given constant */
-		expr = (Node *) makeConst(INT4OID,
-								  -1,
-								  InvalidOid,
-								  sizeof(int32),
-								  Int32GetDatum(flag),
-								  false,
-								  true);
-		tle = makeTargetEntry((Expr *) expr,
-							  (AttrNumber) resno++,
-							  pstrdup("flag"),
-							  true);
-		tlist = lappend(tlist, tle);
-		*trivial_tlist = false; /* the extra entry makes it not trivial */
 	}
 
 	return tlist;
@@ -1556,7 +1513,6 @@ generate_setop_tlist(List *colTypes, List *colCollations,
  *
  * colTypes: OID list of set-op's result column datatypes
  * colCollations: OID list of set-op's result column collations
- * flag: true to create a flag column copied up from subplans
  * input_tlists: list of tlists for sub-plans of the Append
  * refnames_tlist: targetlist to take column names from
  *
@@ -1570,7 +1526,6 @@ generate_setop_tlist(List *colTypes, List *colCollations,
  */
 static List *
 generate_append_tlist(List *colTypes, List *colCollations,
-					  bool flag,
 					  List *input_tlists,
 					  List *refnames_tlist)
 {
@@ -1604,8 +1559,7 @@ generate_append_tlist(List *colTypes, List *colCollations,
 		{
 			TargetEntry *subtle = (TargetEntry *) lfirst(subtlistl);
 
-			if (subtle->resjunk)
-				continue;
+			Assert(!subtle->resjunk);
 			Assert(curColType != NULL);
 			if (exprType((Node *) subtle->expr) == lfirst_oid(curColType))
 			{
@@ -1654,29 +1608,12 @@ generate_append_tlist(List *colTypes, List *colCollations,
 							  false);
 
 		/*
-		 * By convention, all non-resjunk columns in a setop tree have
+		 * By convention, all output columns in a setop tree have
 		 * ressortgroupref equal to their resno.  In some cases the ref isn't
 		 * needed, but this is a cleaner way than modifying the tlist later.
 		 */
 		tle->ressortgroupref = tle->resno;
 
-		tlist = lappend(tlist, tle);
-	}
-
-	if (flag)
-	{
-		/* Add a resjunk flag column */
-		/* flag value is shown as copied up from subplan */
-		expr = (Node *) makeVar(0,
-								resno,
-								INT4OID,
-								-1,
-								InvalidOid,
-								0);
-		tle = makeTargetEntry((Expr *) expr,
-							  (AttrNumber) resno++,
-							  pstrdup("flag"),
-							  true);
 		tlist = lappend(tlist, tle);
 	}
 
@@ -1709,12 +1646,7 @@ generate_setop_grouplist(SetOperationStmt *op, List *targetlist)
 		TargetEntry *tle = (TargetEntry *) lfirst(lt);
 		SortGroupClause *sgc;
 
-		if (tle->resjunk)
-		{
-			/* resjunk columns should not have sortgrouprefs */
-			Assert(tle->ressortgroupref == 0);
-			continue;			/* ignore resjunk columns */
-		}
+		Assert(!tle->resjunk);
 
 		/* non-resjunk columns should have sortgroupref = resno */
 		Assert(tle->ressortgroupref == tle->resno);
