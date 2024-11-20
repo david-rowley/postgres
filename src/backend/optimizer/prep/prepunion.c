@@ -39,6 +39,7 @@
 
 
 static RelOptInfo *recurse_set_operations(Node *setOp, PlannerInfo *root,
+										  SetOperationStmt *parentOp,
 										  List *colTypes, List *colCollations,
 										  List *refnames_tlist,
 										  List **pTargetList,
@@ -156,6 +157,7 @@ plan_set_operations(PlannerInfo *root)
 		 * output from the top-level node.
 		 */
 		setop_rel = recurse_set_operations((Node *) topop, root,
+										   NULL,	/* no parent */
 										   topop->colTypes, topop->colCollations,
 										   leftmostQuery->targetList,
 										   &top_tlist,
@@ -169,42 +171,29 @@ plan_set_operations(PlannerInfo *root)
 }
 
 /*
- * set_operation_ordered_results_useful
- *		Return true if the given SetOperationStmt can be executed by utilizing
- *		paths that provide sorted input according to the setop's targetlist.
- *		Returns false when sorted paths are not any more useful then unsorted
- *		ones.
- */
-bool
-set_operation_ordered_results_useful(SetOperationStmt *setop)
-{
-	/*
-	 * Paths sorted by the targetlist are useful for UNION as we can opt to
-	 * MergeAppend the sorted paths then Unique them.  Ordered paths are no
-	 * more useful than unordered ones for UNION ALL.
-	 */
-	if (!setop->all && setop->op == SETOP_UNION)
-		return true;
-
-	/*
-	 * EXCEPT / EXCEPT ALL / INTERSECT / INTERSECT ALL cannot yet utilize
-	 * correctly sorted input paths.
-	 */
-	return false;
-}
-
-/*
  * recurse_set_operations
  *	  Recursively handle one step in a tree of set operations
  *
+ * setOp: current step (could be a SetOperationStmt or a leaf RangeTblRef)
+ * parentOp: parent step, or NULL if none (but see below)
  * colTypes: OID list of set-op's result column datatypes
  * colCollations: OID list of set-op's result column collations
  * refnames_tlist: targetlist to take column names from
+ *
+ * parentOp should be passed as NULL unless that step is interested in
+ * getting sorted output from this step.  ("Sorted" means "sorted according
+ * to the default btree opclasses of the result column datatypes".)
  *
  * Returns a RelOptInfo for the subtree, as well as these output parameters:
  * *pTargetList: receives the fully-fledged tlist for the subtree's top plan
  * *istrivial_tlist: true if, and only if, datatypes between parent and child
  * match.
+ *
+ * If setOp is a leaf node, this function plans the sub-query but does
+ * not populate the pathlist of the returned RelOptInfo.  The caller will
+ * generate SubqueryScan paths using useful path(s) of the subquery (see
+ * build_setop_child_paths).  But this function does build the paths for
+ * set-operation nodes.
  *
  * The pTargetList output parameter is mostly redundant with the pathtarget
  * of the returned RelOptInfo, but for the moment we need it because much of
@@ -218,6 +207,7 @@ set_operation_ordered_results_useful(SetOperationStmt *setop)
  */
 static RelOptInfo *
 recurse_set_operations(Node *setOp, PlannerInfo *root,
+					   SetOperationStmt *parentOp,
 					   List *colTypes, List *colCollations,
 					   List *refnames_tlist,
 					   List **pTargetList,
@@ -234,7 +224,6 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 	{
 		RangeTblRef *rtr = (RangeTblRef *) setOp;
 		RangeTblEntry *rte = root->simple_rte_array[rtr->rtindex];
-		SetOperationStmt *setops;
 		Query	   *subquery = rte->subquery;
 		PlannerInfo *subroot;
 		List	   *tlist;
@@ -249,15 +238,13 @@ recurse_set_operations(Node *setOp, PlannerInfo *root,
 		Assert(root->plan_params == NIL);
 
 		/*
-		 * Pass the set operation details to the subquery_planner to have it
-		 * consider generating Paths correctly ordered for the set operation.
+		 * Generate a subroot and Paths for the subquery.  If we have a
+		 * parentOp, pass that down to encourage subquery_planner to consider
+		 * suitably-sorted Paths.
 		 */
-		setops = castNode(SetOperationStmt, root->parse->setOperations);
-
-		/* Generate a subroot and Paths for the subquery */
 		subroot = rel->subroot = subquery_planner(root->glob, subquery, root,
 												  false, root->tuple_fraction,
-												  setops);
+												  parentOp);
 
 		/*
 		 * It should not be possible for the primitive query to contain any
@@ -396,6 +383,7 @@ generate_recursion_path(SetOperationStmt *setOp, PlannerInfo *root,
 	 * separately without any intention of combining them into one Append.
 	 */
 	lrel = recurse_set_operations(setOp->larg, root,
+								  NULL, /* no value in sorted results */
 								  setOp->colTypes, setOp->colCollations,
 								  refnames_tlist,
 								  &lpath_tlist,
@@ -407,6 +395,7 @@ generate_recursion_path(SetOperationStmt *setOp, PlannerInfo *root,
 	/* The right path will want to look at the left one ... */
 	root->non_recursive_path = lpath;
 	rrel = recurse_set_operations(setOp->rarg, root,
+								  NULL, /* no value in sorted results */
 								  setOp->colTypes, setOp->colCollations,
 								  refnames_tlist,
 								  &rpath_tlist,
@@ -478,6 +467,10 @@ generate_recursion_path(SetOperationStmt *setOp, PlannerInfo *root,
 /*
  * build_setop_child_paths
  *		Build paths for the set op child relation denoted by 'rel'.
+ *
+ * 'rel' is an RTE_SUBQUERY relation.  We have already generated paths within
+ * the subquery's subroot; the task here is to create SubqueryScan paths for
+ * 'rel', representing scans of the useful subquery paths.
  *
  * interesting_pathkeys: if not NIL, also include paths that suit these
  * pathkeys, sorting any unsorted paths as required.
@@ -1032,6 +1025,7 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 
 	/* Recurse on children */
 	lrel = recurse_set_operations(op->larg, root,
+								  op,
 								  op->colTypes, op->colCollations,
 								  refnames_tlist,
 								  &lpath_tlist,
@@ -1043,6 +1037,7 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 		dLeftGroups = lrel->rows;
 
 	rrel = recurse_set_operations(op->rarg, root,
+								  op,
 								  op->colTypes, op->colCollations,
 								  refnames_tlist,
 								  &rpath_tlist,
@@ -1285,8 +1280,14 @@ plan_union_children(PlannerInfo *root,
 
 		/*
 		 * Not same, so plan this child separately.
+		 *
+		 * If top_union isn't a UNION ALL, then we are interested in sorted
+		 * output from the child, so pass top_union as parentOp.  Note that
+		 * this isn't necessarily the child node's immediate SetOperationStmt
+		 * parent, but that's fine: it's the effective parent.
 		 */
 		result = lappend(result, recurse_set_operations(setOp, root,
+														top_union->all ? NULL : top_union,
 														top_union->colTypes,
 														top_union->colCollations,
 														refnames_tlist,

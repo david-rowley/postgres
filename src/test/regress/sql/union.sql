@@ -156,6 +156,10 @@ explain (costs off)
 select unique1 from tenk1 except select unique2 from tenk1 where unique2 != 10;
 select unique1 from tenk1 except select unique2 from tenk1 where unique2 != 10;
 
+explain (costs off)
+select f1 from int4_tbl union all
+  (select unique1 from tenk1 union select unique2 from tenk1);
+
 reset enable_hashagg;
 
 -- non-hashable type
