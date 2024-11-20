@@ -1010,6 +1010,7 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 	bool		lpath_trivial_tlist,
 				rpath_trivial_tlist,
 				result_trivial_tlist;
+	List	   *nonunion_pathkeys = NIL;
 	double		dLeftGroups,
 				dRightGroups,
 				dNumGroups,
@@ -1030,11 +1031,6 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 								  refnames_tlist,
 								  &lpath_tlist,
 								  &lpath_trivial_tlist);
-	if (lrel->rtekind == RTE_SUBQUERY)
-		build_setop_child_paths(root, lrel, lpath_trivial_tlist, lpath_tlist,
-								NIL, &dLeftGroups);
-	else
-		dLeftGroups = lrel->rows;
 
 	rrel = recurse_set_operations(op->rarg, root,
 								  op,
@@ -1042,9 +1038,57 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 								  refnames_tlist,
 								  &rpath_tlist,
 								  &rpath_trivial_tlist);
+
+	/*
+	 * Generate tlist for SetOp plan node.
+	 *
+	 * The tlist for a SetOp plan isn't important so far as the SetOp is
+	 * concerned, but we must make it look real anyway for the benefit of the
+	 * next plan level up.
+	 */
+	tlist = generate_setop_tlist(op->colTypes, op->colCollations,
+								 0, false, lpath_tlist, refnames_tlist,
+								 &result_trivial_tlist);
+
+	/* We should not have needed any type coercions in the tlist */
+	Assert(result_trivial_tlist);
+
+	*pTargetList = tlist;
+
+	/* Identify the grouping semantics */
+	groupList = generate_setop_grouplist(op, tlist);
+
+	/* Check whether the operators support sorting or hashing */
+	can_sort = grouping_is_sortable(groupList);
+	can_hash = grouping_is_hashable(groupList);
+	if (!can_sort && !can_hash)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+		/* translator: %s is INTERSECT or EXCEPT */
+				 errmsg("could not implement %s",
+						(op->op == SETOP_INTERSECT) ? "INTERSECT" : "EXCEPT"),
+				 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
+
+	if (can_sort)
+	{
+		/* Determine the pathkeys for sorting by the whole target list */
+		nonunion_pathkeys = make_pathkeys_for_sortclauses(root, groupList,
+														  tlist);
+
+		root->query_pathkeys = nonunion_pathkeys;
+	}
+
+	/*
+	 * Now that we've got all that info, we can build the child paths.
+	 */
+	if (lrel->rtekind == RTE_SUBQUERY)
+		build_setop_child_paths(root, lrel, lpath_trivial_tlist, lpath_tlist,
+								nonunion_pathkeys, &dLeftGroups);
+	else
+		dLeftGroups = lrel->rows;
 	if (rrel->rtekind == RTE_SUBQUERY)
 		build_setop_child_paths(root, rrel, rpath_trivial_tlist, rpath_tlist,
-								NIL, &dRightGroups);
+								nonunion_pathkeys, &dRightGroups);
 	else
 		dRightGroups = rrel->rows;
 
@@ -1080,29 +1124,10 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 	lpath = lrel->cheapest_total_path;
 	rpath = rrel->cheapest_total_path;
 
-	/*
-	 * Generate tlist for SetOp plan node.
-	 *
-	 * The tlist for a SetOp plan isn't important so far as the SetOp is
-	 * concerned, but we must make it look real anyway for the benefit of the
-	 * next plan level up.
-	 */
-	tlist = generate_setop_tlist(op->colTypes, op->colCollations,
-								 0, false, lpath_tlist, refnames_tlist,
-								 &result_trivial_tlist);
-
-	/* We should not have needed any type coercions in the tlist */
-	Assert(result_trivial_tlist);
-
-	*pTargetList = tlist;
-
 	/* Build result relation. */
 	result_rel = fetch_upper_rel(root, UPPERREL_SETOP,
 								 bms_union(lrel->relids, rrel->relids));
 	result_rel->reltarget = create_pathtarget(root, tlist);
-
-	/* Identify the grouping semantics */
-	groupList = generate_setop_grouplist(op, tlist);
 
 	/*
 	 * Estimate number of distinct groups that we'll need hashtable entries
@@ -1138,17 +1163,6 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 			cmd = SETOPCMD_INTERSECT;	/* keep compiler quiet */
 			break;
 	}
-
-	/* Check whether the operators support sorting or hashing */
-	can_sort = grouping_is_sortable(groupList);
-	can_hash = grouping_is_hashable(groupList);
-	if (!can_sort && !can_hash)
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-		/* translator: %s is INTERSECT or EXCEPT */
-				 errmsg("could not implement %s",
-						(op->op == SETOP_INTERSECT) ? "INTERSECT" : "EXCEPT"),
-				 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
 
 	/*
 	 * If we can hash, that just requires a SetOp atop the cheapest inputs.
@@ -1189,35 +1203,63 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 	}
 
 	/*
-	 * If we can sort, sort the inputs if needed before adding SetOp.
+	 * If we can sort, generate the cheapest sorted input paths, and add a
+	 * SetOp atop those.
 	 */
 	if (can_sort)
 	{
 		List	   *pathkeys;
+		Path	   *slpath,
+				   *srpath;
 
+		/* First the left input ... */
 		pathkeys = make_pathkeys_for_sortclauses(root,
 												 groupList,
 												 lpath_tlist);
-		if (!pathkeys_contained_in(pathkeys, lpath->pathkeys))
-			lpath = (Path *) create_sort_path(root,
-											  lpath->parent,
-											  lpath,
-											  pathkeys,
-											  -1.0);
+		if (pathkeys_contained_in(pathkeys, lpath->pathkeys))
+			slpath = lpath;		/* cheapest path is already sorted */
+		else
+		{
+			slpath = get_cheapest_path_for_pathkeys(lrel->pathlist,
+													nonunion_pathkeys,
+													NULL,
+													TOTAL_COST,
+													false);
+			/* Subquery failed to produce any presorted paths? */
+			if (slpath == NULL)
+				slpath = (Path *) create_sort_path(root,
+												   lpath->parent,
+												   lpath,
+												   pathkeys,
+												   -1.0);
+		}
+
+		/* and now the same for the right. */
 		pathkeys = make_pathkeys_for_sortclauses(root,
 												 groupList,
 												 rpath_tlist);
-		if (!pathkeys_contained_in(pathkeys, rpath->pathkeys))
-			rpath = (Path *) create_sort_path(root,
-											  rpath->parent,
-											  rpath,
-											  pathkeys,
-											  -1.0);
+		if (pathkeys_contained_in(pathkeys, rpath->pathkeys))
+			srpath = rpath;		/* cheapest path is already sorted */
+		else
+		{
+			srpath = get_cheapest_path_for_pathkeys(rrel->pathlist,
+													nonunion_pathkeys,
+													NULL,
+													TOTAL_COST,
+													false);
+			/* Subquery failed to produce any presorted paths? */
+			if (srpath == NULL)
+				srpath = (Path *) create_sort_path(root,
+												   rpath->parent,
+												   rpath,
+												   pathkeys,
+												   -1.0);
+		}
 
 		path = (Path *) create_setop_path(root,
 										  result_rel,
-										  lpath,
-										  rpath,
+										  slpath,
+										  srpath,
 										  cmd,
 										  SETOP_SORTED,
 										  groupList,
