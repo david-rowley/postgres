@@ -950,7 +950,7 @@ explain (costs off)
 select from generate_series(1,5) intersect select from generate_series(1,3);
                         QUERY PLAN                        
 ----------------------------------------------------------
- HashSetOp Intersect
+ SetOp Intersect
    ->  Function Scan on generate_series
    ->  Function Scan on generate_series generate_series_1
 (3 rows)

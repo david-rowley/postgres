@@ -3681,17 +3681,51 @@ create_setop_path(PlannerInfo *root,
 	pathnode->numGroups = numGroups;
 
 	/*
-	 * Charge one cpu_operator_cost per comparison per input tuple. We assume
-	 * all columns get compared at most of the tuples.
-	 *
-	 * XXX all wrong for hashing
+	 * Compute cost estimates.  As things stand, we end up with the same total
+	 * cost in this node for sort and hash methods, but different startup
+	 * costs.  This could be refined perhaps, but it'll do for now.
 	 */
 	pathnode->path.disabled_nodes =
 		leftpath->disabled_nodes + rightpath->disabled_nodes;
-	pathnode->path.startup_cost =
-		leftpath->startup_cost + rightpath->startup_cost;
-	pathnode->path.total_cost = leftpath->total_cost + rightpath->total_cost +
-		cpu_operator_cost * (leftpath->rows + rightpath->rows) * list_length(groupList);
+	if (strategy == SETOP_SORTED)
+	{
+		/*
+		 * In sorted mode, we can emit output incrementally.  Charge one
+		 * cpu_operator_cost per comparison per input tuple.  Like cost_group,
+		 * we assume all columns get compared at most of the tuples.
+		 */
+		pathnode->path.startup_cost =
+			leftpath->startup_cost + rightpath->startup_cost;
+		pathnode->path.total_cost =
+			leftpath->total_cost + rightpath->total_cost +
+			cpu_operator_cost * (leftpath->rows + rightpath->rows) * list_length(groupList);
+
+		/*
+		 * Also charge a small amount per extracted tuple.  Like cost_sort,
+		 * charge only operator cost not cpu_tuple_cost, since SetOp does no
+		 * qual-checking or projection.
+		 */
+		pathnode->path.total_cost += cpu_operator_cost * outputRows;
+	}
+	else
+	{
+		/*
+		 * In hashed mode, we must read all the input before we can emit
+		 * anything.  Also charge comparison costs to represent the cost of
+		 * hash table lookups.
+		 */
+		pathnode->path.startup_cost =
+			leftpath->total_cost + rightpath->total_cost +
+			cpu_operator_cost * (leftpath->rows + rightpath->rows) * list_length(groupList);
+		pathnode->path.total_cost = pathnode->path.startup_cost;
+
+		/*
+		 * Also charge a small amount per extracted tuple.  Like cost_sort,
+		 * charge only operator cost not cpu_tuple_cost, since SetOp does no
+		 * qual-checking or projection.
+		 */
+		pathnode->path.total_cost += cpu_operator_cost * outputRows;
+	}
 	pathnode->path.rows = outputRows;
 
 	return pathnode;

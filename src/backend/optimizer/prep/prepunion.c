@@ -63,10 +63,6 @@ static List *plan_union_children(PlannerInfo *root,
 								 List **tlist_list,
 								 List **istrivial_tlist);
 static void postprocess_setop_rel(PlannerInfo *root, RelOptInfo *rel);
-static bool choose_hashed_setop(PlannerInfo *root, List *groupClauses,
-								Path *lpath, Path *rpath,
-								double dNumGroups, double dNumOutputRows,
-								const char *construct);
 static List *generate_setop_tlist(List *colTypes, List *colCollations,
 								  Index varno,
 								  bool hack_constants,
@@ -1025,7 +1021,8 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 				dRightGroups,
 				dNumGroups,
 				dNumOutputRows;
-	bool		use_hash;
+	bool		can_sort;
+	bool		can_hash;
 	SetOpCmd	cmd;
 
 	/*
@@ -1130,15 +1127,76 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 		dNumGroups = dLeftGroups;
 		dNumOutputRows = op->all ? Min(lpath->rows, rpath->rows) : dNumGroups;
 	}
+	result_rel->rows = dNumOutputRows;
+
+	/* Select the SetOpCmd type */
+	switch (op->op)
+	{
+		case SETOP_INTERSECT:
+			cmd = op->all ? SETOPCMD_INTERSECT_ALL : SETOPCMD_INTERSECT;
+			break;
+		case SETOP_EXCEPT:
+			cmd = op->all ? SETOPCMD_EXCEPT_ALL : SETOPCMD_EXCEPT;
+			break;
+		default:
+			elog(ERROR, "unrecognized set op: %d", (int) op->op);
+			cmd = SETOPCMD_INTERSECT;	/* keep compiler quiet */
+			break;
+	}
+
+	/* Check whether the operators support sorting or hashing */
+	can_sort = grouping_is_sortable(groupList);
+	can_hash = grouping_is_hashable(groupList);
+	if (!can_sort && !can_hash)
+		ereport(ERROR,
+				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
+		/* translator: %s is INTERSECT or EXCEPT */
+				 errmsg("could not implement %s",
+						(op->op == SETOP_INTERSECT) ? "INTERSECT" : "EXCEPT"),
+				 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
 
 	/*
-	 * Decide whether to hash or sort, and add sort nodes if needed.
+	 * If we can hash, that just requires a SetOp atop the cheapest inputs.
 	 */
-	use_hash = choose_hashed_setop(root, groupList, lpath, rpath,
-								   dNumGroups, dNumOutputRows,
-								   (op->op == SETOP_INTERSECT) ? "INTERSECT" : "EXCEPT");
+	if (can_hash)
+	{
+		Size		hash_mem_limit = get_hash_memory_limit();
+		Size		hashentrysize;
 
-	if (groupList && !use_hash)
+		path = (Path *) create_setop_path(root,
+										  result_rel,
+										  lpath,
+										  rpath,
+										  cmd,
+										  SETOP_HASHED,
+										  groupList,
+										  dNumGroups,
+										  dNumOutputRows);
+
+		/*
+		 * Mark the path as disabled if enable_hashagg is off.  While this
+		 * isn't exactly a HashAgg node, it seems close enough to justify
+		 * letting that switch control it.
+		 */
+		if (!enable_hashagg)
+			path->disabled_nodes++;
+
+		/*
+		 * Also disable if it doesn't look like the hashtable will fit into
+		 * hash_mem.
+		 */
+		hashentrysize = MAXALIGN(lpath->pathtarget->width) +
+			MAXALIGN(SizeofMinimalTupleHeader);
+		if (hashentrysize * dNumGroups > hash_mem_limit)
+			path->disabled_nodes++;
+
+		add_path(result_rel, path);
+	}
+
+	/*
+	 * If we can sort, sort the inputs if needed before adding SetOp.
+	 */
+	if (can_sort)
 	{
 		List	   *pathkeys;
 
@@ -1160,36 +1218,19 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 											  rpath,
 											  pathkeys,
 											  -1.0);
+
+		path = (Path *) create_setop_path(root,
+										  result_rel,
+										  lpath,
+										  rpath,
+										  cmd,
+										  SETOP_SORTED,
+										  groupList,
+										  dNumGroups,
+										  dNumOutputRows);
+		add_path(result_rel, path);
 	}
 
-	/*
-	 * Finally, add a SetOp path node to generate the correct output.
-	 */
-	switch (op->op)
-	{
-		case SETOP_INTERSECT:
-			cmd = op->all ? SETOPCMD_INTERSECT_ALL : SETOPCMD_INTERSECT;
-			break;
-		case SETOP_EXCEPT:
-			cmd = op->all ? SETOPCMD_EXCEPT_ALL : SETOPCMD_EXCEPT;
-			break;
-		default:
-			elog(ERROR, "unrecognized set op: %d", (int) op->op);
-			cmd = SETOPCMD_INTERSECT;	/* keep compiler quiet */
-			break;
-	}
-	path = (Path *) create_setop_path(root,
-									  result_rel,
-									  lpath,
-									  rpath,
-									  cmd,
-									  use_hash ? SETOP_HASHED : SETOP_SORTED,
-									  groupList,
-									  dNumGroups,
-									  dNumOutputRows);
-
-	result_rel->rows = path->rows;
-	add_path(result_rel, path);
 	return result_rel;
 }
 
@@ -1274,115 +1315,6 @@ postprocess_setop_rel(PlannerInfo *root, RelOptInfo *rel)
 
 	/* Select cheapest path */
 	set_cheapest(rel);
-}
-
-/*
- * choose_hashed_setop - should we use hashing for a set operation?
- *
- * XXX probably this should go away: just make both paths and let
- * add_path sort it out.
- */
-static bool
-choose_hashed_setop(PlannerInfo *root, List *groupClauses,
-					Path *lpath, Path *rpath,
-					double dNumGroups, double dNumOutputRows,
-					const char *construct)
-{
-	int			numGroupCols = list_length(groupClauses);
-	Size		hash_mem_limit = get_hash_memory_limit();
-	bool		can_sort;
-	bool		can_hash;
-	Size		hashentrysize;
-	Path		hashed_p;
-	Path		sorted_p;
-	double		tuple_fraction;
-
-	/* Check whether the operators support sorting or hashing */
-	can_sort = grouping_is_sortable(groupClauses);
-	can_hash = grouping_is_hashable(groupClauses);
-	if (can_hash && can_sort)
-	{
-		/* we have a meaningful choice to make, continue ... */
-	}
-	else if (can_hash)
-		return true;
-	else if (can_sort)
-		return false;
-	else
-		ereport(ERROR,
-				(errcode(ERRCODE_FEATURE_NOT_SUPPORTED),
-		/* translator: %s is UNION, INTERSECT, or EXCEPT */
-				 errmsg("could not implement %s", construct),
-				 errdetail("Some of the datatypes only support hashing, while others only support sorting.")));
-
-	/* Prefer sorting when enable_hashagg is off */
-	if (!enable_hashagg)
-		return false;
-
-	/*
-	 * Don't do it if it doesn't look like the hashtable will fit into
-	 * hash_mem.
-	 */
-	hashentrysize = MAXALIGN(lpath->pathtarget->width) + MAXALIGN(SizeofMinimalTupleHeader);
-
-	if (hashentrysize * dNumGroups > hash_mem_limit)
-		return false;
-
-	/*
-	 * See if the estimated cost is no more than doing it the other way.
-	 *
-	 * We need to consider input_plan + hashagg versus input_plan + sort +
-	 * group. XXX NOT TRUE: Note that the actual result plan might involve a
-	 * SetOp or Unique node, not Agg or Group, but the cost estimates for Agg
-	 * and Group should be close enough for our purposes here.
-	 *
-	 * These path variables are dummies that just hold cost fields; we don't
-	 * make actual Paths for these steps.
-	 */
-	cost_agg(&hashed_p, root, AGG_HASHED, NULL,
-			 numGroupCols, dNumGroups,
-			 NIL,
-			 lpath->disabled_nodes + rpath->disabled_nodes,
-			 lpath->startup_cost + rpath->startup_cost,
-			 lpath->total_cost + rpath->total_cost,
-			 lpath->rows + rpath->rows,
-			 lpath->pathtarget->width);
-
-	/*
-	 * Now for the sorted case.  XXX NOT TRUE: Note that the input is *always*
-	 * unsorted, since it was made by appending unrelated sub-relations
-	 * together.
-	 */
-	sorted_p.disabled_nodes = lpath->disabled_nodes + rpath->disabled_nodes;
-	sorted_p.startup_cost = lpath->startup_cost + rpath->startup_cost;
-	sorted_p.total_cost = lpath->total_cost + rpath->total_cost;
-	/* XXX cost_sort doesn't actually look at pathkeys, so just pass NIL */
-	cost_sort(&sorted_p, root, NIL, sorted_p.disabled_nodes,
-			  sorted_p.total_cost,
-			  lpath->rows + rpath->rows,
-			  lpath->pathtarget->width,
-			  0.0, work_mem, -1.0);
-	cost_group(&sorted_p, root, numGroupCols, dNumGroups,
-			   NIL,
-			   sorted_p.disabled_nodes,
-			   sorted_p.startup_cost, sorted_p.total_cost,
-			   lpath->rows + rpath->rows);
-
-	/*
-	 * Now make the decision using the top-level tuple fraction.  First we
-	 * have to convert an absolute count (LIMIT) into fractional form.
-	 */
-	tuple_fraction = root->tuple_fraction;
-	if (tuple_fraction >= 1.0)
-		tuple_fraction /= dNumOutputRows;
-
-	if (compare_fractional_path_costs(&hashed_p, &sorted_p,
-									  tuple_fraction) < 0)
-	{
-		/* Hashed is cheaper, so use it */
-		return true;
-	}
-	return false;
 }
 
 /*
