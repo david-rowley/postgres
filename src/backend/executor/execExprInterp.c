@@ -154,6 +154,12 @@ static void ExecEvalRowNullInt(ExprState *state, ExprEvalStep *op,
 							   ExprContext *econtext, bool checkisnull);
 
 /* fast-path evaluation functions */
+static Datum ExecJustFetchAndHashInnerVarWithIV(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustFetchAndHashOuterVar(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustFetchAndHashInnerVar(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustHashInnerVar(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustFetchAndHashOuterVarStrict(ExprState *state, ExprContext *econtext, bool *isnull);
+static Datum ExecJustFetchAndHashInnerVarStrict(ExprState *state, ExprContext *econtext, bool *isnull);
 static Datum ExecJustInnerVar(ExprState *state, ExprContext *econtext, bool *isnull);
 static Datum ExecJustOuterVar(ExprState *state, ExprContext *econtext, bool *isnull);
 static Datum ExecJustScanVar(ExprState *state, ExprContext *econtext, bool *isnull);
@@ -273,7 +279,58 @@ ExecReadyInterpretedExpr(ExprState *state)
 	 * the full interpreter is a measurable overhead for these, and these
 	 * patterns occur often enough to be worth optimizing.
 	 */
-	if (state->steps_len == 3)
+	if (state->steps_len == 5)
+	{
+		ExprEvalOp	step0 = state->steps[0].opcode;
+		ExprEvalOp	step1 = state->steps[1].opcode;
+		ExprEvalOp	step2 = state->steps[2].opcode;
+		ExprEvalOp	step3 = state->steps[3].opcode;
+
+		if (step0 == EEOP_INNER_FETCHSOME &&
+			step1 == EEOP_HASHDATUM_SET_INITVAL &&
+			step2 == EEOP_INNER_VAR &&
+			step3 == EEOP_HASHDATUM_NEXT32)
+		{
+			state->evalfunc_private = (void *) ExecJustFetchAndHashInnerVarWithIV;
+			return;
+		}
+	}
+	else if (state->steps_len == 4)
+	{
+		ExprEvalOp	step0 = state->steps[0].opcode;
+		ExprEvalOp	step1 = state->steps[1].opcode;
+		ExprEvalOp	step2 = state->steps[2].opcode;
+
+		if (step0 == EEOP_OUTER_FETCHSOME &&
+			step1 == EEOP_OUTER_VAR &&
+			step2 == EEOP_HASHDATUM_FIRST)
+		{
+			state->evalfunc_private = (void *) ExecJustFetchAndHashOuterVar;
+			return;
+		}
+		else if (step0 == EEOP_INNER_FETCHSOME &&
+				 step1 == EEOP_INNER_VAR &&
+				 step2 == EEOP_HASHDATUM_FIRST)
+		{
+			state->evalfunc_private = (void *) ExecJustFetchAndHashInnerVar;
+			return;
+		}
+		else if (step0 == EEOP_OUTER_FETCHSOME &&
+				 step1 == EEOP_OUTER_VAR &&
+				 step2 == EEOP_HASHDATUM_FIRST_STRICT)
+		{
+			state->evalfunc_private = (void *) ExecJustFetchAndHashOuterVarStrict;
+			return;
+		}
+		else if (step0 == EEOP_INNER_FETCHSOME &&
+				 step1 == EEOP_INNER_VAR &&
+				 step2 == EEOP_HASHDATUM_FIRST_STRICT)
+		{
+			state->evalfunc_private = (void *) ExecJustFetchAndHashInnerVarStrict;
+			return;
+		}
+	}
+	else if (state->steps_len == 3)
 	{
 		ExprEvalOp	step0 = state->steps[0].opcode;
 		ExprEvalOp	step1 = state->steps[1].opcode;
@@ -319,6 +376,12 @@ ExecReadyInterpretedExpr(ExprState *state)
 				 state->steps[0].d.casetest.value)
 		{
 			state->evalfunc_private = (void *) ExecJustApplyFuncToCase;
+			return;
+		}
+		else if (step0 == EEOP_INNER_VAR &&
+				 step1 == EEOP_HASHDATUM_FIRST)
+		{
+			state->evalfunc_private = (void *) ExecJustHashInnerVar;
 			return;
 		}
 	}
@@ -2280,6 +2343,179 @@ ExecJustVarImpl(ExprState *state, TupleTableSlot *slot, bool *isnull)
 	 * --- slot_getattr() will take care of any problems.
 	 */
 	return slot_getattr(slot, attnum, isnull);
+}
+
+/*
+ * implementation for deforming and hashing an inner Var, seeding with an
+ * initial value.
+ */
+static Datum
+ExecJustFetchAndHashInnerVarWithIV(ExprState *state, ExprContext *econtext,
+								   bool *isnull)
+{
+	ExprEvalStep *fetchop = &state->steps[0];
+	ExprEvalStep *setivop = &state->steps[1];
+	ExprEvalStep *innervar = &state->steps[2];
+	ExprEvalStep *hashop = &state->steps[3];
+	FunctionCallInfo fcinfo = hashop->d.hashdatum.fcinfo_data;
+	int			attnum = innervar->d.var.attnum;
+	uint32		hashkey;
+
+	CheckOpSlotCompatibility(fetchop, econtext->ecxt_innertuple);
+	slot_getsomeattrs(econtext->ecxt_innertuple, fetchop->d.fetch.last_var);
+
+	fcinfo->args[0].value = econtext->ecxt_innertuple->tts_values[attnum];
+	fcinfo->args[0].isnull = econtext->ecxt_innertuple->tts_isnull[attnum];
+
+	hashkey = DatumGetUInt32(setivop->d.hashdatum_initvalue.init_value);
+	hashkey = pg_rotate_left32(hashkey, 1);
+
+	if (!fcinfo->args[0].isnull)
+	{
+		uint32		hashvalue;
+
+		hashvalue = DatumGetUInt32(hashop->d.hashdatum.fn_addr(fcinfo));
+		hashkey = hashkey ^ hashvalue;
+	}
+
+	*isnull = false;
+	return UInt32GetDatum(hashkey);
+}
+
+/* implementation for deforming and hashing an outer Var */
+static Datum
+ExecJustFetchAndHashOuterVar(ExprState *state, ExprContext *econtext,
+							 bool *isnull)
+{
+	ExprEvalStep *fetchop = &state->steps[0];
+	ExprEvalStep *innervar = &state->steps[1];
+	ExprEvalStep *hashop = &state->steps[2];
+	FunctionCallInfo fcinfo = hashop->d.hashdatum.fcinfo_data;
+	int			attnum = innervar->d.var.attnum;
+
+	CheckOpSlotCompatibility(fetchop, econtext->ecxt_outertuple);
+	slot_getsomeattrs(econtext->ecxt_outertuple, fetchop->d.fetch.last_var);
+
+	fcinfo->args[0].value = econtext->ecxt_outertuple->tts_values[attnum];
+	fcinfo->args[0].isnull = econtext->ecxt_outertuple->tts_isnull[attnum];
+
+	*isnull = false;
+
+	if (!fcinfo->args[0].isnull)
+		return DatumGetUInt32(hashop->d.hashdatum.fn_addr(fcinfo));
+	else
+		return (Datum) 0;
+}
+
+/* implementation for deforming and hashing an inner Var */
+static Datum
+ExecJustFetchAndHashInnerVar(ExprState *state, ExprContext *econtext,
+							 bool *isnull)
+{
+	ExprEvalStep *fetchop = &state->steps[0];
+	ExprEvalStep *innervar = &state->steps[1];
+	ExprEvalStep *hashop = &state->steps[2];
+	FunctionCallInfo fcinfo = hashop->d.hashdatum.fcinfo_data;
+	int			attnum = innervar->d.var.attnum;
+
+	CheckOpSlotCompatibility(fetchop, econtext->ecxt_innertuple);
+	slot_getsomeattrs(econtext->ecxt_innertuple, fetchop->d.fetch.last_var);
+
+	fcinfo->args[0].value = econtext->ecxt_innertuple->tts_values[attnum];
+	fcinfo->args[0].isnull = econtext->ecxt_innertuple->tts_isnull[attnum];
+
+	*isnull = false;
+
+	if (!fcinfo->args[0].isnull)
+		return DatumGetUInt32(hashop->d.hashdatum.fn_addr(fcinfo));
+	else
+		return (Datum) 0;
+}
+
+/* implementation for hashing an inner Var */
+static Datum
+ExecJustHashInnerVar(ExprState *state, ExprContext *econtext, bool *isnull)
+{
+	ExprEvalStep *innervar = &state->steps[0];
+	ExprEvalStep *hashop = &state->steps[1];
+	FunctionCallInfo fcinfo = hashop->d.hashdatum.fcinfo_data;
+	int			attnum = innervar->d.var.attnum;
+
+	fcinfo->args[0].value = econtext->ecxt_innertuple->tts_values[attnum];
+	fcinfo->args[0].isnull = econtext->ecxt_innertuple->tts_isnull[attnum];
+
+	*isnull = false;
+
+	if (!fcinfo->args[0].isnull)
+		return DatumGetUInt32(hashop->d.hashdatum.fn_addr(fcinfo));
+	else
+		return (Datum) 0;
+}
+
+/*
+ * implementation for deforming and hashing an outer Var.  Returns NULL on
+ * NULL input.
+ */
+static Datum
+ExecJustFetchAndHashOuterVarStrict(ExprState *state, ExprContext *econtext,
+								   bool *isnull)
+{
+	ExprEvalStep *fetchop = &state->steps[0];
+	ExprEvalStep *innervar = &state->steps[1];
+	ExprEvalStep *hashop = &state->steps[2];
+	FunctionCallInfo fcinfo = hashop->d.hashdatum.fcinfo_data;
+	int			attnum = innervar->d.var.attnum;
+
+	CheckOpSlotCompatibility(fetchop, econtext->ecxt_outertuple);
+	slot_getsomeattrs(econtext->ecxt_outertuple, fetchop->d.fetch.last_var);
+
+	fcinfo->args[0].value = econtext->ecxt_outertuple->tts_values[attnum];
+	fcinfo->args[0].isnull = econtext->ecxt_outertuple->tts_isnull[attnum];
+
+	if (!fcinfo->args[0].isnull)
+	{
+		*isnull = false;
+		return DatumGetUInt32(hashop->d.hashdatum.fn_addr(fcinfo));
+	}
+	else
+	{
+		/* return NULL on NULL input */
+		*isnull = true;
+		return (Datum) 0;
+	}
+}
+
+/*
+ * implementation for deforming and hashing an inner Var.  Returns NULL on
+ * NULL input.
+ */
+static Datum
+ExecJustFetchAndHashInnerVarStrict(ExprState *state, ExprContext *econtext,
+								   bool *isnull)
+{
+	ExprEvalStep *fetchop = &state->steps[0];
+	ExprEvalStep *innervar = &state->steps[1];
+	ExprEvalStep *hashop = &state->steps[2];
+	FunctionCallInfo fcinfo = hashop->d.hashdatum.fcinfo_data;
+	int			attnum = innervar->d.var.attnum;
+
+	CheckOpSlotCompatibility(fetchop, econtext->ecxt_innertuple);
+	slot_getsomeattrs(econtext->ecxt_innertuple, fetchop->d.fetch.last_var);
+
+	fcinfo->args[0].value = econtext->ecxt_innertuple->tts_values[attnum];
+	fcinfo->args[0].isnull = econtext->ecxt_innertuple->tts_isnull[attnum];
+
+	if (!fcinfo->args[0].isnull)
+	{
+		*isnull = false;
+		return DatumGetUInt32(hashop->d.hashdatum.fn_addr(fcinfo));
+	}
+	else
+	{
+		/* return NULL on NULL input */
+		*isnull = true;
+		return (Datum) 0;
+	}
 }
 
 /* Simple reference to inner Var */
