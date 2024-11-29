@@ -522,7 +522,7 @@ remove_useless_groupby_columns(PlannerInfo *root)
 			{
 				/*
 				 * We must insist that the index columns are all defined NOT
-				 * NULL otherwise duplicate NULLs could exists.  However, we
+				 * NULL otherwise duplicate NULLs could exist.  However, we
 				 * can relax this check when the index is defined with NULLS
 				 * NOT DISTINCT as there can only be 1 NULL row, therefore
 				 * functional dependency on the unique columns is maintained,
