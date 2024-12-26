@@ -194,6 +194,17 @@ fetch_att(const void *T, bool attbyval, int attlen)
 	)) \
 )
 
+/*
+ * att_addlength_pointer_byval, as att_addlength_pointer but for byval
+ * attribute types *only*.  It's not valid to use this macro for
+ * variable-width types.
+ */
+#define att_addlength_pointer_byval(cur_offset, attlen) \
+( \
+	AssertMacro((attlen) > 0), \
+	(cur_offset) + (attlen) \
+)
+
 #ifndef FRONTEND
 /*
  * store_att_byval is a partial inverse of fetch_att: store a given Datum

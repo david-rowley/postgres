@@ -996,11 +996,12 @@ tts_buffer_heap_store_tuple(TupleTableSlot *slot, HeapTuple tuple,
  * slot_deform_heap_tuple_internal
  *		An always inline helper function for use in slot_deform_heap_tuple to
  *		allow the compiler to emit specialized versions of this function for
- *		various combinations of "slow" and "hasnulls".  For example, if a
- *		given tuple has no nulls, then we needn't check "hasnulls" for every
- *		attribute that we're deforming.  The caller can just call this
- *		function with hasnulls set to constant-false and have the compiler
- *		remove the constant-false branches and emit more optimal code.
+ *		various combinations of "slow", "hasnulls" and "hasvarwidth".  For
+ *		example, if a given tuple has no nulls, then we needn't check
+ *		"hasnulls" for every attribute that we're deforming.  The caller can
+ *		just call this function with hasnulls set to constant-false and have
+ *		the compiler remove the constant-false branches and emit more optimal
+ *		code.
  *
  * Returns the next attnum to deform, which can be equal to natts when the
  * function manages to deform all requested attributes.  *offp is an input and
@@ -1010,6 +1011,11 @@ tts_buffer_heap_store_tuple(TupleTableSlot *slot, HeapTuple tuple,
  * of this tuple must use a version of this function with "slow" passed as
  * true.
  *
+ * Callers can pass "hasvarwidth" as true even if the tuple has no variable
+ * width columns, however, callers *must not* pass it as false if there are
+ * variable width columns.  The compiler can omit the attlen == -1 checks when
+ * it's known there are no variable-width columns.
+ *
  * Callers cannot assume when we return "attnum" (i.e. all requested
  * attributes have been deformed) that slow mode isn't required for any
  * additional deforming as the final attribute may have caused a switch to
@@ -1018,7 +1024,8 @@ tts_buffer_heap_store_tuple(TupleTableSlot *slot, HeapTuple tuple,
 static pg_attribute_always_inline int
 slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 								int attnum, int natts, bool slow,
-								bool hasnulls, uint32 *offp, bool *slowp)
+								bool hasnulls, bool hasvarwidth, uint32 *offp,
+								bool *slowp)
 {
 	TupleDesc	tupleDesc = slot->tts_tupleDescriptor;
 	Datum	   *values = slot->tts_values;
@@ -1052,7 +1059,7 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 		/* calculate the offset of this attribute */
 		if (!slow && thisatt->attcacheoff >= 0)
 			*offp = thisatt->attcacheoff;
-		else if (thisatt->attlen == -1)
+		else if (hasvarwidth && thisatt->attlen == -1)
 		{
 			/*
 			 * We can only cache the offset for a varlena attribute if the
@@ -1084,10 +1091,13 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 
 		values[attnum] = fetchatt(thisatt, tp + *offp);
 
-		*offp = att_addlength_pointer(*offp, thisatt->attlen, tp + *offp);
+		if (hasvarwidth)
+			*offp = att_addlength_pointer(*offp, thisatt->attlen, tp + *offp);
+		else
+			*offp = att_addlength_pointer_byval(*offp, thisatt->attlen);
 
 		/* check if we need to switch to slow mode */
-		if (!slow)
+		if (!slow && hasvarwidth)
 		{
 			/*
 			 * We're unable to deform any further if the above code set
@@ -1123,6 +1133,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 					   int natts)
 {
 	bool		hasnulls = HeapTupleHasNulls(tuple);
+	bool		hasvarwidth = HeapTupleHasVarWidth(tuple);
 	int			attnum;
 	uint32		off;			/* offset in tuple data */
 	bool		slow;			/* can we use/set attcacheoff? */
@@ -1163,35 +1174,68 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	{
 		/* Tuple without any NULLs? We can skip doing any NULL checking */
 		if (!hasnulls)
-			attnum = slot_deform_heap_tuple_internal(slot,
-													 tuple,
-													 attnum,
-													 natts,
-													 false, /* slow */
-													 false, /* hasnulls */
-													 &off,
-													 &slow);
+		{
+			if (!hasvarwidth)
+				attnum = slot_deform_heap_tuple_internal(slot,
+														 tuple,
+														 attnum,
+														 natts,
+														 false, /* slow */
+														 false, /* hasnulls */
+														 false, /* hasvarwidth */
+														 &off,
+														 &slow);
+
+			else
+				attnum = slot_deform_heap_tuple_internal(slot,
+														 tuple,
+														 attnum,
+														 natts,
+														 false, /* slow */
+														 false, /* hasnulls */
+														 true, /* hasvarwidth */
+														 &off,
+														 &slow);
+		}
 		else
-			attnum = slot_deform_heap_tuple_internal(slot,
-													 tuple,
-													 attnum,
-													 natts,
-													 false, /* slow */
-													 true,	/* hasnulls */
-													 &off,
-													 &slow);
+		{
+			if (!hasvarwidth)
+				attnum = slot_deform_heap_tuple_internal(slot,
+														 tuple,
+														 attnum,
+														 natts,
+														 false, /* slow */
+														 true,	/* hasnulls */
+														 false,	/* hasvarwidth */
+														 &off,
+														 &slow);
+			else
+				attnum = slot_deform_heap_tuple_internal(slot,
+														 tuple,
+														 attnum,
+														 natts,
+														 false, /* slow */
+														 true,	/* hasnulls */
+														 true, /* hasvarwidth */
+														 &off,
+														 &slow);
+		}
 	}
 
 	/* If there's still work to do then we must be in slow mode */
 	if (attnum < natts)
 	{
-		/* XXX is it worth adding a separate call when hasnulls is false? */
+		/*
+		 * Pass hasvarwidth as true so we don't have to inline another version
+		 * of the function.
+		 */
 		attnum = slot_deform_heap_tuple_internal(slot,
 												 tuple,
 												 attnum,
 												 natts,
 												 true,	/* slow */
 												 hasnulls,
+												 true, /* hasvarwidth */
 												 &off,
 												 &slow);
 	}
