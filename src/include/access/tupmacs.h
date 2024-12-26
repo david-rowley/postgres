@@ -43,6 +43,29 @@ att_isnull(int ATT, const bits8 *BITS)
  */
 #define fetchatt(A,T) fetch_att(T, (A)->attbyval, (A)->attlen)
 
+#ifndef WORDS_BIGENDIAN
+
+static const Datum fetch_mask[] = {
+#if SIZEOF_DATUM == 8
+		UINT64CONST(0x0),
+		UINT64CONST(0xFF),	/* attlen == 1 */
+		UINT64CONST(0xFFFF),	/* attlen == 2 */
+		UINT64CONST(0x0),	/* 3 is an invalid attlen */
+		UINT64CONST(0xFFFFFFFF), /* attlen == 4 */
+		UINT64CONST(0x0),		/* 5 is an invalid attlen */
+		UINT64CONST(0x0),		/* 6 is an invalid attlen */
+		UINT64CONST(0x0),		/* 7 is an invalid attlen */
+		UINT64CONST(0xFFFFFFFFFFFFFFFF) /* attlen == 8 */
+#else
+		0x0,
+		0xFF,		 /* attlen == 1 */
+		0xFFFF,	 /* attlen == 2 */
+		0x0,		 /* 3 is an invalid attlen */
+		0xFFFFFFFF, /* attlen == 4 */
+#endif
+};
+#endif
+
 /*
  * Same, but work from byval/len parameters rather than Form_pg_attribute.
  */
@@ -51,6 +74,14 @@ fetch_att(const void *T, bool attbyval, int attlen)
 {
 	if (attbyval)
 	{
+#ifndef WORDS_BIGENDIAN
+		/*
+		 * On little-endian machines, we cheat and just mask out the unneeded
+		 * bytes.  XXX this assumes it's always safe to access 8 bytes of T.
+		 * Is it?
+		 */
+		return *((const Datum *) T) & fetch_mask[attlen];
+#else
 		switch (attlen)
 		{
 			case sizeof(char):
@@ -65,6 +96,7 @@ fetch_att(const void *T, bool attbyval, int attlen)
 				elog(ERROR, "unsupported byval length: %d", attlen);
 				return 0;
 		}
+#endif
 	}
 	else
 		return PointerGetDatum(T);
