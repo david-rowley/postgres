@@ -383,6 +383,9 @@ ExecInitBitmapHeapScan(BitmapHeapScan *node, EState *estate, int eflags)
 						  RelationGetDescr(currentRelation),
 						  table_slot_callbacks(currentRelation));
 
+	scanstate->ss.ss_ScanTupleSlot->tts_flags |=
+		TTS_FLAG_OBEYS_NOT_NULL_CONSTRAINTS;
+
 	/*
 	 * Initialize result type and projection.
 	 */

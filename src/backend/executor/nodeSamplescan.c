@@ -130,6 +130,9 @@ ExecInitSampleScan(SampleScan *node, EState *estate, int eflags)
 						  RelationGetDescr(scanstate->ss.ss_currentRelation),
 						  table_slot_callbacks(scanstate->ss.ss_currentRelation));
 
+	scanstate->ss.ss_ScanTupleSlot->tts_flags |=
+		TTS_FLAG_OBEYS_NOT_NULL_CONSTRAINTS;
+
 	/*
 	 * Initialize result type and projection.
 	 */
