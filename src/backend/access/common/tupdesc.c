@@ -238,6 +238,9 @@ CreateTupleDesc(int natts, Form_pg_attribute *attrs)
 		memcpy(TupleDescAttr(desc, i), attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
 		populate_compact_attribute(desc, i);
 	}
+
+	TupleDescFinalize(desc);
+
 	return desc;
 }
 
@@ -281,6 +284,8 @@ CreateTupleDescCopy(TupleDesc tupdesc)
 	/* We can copy the tuple type identification, too */
 	desc->tdtypeid = tupdesc->tdtypeid;
 	desc->tdtypmod = tupdesc->tdtypmod;
+
+	TupleDescFinalize(desc);
 
 	return desc;
 }
@@ -327,6 +332,8 @@ CreateTupleDescTruncatedCopy(TupleDesc tupdesc, int natts)
 	/* We can copy the tuple type identification, too */
 	desc->tdtypeid = tupdesc->tdtypeid;
 	desc->tdtypmod = tupdesc->tdtypmod;
+
+	TupleDescFinalize(desc);
 
 	return desc;
 }
@@ -413,6 +420,8 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 	desc->tdtypeid = tupdesc->tdtypeid;
 	desc->tdtypmod = tupdesc->tdtypmod;
 
+	TupleDescFinalize(desc);
+
 	return desc;
 }
 
@@ -455,6 +464,8 @@ TupleDescCopy(TupleDesc dst, TupleDesc src)
 	 * source's refcount would be wrong in any case.)
 	 */
 	dst->tdrefcount = -1;
+
+	TupleDescFinalize(dst);
 }
 
 /*
@@ -463,6 +474,9 @@ TupleDescCopy(TupleDesc dst, TupleDesc src)
  *		descriptor to another.
  *
  * !!! Constraints and defaults are not copied !!!
+ *
+ * The caller must take care of calling TupleDescFinalize() on once all
+ * TupleDesc changes have been made.
  */
 void
 TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
@@ -493,6 +507,46 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 	dstAtt->attgenerated = '\0';
 
 	populate_compact_attribute(dst, dstAttno - 1);
+}
+
+/*
+ * TupleDescFinalize
+ *		Finalize the given TupleDesc.  This must be called after the
+ *		attributes arrays have been populated or adjusted by any code.
+ *
+ * Must be called after populate_compact_attribute()
+ */
+void
+TupleDescFinalize(TupleDesc tupdesc)
+{
+	int firstNonCachedOffAttr = -1;
+	int firstByRefAttr = tupdesc->natts;
+	int offp = 0;
+
+	for (int i = 0; i < tupdesc->natts; i++)
+	{
+		CompactAttribute *cattr = TupleDescCompactAttr(tupdesc, i);
+
+		if (!cattr->attbyval)
+			firstByRefAttr = Min(firstByRefAttr, i);
+
+		/*
+		 * We can't cache the offset for the first varlena attr as the
+		 * alignment for those depends on 1 vs 4 byte headers, however we
+		 * possibily could cache the first attlen == -2 attr.  Worthwhile?
+		 */
+		if (cattr->attlen <= 0)
+			break;
+
+		offp = att_nominal_alignby(offp, cattr->attalignby);
+		cattr->attcacheoff = offp;
+
+		offp += cattr->attlen;
+		firstNonCachedOffAttr = i + 1;
+	}
+
+	tupdesc->firstNonCachedOffAttr = firstNonCachedOffAttr;
+	tupdesc->firstByRefAttr = firstByRefAttr;
 }
 
 /*
@@ -1081,6 +1135,8 @@ BuildDescFromLists(const List *names, const List *types, const List *typmods, co
 		TupleDescInitEntry(desc, attnum, attname, atttypid, atttypmod, 0);
 		TupleDescInitEntryCollation(desc, attnum, attcollation);
 	}
+
+	TupleDescFinalize(desc);
 
 	return desc;
 }

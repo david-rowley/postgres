@@ -1045,6 +1045,7 @@ materializeQueryResult(FunctionCallInfo fcinfo,
 			TupleDescInitEntry(tupdesc, (AttrNumber) 1, "status",
 							   TEXTOID, -1, 0);
 			attinmeta = TupleDescGetAttInMetadata(tupdesc);
+			TupleDescFinalize(tupdesc);
 
 			oldcontext = MemoryContextSwitchTo(rsinfo->econtext->ecxt_per_query_memory);
 			tupstore = tuplestore_begin_heap(true, false, work_mem);
@@ -1534,6 +1535,7 @@ dblink_get_pkey(PG_FUNCTION_ARGS)
 		 * C strings
 		 */
 		attinmeta = TupleDescGetAttInMetadata(tupdesc);
+		TupleDescFinalize(tupdesc);
 		funcctx->attinmeta = attinmeta;
 
 		if ((results != NULL) && (indnkeyatts > 0))
