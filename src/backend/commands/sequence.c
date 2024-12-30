@@ -1810,6 +1810,7 @@ pg_get_sequence_data(PG_FUNCTION_ARGS)
 	TupleDescInitEntry(resultTupleDesc, (AttrNumber) 3, "page_lsn",
 					   LSNOID, -1, 0);
 	resultTupleDesc = BlessTupleDesc(resultTupleDesc);
+	TupleDescFinalize(resultTupleDesc);
 
 	init_sequence(relid, &elm, &seqrel);
 

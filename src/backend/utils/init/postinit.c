@@ -718,6 +718,7 @@ InitPostgres(const char *in_dbname, Oid dboid,
 	char		dbname[NAMEDATALEN];
 	int			nfree = 0;
 
+	/* pg_usleep(10000000); */
 	elog(DEBUG3, "InitPostgres");
 
 	/*
