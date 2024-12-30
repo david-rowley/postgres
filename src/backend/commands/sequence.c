@@ -1802,6 +1802,7 @@ pg_get_sequence_data(PG_FUNCTION_ARGS)
 	TupleDescInitEntry(resultTupleDesc, (AttrNumber) 2, "is_called",
 					   BOOLOID, -1, 0);
 	resultTupleDesc = BlessTupleDesc(resultTupleDesc);
+	TupleDescFinalize(resultTupleDesc);
 
 	init_sequence(relid, &elm, &seqrel);
 

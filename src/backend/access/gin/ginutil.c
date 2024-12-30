@@ -127,6 +127,7 @@ initGinState(GinState *state, Relation index)
 							   attr->attndims);
 			TupleDescInitEntryCollation(state->tupdesc[i], (AttrNumber) 2,
 										attr->attcollation);
+			TupleDescFinalize(state->tupdesc[i]);
 		}
 
 		/*
