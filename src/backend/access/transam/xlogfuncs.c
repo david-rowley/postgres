@@ -401,6 +401,7 @@ pg_walfile_name_offset(PG_FUNCTION_ARGS)
 					   INT4OID, -1, 0);
 
 	resultTupleDesc = BlessTupleDesc(resultTupleDesc);
+	TupleDescFinalize(resultTupleDesc);
 
 	/*
 	 * xlogfilename

@@ -418,6 +418,7 @@ GetPGVariableResultDesc(const char *name)
 		TupleDescInitEntry(tupdesc, (AttrNumber) 1, varname,
 						   TEXTOID, -1, 0);
 	}
+	TupleDescFinalize(tupdesc);
 	return tupdesc;
 }
 
@@ -439,6 +440,7 @@ ShowGUCConfigOption(const char *name, DestReceiver *dest)
 	tupdesc = CreateTemplateTupleDesc(1);
 	TupleDescInitBuiltinEntry(tupdesc, (AttrNumber) 1, varname,
 							  TEXTOID, -1, 0);
+	TupleDescFinalize(tupdesc);
 
 	/* prepare for projection of tuples */
 	tstate = begin_tup_output_tupdesc(dest, tupdesc, &TTSOpsVirtual);
@@ -473,6 +475,7 @@ ShowAllGUCConfig(DestReceiver *dest)
 							  TEXTOID, -1, 0);
 	TupleDescInitBuiltinEntry(tupdesc, (AttrNumber) 3, "description",
 							  TEXTOID, -1, 0);
+	TupleDescFinalize(tupdesc);
 
 	/* prepare for projection of tuples */
 	tstate = begin_tup_output_tupdesc(dest, tupdesc, &TTSOpsVirtual);
@@ -913,6 +916,8 @@ show_all_settings(PG_FUNCTION_ARGS)
 		 * C strings
 		 */
 		attinmeta = TupleDescGetAttInMetadata(tupdesc);
+		TupleDescFinalize(tupdesc);
+
 		funcctx->attinmeta = attinmeta;
 
 		/* collect the variables, in sorted order */

@@ -238,6 +238,9 @@ CreateTupleDesc(int natts, Form_pg_attribute *attrs)
 		memcpy(TupleDescAttr(desc, i), attrs[i], ATTRIBUTE_FIXED_PART_SIZE);
 		populate_compact_attribute(desc, i);
 	}
+
+	TupleDescFinalize(desc);
+
 	return desc;
 }
 
@@ -281,6 +284,8 @@ CreateTupleDescCopy(TupleDesc tupdesc)
 	/* We can copy the tuple type identification, too */
 	desc->tdtypeid = tupdesc->tdtypeid;
 	desc->tdtypmod = tupdesc->tdtypmod;
+
+	TupleDescFinalize(desc);
 
 	return desc;
 }
@@ -327,6 +332,8 @@ CreateTupleDescTruncatedCopy(TupleDesc tupdesc, int natts)
 	/* We can copy the tuple type identification, too */
 	desc->tdtypeid = tupdesc->tdtypeid;
 	desc->tdtypmod = tupdesc->tdtypmod;
+
+	TupleDescFinalize(desc);
 
 	return desc;
 }
@@ -413,6 +420,8 @@ CreateTupleDescCopyConstr(TupleDesc tupdesc)
 	desc->tdtypeid = tupdesc->tdtypeid;
 	desc->tdtypmod = tupdesc->tdtypmod;
 
+	TupleDescFinalize(desc);
+
 	return desc;
 }
 
@@ -455,6 +464,8 @@ TupleDescCopy(TupleDesc dst, TupleDesc src)
 	 * source's refcount would be wrong in any case.)
 	 */
 	dst->tdrefcount = -1;
+
+	TupleDescFinalize(dst);
 }
 
 /*
@@ -493,6 +504,49 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 	dstAtt->attgenerated = '\0';
 
 	populate_compact_attribute(dst, dstAttno - 1);
+
+	/* XXX move this to the caller? */
+	TupleDescFinalize(dst);
+}
+
+/*
+ * TupleDescFinalize
+ *		Finalize the given TupleDesc.  This must be called after the
+ *		attributes arrays have been populated or adjusted by any code.
+ *
+ * Must be called after populate_compact_attribute()
+ */
+void
+TupleDescFinalize(TupleDesc tupdesc)
+{
+	uint32 offp = 0;
+	int i;
+
+	tupdesc->firstvarlena = tupdesc->natts;
+
+	for (i = 0; i < tupdesc->natts; i++)
+	{
+		CompactAttribute *cattr = TupleDescCompactAttr(tupdesc, i);
+
+		cattr->attcacheoff = offp;
+
+		if (cattr->attlen <= 0)
+		{
+			tupdesc->firstvarlena = i;
+			break;
+		}
+
+		/* increment offset beyond this fixed-width attribute */
+		offp = att_addlength_pointer(offp, cattr->attlen, NULL);
+	}
+
+	/* Set attcacheoff to -1 for any trailing variable length attrs */
+	for (; i < tupdesc->natts; i++)
+	{
+		CompactAttribute *cattr = TupleDescCompactAttr(tupdesc, i);
+	
+		cattr->attcacheoff = -1;
+	}
 }
 
 /*
@@ -1081,6 +1135,8 @@ BuildDescFromLists(const List *names, const List *types, const List *typmods, co
 		TupleDescInitEntry(desc, attnum, attname, atttypid, atttypmod, 0);
 		TupleDescInitEntryCollation(desc, attnum, attcollation);
 	}
+
+	TupleDescFinalize(desc);
 
 	return desc;
 }

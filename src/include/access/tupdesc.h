@@ -131,6 +131,9 @@ typedef struct CompactAttribute
  * Any code making changes manually to and fields in the FormData_pg_attribute
  * array must subsequently call populate_compact_attribute() to flush the
  * changes out to the corresponding 'compact_attrs' element.
+ *
+ * Once a TupleDesc has been populated, before it is used for any purpose
+ * TupleDescFinalize() must be called on it.
  */
 typedef struct TupleDescData
 {
@@ -138,6 +141,9 @@ typedef struct TupleDescData
 	Oid			tdtypeid;		/* composite type ID for tuple type */
 	int32		tdtypmod;		/* typmod for tuple type */
 	int			tdrefcount;		/* reference count, or -1 if not counting */
+	int			firstvarlena;	/* index into compact_attrs array of the first
+								 * attlen <= 0 element.  Set to natts when
+								 * there's only fixed-width types */
 	TupleConstr *constr;		/* constraints, or NULL if none */
 	/* compact_attrs[N] is the compact metadata of Attribute Number N+1 */
 	CompactAttribute compact_attrs[FLEXIBLE_ARRAY_MEMBER];
@@ -204,6 +210,8 @@ extern void TupleDescCopy(TupleDesc dst, TupleDesc src);
 
 extern void TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 							   TupleDesc src, AttrNumber srcAttno);
+
+extern void TupleDescFinalize(TupleDesc tupdesc);
 
 extern void FreeTupleDesc(TupleDesc tupdesc);
 
