@@ -174,6 +174,7 @@ pg_buffercache_pages(PG_FUNCTION_ARGS)
 			TupleDescInitEntry(tupledesc, (AttrNumber) 9, "pinning_backends",
 							   INT4OID, -1, 0);
 
+		TupleDescFinalize(tupledesc);
 		fctx->tupdesc = BlessTupleDesc(tupledesc);
 
 		/* Allocate NBuffers worth of BufferCachePagesRec records. */

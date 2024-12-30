@@ -481,6 +481,8 @@ ConstructTupleDescriptor(Relation heapRelation,
 		populate_compact_attribute(indexTupDesc, i);
 	}
 
+	TupleDescFinalize(indexTupDesc);
+
 	pfree(amroutine);
 
 	return indexTupDesc;
