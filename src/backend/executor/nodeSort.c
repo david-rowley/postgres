@@ -21,9 +21,128 @@
 #include "miscadmin.h"
 #include "utils/tuplesort.h"
 
+static pg_noinline void
+sort_fetch_tuples(PlanState *pstate)
+{
+	SortState  *node = castNode(SortState, pstate);
+	EState	   *estate;
+	ScanDirection dir;
+	Tuplesortstate *tuplesortstate;
+	TupleTableSlot *slot;
+	Sort	   *plannode = (Sort *) node->ss.ps.plan;
+	PlanState  *outerNode;
+	TupleDesc	tupDesc;
+	int			tuplesortopts = TUPLESORT_NONE;
+
+	estate = node->ss.ps.state;
+	dir = estate->es_direction;
+	tuplesortstate = (Tuplesortstate *) node->tuplesortstate;
+
+
+	SO1_printf("ExecSort: %s\n", "sorting subplan");
+
+	/*
+	 * Want to scan subplan in the forward direction while creating the sorted
+	 * data.
+	 */
+	estate->es_direction = ForwardScanDirection;
+
+	/*
+	 * Initialize tuplesort module.
+	 */
+	SO1_printf("ExecSort: %s\n", "calling tuplesort_begin");
+
+	outerNode = outerPlanState(node);
+	tupDesc = ExecGetResultType(outerNode);
+
+	if (node->randomAccess)
+		tuplesortopts |= TUPLESORT_RANDOMACCESS;
+	if (node->bounded)
+		tuplesortopts |= TUPLESORT_ALLOWBOUNDED;
+
+	if (node->datumSort)
+		tuplesortstate =
+			tuplesort_begin_datum(TupleDescAttr(tupDesc, 0)->atttypid,
+								  plannode->sortOperators[0],
+								  plannode->collations[0],
+								  plannode->nullsFirst[0],
+								  work_mem,
+								  NULL,
+								  tuplesortopts);
+	else
+		tuplesortstate = tuplesort_begin_heap(tupDesc,
+											  plannode->numCols,
+											  plannode->sortColIdx,
+											  plannode->sortOperators,
+											  plannode->collations,
+											  plannode->nullsFirst,
+											  work_mem,
+											  NULL,
+											  tuplesortopts);
+	if (node->bounded)
+		tuplesort_set_bound(tuplesortstate, node->bound);
+	node->tuplesortstate = tuplesortstate;
+
+	/*
+	 * Scan the subplan and feed all the tuples to tuplesort using the
+	 * appropriate method based on the type of sort we're doing.
+	 */
+	if (node->datumSort)
+	{
+		for (;;)
+		{
+			slot = ExecProcNode(outerNode);
+
+			if (TupIsNull(slot))
+				break;
+			slot_getsomeattrs(slot, 1);
+			tuplesort_putdatum(tuplesortstate,
+							   slot->tts_values[0],
+							   slot->tts_isnull[0]);
+		}
+	}
+	else
+	{
+		for (;;)
+		{
+			slot = ExecProcNode(outerNode);
+
+			if (TupIsNull(slot))
+				break;
+			tuplesort_puttupleslot(tuplesortstate, slot);
+		}
+	}
+
+	/*
+	 * Complete the sort.
+	 */
+	tuplesort_performsort(tuplesortstate);
+
+	/*
+	 * restore to user specified direction
+	 */
+	estate->es_direction = dir;
+
+	/*
+	 * finally set the sorted flag to true
+	 */
+	node->sort_Done = true;
+	node->bounded_Done = node->bounded;
+	node->bound_Done = node->bound;
+	if (node->shared_info && node->am_worker)
+	{
+		TuplesortInstrumentation *si;
+
+		Assert(IsParallelWorker());
+		Assert(ParallelWorkerNumber <= node->shared_info->num_workers);
+		si = &node->shared_info->sinstrument[ParallelWorkerNumber];
+		tuplesort_get_stats(tuplesortstate, si);
+	}
+	SO1_printf("ExecSort: %s\n", "sorting done");
+}
 
 /* ----------------------------------------------------------------
- *		ExecSort
+ *		ExecSortImpl
  *
  *		Sorts tuples from the outer subtree of the node using tuplesort,
  *		which saves the results in a temporary file or memory. After the
@@ -39,6 +158,14 @@
  *		Datums only can be significantly faster than sorting tuples,
  *		especially when the Datums are of a pass-by-value type.
  *
+ *		To avoid additional run-time overheads of checking which of the above
+ *		we're performing, ExecSortImpl is made always inline and
+ *		ExecSortTuple() and ExecSortDatum() simply call this always inline
+ *		function passing "datum_sort" as a constant true or false to have the
+ *		compiler emit only the code relevent to which of the objects is being
+ *		sorted, and eliminate the redundant conditions and subsequent
+ *		branches.
+ *
  *		Conditions:
  *		  -- none.
  *
@@ -46,11 +173,10 @@
  *		  -- the outer child is prepared to return the first tuple.
  * ----------------------------------------------------------------
  */
-static TupleTableSlot *
-ExecSort(PlanState *pstate)
+static pg_attribute_always_inline TupleTableSlot *
+ExecSortImpl(PlanState *pstate, bool datum_sort)
 {
 	SortState  *node = castNode(SortState, pstate);
-	EState	   *estate;
 	ScanDirection dir;
 	Tuplesortstate *tuplesortstate;
 	TupleTableSlot *slot;
@@ -63,129 +189,20 @@ ExecSort(PlanState *pstate)
 	SO1_printf("ExecSort: %s\n",
 			   "entering routine");
 
-	estate = node->ss.ps.state;
-	dir = estate->es_direction;
-	tuplesortstate = (Tuplesortstate *) node->tuplesortstate;
-
 	/*
 	 * If first time through, read all tuples from outer plan and pass them to
 	 * tuplesort.c. Subsequent calls just fetch tuples from tuplesort.
 	 */
 
-	if (!node->sort_Done)
-	{
-		Sort	   *plannode = (Sort *) node->ss.ps.plan;
-		PlanState  *outerNode;
-		TupleDesc	tupDesc;
-		int			tuplesortopts = TUPLESORT_NONE;
-
-		SO1_printf("ExecSort: %s\n",
-				   "sorting subplan");
-
-		/*
-		 * Want to scan subplan in the forward direction while creating the
-		 * sorted data.
-		 */
-		estate->es_direction = ForwardScanDirection;
-
-		/*
-		 * Initialize tuplesort module.
-		 */
-		SO1_printf("ExecSort: %s\n",
-				   "calling tuplesort_begin");
-
-		outerNode = outerPlanState(node);
-		tupDesc = ExecGetResultType(outerNode);
-
-		if (node->randomAccess)
-			tuplesortopts |= TUPLESORT_RANDOMACCESS;
-		if (node->bounded)
-			tuplesortopts |= TUPLESORT_ALLOWBOUNDED;
-
-		if (node->datumSort)
-			tuplesortstate = tuplesort_begin_datum(TupleDescAttr(tupDesc, 0)->atttypid,
-												   plannode->sortOperators[0],
-												   plannode->collations[0],
-												   plannode->nullsFirst[0],
-												   work_mem,
-												   NULL,
-												   tuplesortopts);
-		else
-			tuplesortstate = tuplesort_begin_heap(tupDesc,
-												  plannode->numCols,
-												  plannode->sortColIdx,
-												  plannode->sortOperators,
-												  plannode->collations,
-												  plannode->nullsFirst,
-												  work_mem,
-												  NULL,
-												  tuplesortopts);
-		if (node->bounded)
-			tuplesort_set_bound(tuplesortstate, node->bound);
-		node->tuplesortstate = tuplesortstate;
-
-		/*
-		 * Scan the subplan and feed all the tuples to tuplesort using the
-		 * appropriate method based on the type of sort we're doing.
-		 */
-		if (node->datumSort)
-		{
-			for (;;)
-			{
-				slot = ExecProcNode(outerNode);
-
-				if (TupIsNull(slot))
-					break;
-				slot_getsomeattrs(slot, 1);
-				tuplesort_putdatum(tuplesortstate,
-								   slot->tts_values[0],
-								   slot->tts_isnull[0]);
-			}
-		}
-		else
-		{
-			for (;;)
-			{
-				slot = ExecProcNode(outerNode);
-
-				if (TupIsNull(slot))
-					break;
-				tuplesort_puttupleslot(tuplesortstate, slot);
-			}
-		}
-
-		/*
-		 * Complete the sort.
-		 */
-		tuplesort_performsort(tuplesortstate);
-
-		/*
-		 * restore to user specified direction
-		 */
-		estate->es_direction = dir;
-
-		/*
-		 * finally set the sorted flag to true
-		 */
-		node->sort_Done = true;
-		node->bounded_Done = node->bounded;
-		node->bound_Done = node->bound;
-		if (node->shared_info && node->am_worker)
-		{
-			TuplesortInstrumentation *si;
-
-			Assert(IsParallelWorker());
-			Assert(ParallelWorkerNumber <= node->shared_info->num_workers);
-			si = &node->shared_info->sinstrument[ParallelWorkerNumber];
-			tuplesort_get_stats(tuplesortstate, si);
-		}
-		SO1_printf("ExecSort: %s\n", "sorting done");
-	}
+	if (unlikely(!node->sort_Done))
+		sort_fetch_tuples(pstate);
 
 	SO1_printf("ExecSort: %s\n",
 			   "retrieving tuple from tuplesort");
 
 	slot = node->ss.ps.ps_ResultTupleSlot;
+	dir = node->ss.ps.state->es_direction;
+	tuplesortstate = (Tuplesortstate *) node->tuplesortstate;
 
 	/*
 	 * Fetch the next sorted item from the appropriate tuplesort function. For
@@ -194,7 +211,7 @@ ExecSort(PlanState *pstate)
 	 * For tuple sorts, tuplesort_gettupleslot manages the slot for us and
 	 * empties the slot when it runs out of tuples.
 	 */
-	if (node->datumSort)
+	if (datum_sort)
 	{
 		ExecClearTuple(slot);
 		if (tuplesort_getdatum(tuplesortstate, ScanDirectionIsForward(dir),
@@ -208,6 +225,30 @@ ExecSort(PlanState *pstate)
 									  false, slot, NULL);
 
 	return slot;
+}
+
+/* ----------------------------------------------------------------
+ *		ExecSortTuple
+ *
+ *		Inlined ExecSort function for sorting tuples
+ * ----------------------------------------------------------------
+ */
+static TupleTableSlot *
+ExecSortTuple(PlanState *pstate)
+{
+	return ExecSortImpl(pstate, false);
+}
+
+/* ----------------------------------------------------------------
+ *		ExecSortDatum
+ *
+ *		Inlined ExecSort function for sorting datums
+ * ----------------------------------------------------------------
+ */
+static TupleTableSlot *
+ExecSortDatum(PlanState *pstate)
+{
+	return ExecSortImpl(pstate, true);
 }
 
 /* ----------------------------------------------------------------
@@ -232,7 +273,6 @@ ExecInitSort(Sort *node, EState *estate, int eflags)
 	sortstate = makeNode(SortState);
 	sortstate->ss.ps.plan = (Plan *) node;
 	sortstate->ss.ps.state = estate;
-	sortstate->ss.ps.ExecProcNode = ExecSort;
 
 	/*
 	 * We must have random access to the sort output to do backward scan or
@@ -283,9 +323,15 @@ ExecInitSort(Sort *node, EState *estate, int eflags)
 	 * otherwise we perform a tuple sort.
 	 */
 	if (outerTupDesc->natts == 1)
+	{
+		sortstate->ss.ps.ExecProcNode = ExecSortDatum;
 		sortstate->datumSort = true;
+	}
 	else
+	{
+		sortstate->ss.ps.ExecProcNode = ExecSortTuple;
 		sortstate->datumSort = false;
+	}
 
 	SO1_printf("ExecInitSort: %s\n",
 			   "sort node initialized");
