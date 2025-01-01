@@ -36,8 +36,8 @@ static int64 compute_tuples_needed(LimitState *node);
  *		filtering on the stream of tuples returned by a subplan.
  * ----------------------------------------------------------------
  */
-static TupleTableSlot *			/* return: a tuple or NULL */
-ExecLimit(PlanState *pstate)
+static pg_attribute_always_inline TupleTableSlot *
+ExecLimitImpl(PlanState *pstate, LimitOption limitOption)
 {
 	LimitState *node = castNode(LimitState, pstate);
 	ExprContext *econtext = node->ps.ps_ExprContext;
@@ -107,7 +107,7 @@ ExecLimit(PlanState *pstate)
 				 * Tuple at limit is needed for comparison in subsequent
 				 * execution to detect ties.
 				 */
-				if (node->limitOption == LIMIT_OPTION_WITH_TIES &&
+				if (limitOption == LIMIT_OPTION_WITH_TIES &&
 					node->position - node->offset == node->count - 1)
 				{
 					ExecCopySlot(node->last_slot, slot);
@@ -153,7 +153,7 @@ ExecLimit(PlanState *pstate)
 				if (!node->noCount &&
 					node->position - node->offset >= node->count)
 				{
-					if (node->limitOption == LIMIT_OPTION_COUNT)
+					if (limitOption == LIMIT_OPTION_COUNT)
 					{
 						node->lstate = LIMIT_WINDOWEND;
 						return NULL;
@@ -181,7 +181,7 @@ ExecLimit(PlanState *pstate)
 					 * tuple, save it to be used in subsequent WINDOWEND_TIES
 					 * processing.
 					 */
-					if (node->limitOption == LIMIT_OPTION_WITH_TIES &&
+					if (limitOption == LIMIT_OPTION_WITH_TIES &&
 						node->position - node->offset == node->count - 1)
 					{
 						ExecCopySlot(node->last_slot, slot);
@@ -298,7 +298,7 @@ ExecLimit(PlanState *pstate)
 			 * previous tuple; there should be one!  Note previous tuple must
 			 * be in window.
 			 */
-			if (node->limitOption == LIMIT_OPTION_WITH_TIES)
+			if (limitOption == LIMIT_OPTION_WITH_TIES)
 			{
 				slot = ExecProcNode(outerPlan);
 				if (TupIsNull(slot))
@@ -345,10 +345,29 @@ ExecLimit(PlanState *pstate)
 }
 
 /*
+ * Specialized implementation a limitOption of LIMIT_OPTION_COUNT
+ */
+static TupleTableSlot *
+ExecLimitCount(PlanState *pstate)
+{
+	return ExecLimitImpl(pstate, LIMIT_OPTION_COUNT);
+}
+
+/*
+ * Specialized implementation a limitOption of LIMIT_OPTION_WITH_TIES
+ */
+static TupleTableSlot *
+ExecLimitWithTies(PlanState *pstate)
+{
+	return ExecLimitImpl(pstate, LIMIT_OPTION_WITH_TIES);
+}
+
+/*
  * Evaluate the limit/offset expressions --- done at startup or rescan.
  *
  * This is also a handy place to reset the current-position state info.
  */
+pg_attribute_cold
 static void
 recompute_limits(LimitState *node)
 {
@@ -458,7 +477,6 @@ ExecInitLimit(Limit *node, EState *estate, int eflags)
 	limitstate = makeNode(LimitState);
 	limitstate->ps.plan = (Plan *) node;
 	limitstate->ps.state = estate;
-	limitstate->ps.ExecProcNode = ExecLimit;
 
 	limitstate->lstate = LIMIT_INITIAL;
 
@@ -518,7 +536,11 @@ ExecInitLimit(Limit *node, EState *estate, int eflags)
 														node->uniqOperators,
 														node->uniqCollations,
 														&limitstate->ps);
+		limitstate->ps.ExecProcNode = ExecLimitWithTies;
 	}
+	else
+		limitstate->ps.ExecProcNode = ExecLimitCount;
+
 
 	return limitstate;
 }
