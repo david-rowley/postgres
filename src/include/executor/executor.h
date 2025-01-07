@@ -708,12 +708,13 @@ extern ResultRelInfo *ExecLookupResultRelByOid(ModifyTableState *node,
 static pg_attribute_always_inline TupleTableSlot *
 ExecScanFetch(ScanState *node,
 			  EPQState *epqstate,
+			  bool hasEPQstate,
 			  ExecScanAccessMtd accessMtd,
 			  ExecScanRecheckMtd recheckMtd)
 {
 	CHECK_FOR_INTERRUPTS();
 
-	if (epqstate != NULL)
+	if (hasEPQstate)
 	{
 		/*
 		 * We are inside an EvalPlanQual recheck.  Return the test tuple if
@@ -815,6 +816,8 @@ ExecScanFetch(ScanState *node,
  *		arbitrary tuple of the relation against any qual conditions
  *		that are implemented internal to the access method.
  *
+ *		The caller must pass in the EState's es_epq_active if it's non-NULL.
+
  *		When a non-NULL 'projInfo' is given, qualifying tuples are projected
  *		using this.
  *
@@ -822,6 +825,15 @@ ExecScanFetch(ScanState *node,
  *		callers don't have a 'qual' or don't have a 'projInfo'.  The inlining
  *		allows the compiler to eliminate the non-relevant branches, which
  *		can save having to do run-time checks on every tuple.
+ *
+ *		The 'hasEPQstate', 'hasQual' and 'hasProjInfo' boolean arguments must
+ *		be set according to if the other corresponding parameter is NULL or
+ *		not.  This isn't ideal, but it can help the compiler eliminate
+ *		redundant code, as otherwise, the compiler would only be able to
+ *		eliminate redundant branches when 'eqpstate', 'qual' or 'projInfo' are
+ *		passed as constant NULLs.  When the calling code passes a non-null
+ *		using these boolean parameters, the compiler is given the flexibility
+ *		to eliminate the NULL handling branch.
  *
  *		Conditions:
  *		  -- the "cursor" maintained by the AMI is positioned at the tuple
@@ -838,9 +850,16 @@ ExecScanExtended(ScanState *node,
 				 ExecScanRecheckMtd recheckMtd,
 				 EPQState *epqstate,
 				 ExprState *qual,
-				 ProjectionInfo *projInfo)
+				 ProjectionInfo *projInfo,
+				 bool hasEPQstate,
+				 bool hasQual,
+				 bool hasProjInfo)
 {
 	ExprContext *econtext = node->ps.ps_ExprContext;
+
+	Assert(hasEPQstate == (epqstate != NULL));
+	Assert(hasQual == (qual != NULL));
+	Assert(hasProjInfo == (projInfo != NULL));
 
 	/* interrupt checks are in ExecScanFetch */
 
@@ -848,10 +867,10 @@ ExecScanExtended(ScanState *node,
 	 * If we have neither a qual to check nor a projection to do, just skip
 	 * all the overhead and return the raw scan tuple.
 	 */
-	if (!qual && !projInfo)
+	if (!hasQual && !hasProjInfo)
 	{
 		ResetExprContext(econtext);
-		return ExecScanFetch(node, epqstate, accessMtd, recheckMtd);
+		return ExecScanFetch(node, epqstate, hasEPQstate, accessMtd, recheckMtd);
 	}
 
 	/*
@@ -868,7 +887,7 @@ ExecScanExtended(ScanState *node,
 	{
 		TupleTableSlot *slot;
 
-		slot = ExecScanFetch(node, epqstate, accessMtd, recheckMtd);
+		slot = ExecScanFetch(node, epqstate, hasEPQstate, accessMtd, recheckMtd);
 
 		/*
 		 * if the slot returned by the accessMtd contains NULL, then it means
@@ -878,7 +897,7 @@ ExecScanExtended(ScanState *node,
 		 */
 		if (TupIsNull(slot))
 		{
-			if (projInfo)
+			if (hasProjInfo)
 				return ExecClearTuple(projInfo->pi_state.resultslot);
 			else
 				return slot;
@@ -896,12 +915,12 @@ ExecScanExtended(ScanState *node,
 		 * when the qual is null ... saves only a few cycles, but they add up
 		 * ...
 		 */
-		if (qual == NULL || ExecQual(qual, econtext))
+		if (!hasQual || ExecQual(qual, econtext))
 		{
 			/*
 			 * Found a satisfactory scan tuple.
 			 */
-			if (projInfo)
+			if (hasProjInfo)
 			{
 				/*
 				 * Form a projection tuple, store it in the result tuple slot
@@ -967,7 +986,10 @@ ExecScan(ScanState *node,
 							recheckMtd,
 							epqstate,
 							qual,
-							projInfo);
+							projInfo,
+							epqstate != NULL,
+							qual != NULL,
+							projInfo != NULL);
 }
 
 #endif							/* EXECUTOR_H  */

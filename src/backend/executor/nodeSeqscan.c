@@ -119,7 +119,10 @@ ExecSeqScan(PlanState *pstate)
 							(ExecScanRecheckMtd) SeqRecheck,
 							NULL,
 							NULL,
-							NULL);
+							NULL,
+							false,
+							false,
+							false);
 }
 
 /*
@@ -139,7 +142,10 @@ ExecSeqScanWithQual(PlanState *pstate)
 							(ExecScanRecheckMtd) SeqRecheck,
 							NULL,
 							pstate->qual,
-							NULL);
+							NULL,
+							false,
+							true,
+							false);
 }
 
 /*
@@ -159,7 +165,10 @@ ExecSeqScanProject(PlanState *pstate)
 							(ExecScanRecheckMtd) SeqRecheck,
 							NULL,
 							NULL,
-							pstate->ps_ProjInfo);
+							pstate->ps_ProjInfo,
+							false,
+							false,
+							true);
 }
 
 /*
@@ -180,7 +189,10 @@ ExecSeqScanWithQualProject(PlanState *pstate)
 							(ExecScanRecheckMtd) SeqRecheck,
 							NULL,
 							pstate->qual,
-							pstate->ps_ProjInfo);
+							pstate->ps_ProjInfo,
+							false,
+							true,
+							true);
 }
 
 /*
