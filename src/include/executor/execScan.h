@@ -18,25 +18,17 @@
 #include "nodes/execnodes.h"
 
 /*
- * ExecScanFetch -- check interrupts & fetch next potential tuple
+ * ExecScanGetEPQTuple -- substitutes a test tuple for EvalPlanQual recheck.
  *
- * This routine substitutes a test tuple if inside an EvalPlanQual recheck.
- * Otherwise, it simply executes the access method's next-tuple routine.
- *
- * The pg_attribute_always_inline attribute allows the compiler to inline
- * this function into its caller. When EPQState is NULL, the EvalPlanQual
- * logic is completely eliminated at compile time, avoiding unnecessary
- * run-time checks and code for cases where EPQ is not required.
+ * Must only be called if the Scan is running under EvalPlanQual().
  */
 static pg_attribute_always_inline TupleTableSlot *
-ExecScanFetch(ScanState *node,
-			  EPQState *epqstate,
-			  ExecScanAccessMtd accessMtd,
-			  ExecScanRecheckMtd recheckMtd)
+ExecScanGetEPQTuple(ScanState *node,
+					EPQState *epqstate,
+					ExecScanRecheckMtd recheckMtd)
 {
-	CHECK_FOR_INTERRUPTS();
+	Assert(epqstate != NULL);
 
-	if (epqstate != NULL)
 	{
 		/*
 		 * We are inside an EvalPlanQual recheck.  Return the test tuple if
@@ -120,10 +112,224 @@ ExecScanFetch(ScanState *node,
 		}
 	}
 
+	Assert(false);
+	return NULL;
+}
+
+/*
+ * Fetches tuples using the access method callback until one is found that
+ * safisfies the 'qual'.
+ */
+static pg_attribute_always_inline TupleTableSlot *
+ExecScanWithQualNoProj(ScanState *node,
+					   ExecScanAccessMtd accessMtd,	/* function returning a tuple */
+					   ExecScanRecheckMtd recheckMtd,
+					   EPQState *epqstate,
+					   ExprState *qual)
+{
+	ExprContext *econtext = node->ps.ps_ExprContext;
+
+	Assert(qual != NULL);
+
 	/*
-	 * Run the node-type-specific access method function to get the next tuple
+	 * Reset per-tuple memory context to free any expression evaluation
+	 * storage allocated in the previous tuple cycle.
 	 */
-	return (*accessMtd) (node);
+	ResetExprContext(econtext);
+
+	/*
+	 * get a tuple from the access method.  Loop until we obtain a tuple that
+	 * passes the qualification.
+	 */
+	for (;;)
+	{
+		TupleTableSlot *slot;
+
+		CHECK_FOR_INTERRUPTS();
+
+		/* interrupt checks are in ExecScanFetch() when it's used */
+		if (epqstate == NULL)
+		{
+			slot = (*accessMtd) (node);
+		}
+		else
+			slot = ExecScanGetEPQTuple(node, epqstate, recheckMtd);
+
+		/*
+		 * if the slot returned by the accessMtd contains NULL, then it means
+		 * there is nothing more to scan so we just return an empty slot,
+		 * being careful to use the projection result slot so it has correct
+		 * tupleDesc.
+		 */
+		if (TupIsNull(slot))
+			return slot;
+
+		/*
+		 * place the current tuple into the expr context
+		 */
+		econtext->ecxt_scantuple = slot;
+
+		/*
+		 * check that the current tuple satisfies the qual-clause
+		 *
+		 * check for non-null qual here to avoid a function call to ExecQual()
+		 * when the qual is null ... saves only a few cycles, but they add up
+		 * ...
+		 */
+		if (ExecQual(qual, econtext))
+		{
+			/*
+			 * Found a satisfactory scan tuple.
+			 *
+			 * Here, we aren't projecting, so just return scan tuple.
+			 */
+			return slot;
+		}
+		else
+			InstrCountFiltered1(node, 1);
+
+		/*
+		 * Tuple fails qual, so free per-tuple memory and try again.
+		 */
+		ResetExprContext(econtext);
+	}
+}
+
+/*
+ * Fetches the next tuple using the access method callback and returns the
+ * tuple obtained by projecting using the 'projInfo'.
+ */
+static pg_attribute_always_inline TupleTableSlot *
+ExecScanWithProjNoQual(ScanState *node,
+					   ExecScanAccessMtd accessMtd,	/* function returning a tuple */
+					   ExecScanRecheckMtd recheckMtd,
+					   EPQState *epqstate,
+					   ProjectionInfo *projInfo)
+{
+	ExprContext *econtext = node->ps.ps_ExprContext;
+	TupleTableSlot *slot;
+
+	Assert(projInfo != NULL);
+
+	CHECK_FOR_INTERRUPTS();
+
+	/*
+	 * Reset per-tuple memory context to free any expression evaluation
+	 * storage allocated in the previous tuple cycle.
+	 */
+	ResetExprContext(econtext);
+
+
+	/* interrupt checks are in ExecScanFetch() when it's used */
+	if (epqstate == NULL)
+	{
+		slot = (*accessMtd) (node);
+	}
+	else
+		slot = ExecScanGetEPQTuple(node, epqstate, recheckMtd);
+
+	/*
+	 * if the slot returned by the accessMtd contains NULL, then it means
+	 * there is nothing more to scan so we just return an empty slot,
+	 * being careful to use the projection result slot so it has correct
+	 * tupleDesc.
+	 */
+	if (TupIsNull(slot))
+		return ExecClearTuple(projInfo->pi_state.resultslot);
+
+	/*
+	 * place the current tuple into the expr context
+	 */
+	econtext->ecxt_scantuple = slot;
+
+	/*
+	 * Form a projection tuple, store it in the result tuple slot
+	 * and return it.
+	 */
+	return ExecProject(projInfo);
+}
+
+/*
+ * Fetches tuples using the access method callback until one is found that
+ * safisfies the 'qual' and returns the tuple obtained by projecting using the
+ * 'projInfo'.
+ */
+static pg_attribute_always_inline TupleTableSlot *
+ExecScanWithQualAndProj(ScanState *node,
+						 ExecScanAccessMtd accessMtd,	/* function returning a tuple */
+						 ExecScanRecheckMtd recheckMtd,
+						 EPQState *epqstate,
+						 ExprState *qual,
+						 ProjectionInfo *projInfo)
+{
+	ExprContext *econtext = node->ps.ps_ExprContext;
+
+	Assert(qual != NULL);
+	Assert(projInfo != NULL);
+
+	/*
+	 * Reset per-tuple memory context to free any expression evaluation
+	 * storage allocated in the previous tuple cycle.
+	 */
+	ResetExprContext(econtext);
+
+	/*
+	 * get a tuple from the access method.  Loop until we obtain a tuple that
+	 * passes the qualification.
+	 */
+	for (;;)
+	{
+		TupleTableSlot *slot;
+
+		CHECK_FOR_INTERRUPTS();
+
+		/* interrupt checks are in ExecScanFetch() when it's used */
+		if (epqstate == NULL)
+		{
+			slot = (*accessMtd) (node);
+		}
+		else
+			slot = ExecScanGetEPQTuple(node, epqstate, recheckMtd);
+
+		/*
+		 * if the slot returned by the accessMtd contains NULL, then it means
+		 * there is nothing more to scan so we just return an empty slot,
+		 * being careful to use the projection result slot so it has correct
+		 * tupleDesc.
+		 */
+		if (TupIsNull(slot))
+			return ExecClearTuple(projInfo->pi_state.resultslot);
+
+		/*
+		 * place the current tuple into the expr context
+		 */
+		econtext->ecxt_scantuple = slot;
+
+		/*
+		 * check that the current tuple satisfies the qual-clause
+		 *
+		 * check for non-null qual here to avoid a function call to ExecQual()
+		 * when the qual is null ... saves only a few cycles, but they add up
+		 * ...
+		 */
+		if (ExecQual(qual, econtext))
+		{
+			/*
+			 * Found a satisfactory scan tuple.
+			 *
+			 * Form a projection tuple, store it in the result tuple slot
+			 * and return it.
+			 */
+			return ExecProject(projInfo);
+		}
+		else
+			InstrCountFiltered1(node, 1);
+
+		/*
+		 * Tuple fails qual, so free per-tuple memory and try again.
+		 */
+		ResetExprContext(econtext);
+	}
 }
 
 /* ----------------------------------------------------------------
@@ -157,91 +363,28 @@ ExecScanExtended(ScanState *node,
 				 ExprState *qual,
 				 ProjectionInfo *projInfo)
 {
-	ExprContext *econtext = node->ps.ps_ExprContext;
-
-	/* interrupt checks are in ExecScanFetch */
-
+	if (qual != NULL && projInfo != NULL)
+		return ExecScanWithQualAndProj(node, accessMtd, recheckMtd, epqstate, qual, projInfo);
+	else if (qual != NULL)
+		return ExecScanWithQualNoProj(node, accessMtd, recheckMtd, epqstate, qual);
+	else if (projInfo != NULL)
+		return ExecScanWithProjNoQual(node, accessMtd, recheckMtd, epqstate, projInfo);
 	/*
 	 * If we have neither a qual to check nor a projection to do, just skip
 	 * all the overhead and return the raw scan tuple.
 	 */
-	if (!qual && !projInfo)
+	else
 	{
-		ResetExprContext(econtext);
-		return ExecScanFetch(node, epqstate, accessMtd, recheckMtd);
-	}
-
-	/*
-	 * Reset per-tuple memory context to free any expression evaluation
-	 * storage allocated in the previous tuple cycle.
-	 */
-	ResetExprContext(econtext);
-
-	/*
-	 * get a tuple from the access method.  Loop until we obtain a tuple that
-	 * passes the qualification.
-	 */
-	for (;;)
-	{
-		TupleTableSlot *slot;
-
-		slot = ExecScanFetch(node, epqstate, accessMtd, recheckMtd);
-
-		/*
-		 * if the slot returned by the accessMtd contains NULL, then it means
-		 * there is nothing more to scan so we just return an empty slot,
-		 * being careful to use the projection result slot so it has correct
-		 * tupleDesc.
-		 */
-		if (TupIsNull(slot))
-		{
-			if (projInfo)
-				return ExecClearTuple(projInfo->pi_state.resultslot);
-			else
-				return slot;
-		}
-
-		/*
-		 * place the current tuple into the expr context
-		 */
-		econtext->ecxt_scantuple = slot;
-
-		/*
-		 * check that the current tuple satisfies the qual-clause
-		 *
-		 * check for non-null qual here to avoid a function call to ExecQual()
-		 * when the qual is null ... saves only a few cycles, but they add up
-		 * ...
-		 */
-		if (qual == NULL || ExecQual(qual, econtext))
-		{
-			/*
-			 * Found a satisfactory scan tuple.
-			 */
-			if (projInfo)
-			{
-				/*
-				 * Form a projection tuple, store it in the result tuple slot
-				 * and return it.
-				 */
-				return ExecProject(projInfo);
-			}
-			else
-			{
-				/*
-				 * Here, we aren't projecting, so just return scan tuple.
-				 */
-				return slot;
-			}
-		}
+		CHECK_FOR_INTERRUPTS();
+		ResetExprContext(node->ps.ps_ExprContext);
+		if (epqstate == NULL)
+			return (*accessMtd) (node);
 		else
-			InstrCountFiltered1(node, 1);
-
-		/*
-		 * Tuple fails qual, so free per-tuple memory and try again.
-		 */
-		ResetExprContext(econtext);
+			return ExecScanGetEPQTuple(node, epqstate, recheckMtd);
 	}
+
+	Assert(false);
+	return NULL;
 }
 
 #endif							/* EXECASYNC_H */
