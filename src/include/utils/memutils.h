@@ -93,6 +93,16 @@ extern void MemoryContextStatsDetail(MemoryContext context,
 extern void MemoryContextAllowInCriticalSection(MemoryContext context,
 												bool allow);
 
+/*
+ * Find the memory allocated to blocks for this memory context without
+ * considering the memory allocated by any child context.
+ */
+static inline Size
+MemoryContextMemAllocatedOnly(MemoryContext context)
+{
+	return context->mem_allocated;
+}
+
 #ifdef MEMORY_CONTEXT_CHECKING
 extern void MemoryContextCheck(MemoryContext context);
 #endif

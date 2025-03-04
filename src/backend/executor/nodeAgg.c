@@ -1875,14 +1875,11 @@ static void
 hash_agg_check_limits(AggState *aggstate)
 {
 	uint64		ngroups = aggstate->hash_ngroups_current;
-	Size		meta_mem = MemoryContextMemAllocated(aggstate->hash_metacxt,
-													 true);
-	Size		entry_mem = MemoryContextMemAllocated(aggstate->hash_tablecxt,
-													  true);
-	Size		tval_mem = MemoryContextMemAllocated(aggstate->hashcontext->ecxt_per_tuple_memory,
-													 true);
-	Size		total_mem = meta_mem + entry_mem + tval_mem;
 	bool		do_spill = false;
+
+	if (ngroups == 0)
+		return;
+
 
 #ifdef USE_INJECTION_POINTS
 	if (ngroups >= 1000)
@@ -1896,12 +1893,25 @@ hash_agg_check_limits(AggState *aggstate)
 #endif
 
 	/*
+	 * We don't expect any of the following two MemoryContexts to have child
+	 * contexts.  If this changes then we'll need to perform a recursive call
+	 * below rather than the simple context only check.
+	 */
+	Assert(aggstate->hash_tablecxt->firstchild == NULL);
+	Assert(aggstate->hashcontext->ecxt_per_tuple_memory->firstchild == NULL);
+
+	/*
 	 * Don't spill unless there's at least one group in the hash table so we
 	 * can be sure to make progress even in edge cases.
 	 */
-	if (aggstate->hash_ngroups_current > 0 &&
-		(total_mem > aggstate->hash_mem_limit ||
-		 ngroups > aggstate->hash_ngroups_limit))
+	if (ngroups > aggstate->hash_ngroups_limit)
+	{
+		do_spill = true;
+	}
+	else if (MemoryContextMemAllocated(aggstate->hash_metacxt, true) +
+			 MemoryContextMemAllocatedOnly(aggstate->hash_tablecxt) +
+			 MemoryContextMemAllocatedOnly(aggstate->hashcontext->ecxt_per_tuple_memory) >
+			 aggstate->hash_mem_limit)
 	{
 		do_spill = true;
 	}
