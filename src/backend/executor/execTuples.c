@@ -1015,9 +1015,9 @@ tts_buffer_heap_store_tuple(TupleTableSlot *slot, HeapTuple tuple,
  * additional deforming as the final attribute may have caused a switch to
  * slow mode.
  */
-static pg_attribute_always_inline int
+static pg_attribute_always_inline CompactAttribute *
 slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
-								int attnum, int natts, bool slow,
+								CompactAttribute *thisatt, CompactAttribute *endatt, bool slow,
 								bool hasnulls, uint32 *offp, bool *slowp)
 {
 	TupleDesc	tupleDesc = slot->tts_tupleDescriptor;
@@ -1030,9 +1030,10 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 
 	tp = (char *) tup + tup->t_hoff;
 
-	for (; attnum < natts; attnum++)
+	for (; thisatt < endatt; thisatt++)
 	{
-		CompactAttribute *thisatt = TupleDescCompactAttr(tupleDesc, attnum);
+		//CompactAttribute *thisatt = TupleDescCompactAttr(tupleDesc, attnum);
+		int attnum = thisatt - tupleDesc->compact_attrs;
 
 		if (hasnulls && att_isnull(attnum, bp))
 		{
@@ -1041,7 +1042,7 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 			if (!slow)
 			{
 				*slowp = true;
-				return attnum + 1;
+				return thisatt + 1;
 			}
 			else
 				continue;
@@ -1096,12 +1097,12 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 			if (slownext || thisatt->attlen <= 0)
 			{
 				*slowp = true;
-				return attnum + 1;
+				return thisatt + 1;
 			}
 		}
 	}
 
-	return natts;
+	return endatt;
 }
 
 /*
@@ -1126,6 +1127,8 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	int			attnum;
 	uint32		off;			/* offset in tuple data */
 	bool		slow;			/* can we use/set attcacheoff? */
+	CompactAttribute *thisatt, *endatt;
+	TupleDesc tupleDesc = slot->tts_tupleDescriptor;
 
 	/* We can only fetch as many attributes as the tuple has. */
 	natts = Min(HeapTupleHeaderGetNatts(tuple->t_data), natts);
@@ -1148,6 +1151,9 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 		slow = TTS_SLOW(slot);
 	}
 
+	thisatt = TupleDescCompactAttr(tupleDesc, attnum);
+	endatt = TupleDescCompactAttr(tupleDesc, natts);
+
 	/*
 	 * If 'slow' isn't set, try deforming using deforming code that does not
 	 * contain any of the extra checks required for non-fixed offset
@@ -1163,19 +1169,19 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	{
 		/* Tuple without any NULLs? We can skip doing any NULL checking */
 		if (!hasnulls)
-			attnum = slot_deform_heap_tuple_internal(slot,
+			thisatt = slot_deform_heap_tuple_internal(slot,
 													 tuple,
-													 attnum,
-													 natts,
+													 thisatt,
+													 endatt,
 													 false, /* slow */
 													 false, /* hasnulls */
 													 &off,
 													 &slow);
 		else
-			attnum = slot_deform_heap_tuple_internal(slot,
+			thisatt = slot_deform_heap_tuple_internal(slot,
 													 tuple,
-													 attnum,
-													 natts,
+													 thisatt,
+													 endatt,
 													 false, /* slow */
 													 true,	/* hasnulls */
 													 &off,
@@ -1183,13 +1189,13 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	}
 
 	/* If there's still work to do then we must be in slow mode */
-	if (attnum < natts)
+	if (thisatt < endatt)
 	{
 		/* XXX is it worth adding a separate call when hasnulls is false? */
-		attnum = slot_deform_heap_tuple_internal(slot,
+		thisatt = slot_deform_heap_tuple_internal(slot,
 												 tuple,
-												 attnum,
-												 natts,
+												 thisatt,
+												 endatt,
 												 true,	/* slow */
 												 hasnulls,
 												 &off,
@@ -1199,7 +1205,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	/*
 	 * Save state for next execution
 	 */
-	slot->tts_nvalid = attnum;
+	slot->tts_nvalid = thisatt - tupleDesc->compact_attrs;
 	*offp = off;
 	if (slow)
 		slot->tts_flags |= TTS_FLAG_SLOW;
