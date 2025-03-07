@@ -67,17 +67,17 @@ typedef struct TupleConstr
  */
 typedef struct CompactAttribute
 {
-	int32		attcacheoff;	/* fixed offset into tuple, if known, or -1 */
-	int16		attlen;			/* attr len in bytes or -1 = varlen, -2 =
+	int8		attlen;			/* attr len in bytes or -1 = varlen, -2 =
 								 * cstring */
-	uint8		attalignby;			/* alignment requirement in bytes */
-	bool		attbyval;			/* as FormData_pg_attribute.attbyval */
-	bool		attispackable:1;	/* FormData_pg_attribute.attstorage !=
+	uint8		attalignby;		/* alignment requirement in bytes */
+	bool		attbyval;		/* as FormData_pg_attribute.attbyval */
+	bool		attispackable:1;/* FormData_pg_attribute.attstorage !=
 								 * TYPSTORAGE_PLAIN */
-	bool		atthasmissing:1;	/* as FormData_pg_attribute.atthasmissing */
+	bool		atthasmissing:1;/* as FormData_pg_attribute.atthasmissing */
 	bool		attisdropped:1;	/* as FormData_pg_attribute.attisdropped */
 	bool		attgenerated:1;	/* FormData_pg_attribute.attgenerated != '\0' */
-	bool		attnotnull:1;		/* as FormData_pg_attribute.attnotnull */
+	bool		attnotnull:1;	/* as FormData_pg_attribute.attnotnull */
+	int32		attcacheoff;	/* fixed offset into tuple, if known, or -1 */
 } CompactAttribute;
 
 /*
