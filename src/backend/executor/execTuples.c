@@ -1022,7 +1022,7 @@ tts_buffer_heap_store_tuple(TupleTableSlot *slot, HeapTuple tuple,
 static pg_attribute_always_inline int
 slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 								int attnum, int natts, bool slow,
-								bool hasnulls, bool checkbyref, bool checkvarlen,
+								bool hasnulls, bool hasbyref,
 								bool checkslow,
 								uint32 *offp, bool *slowp)
 {
@@ -1036,27 +1036,34 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 
 	tp = (char *) tup + tup->t_hoff;
 
+	if (!hasnulls)
+		memset(&isnull[attnum], 0, natts - attnum);
+
 	for (; attnum < natts; attnum++)
 	{
 		CompactAttribute *thisatt = TupleDescCompactAttr(tupleDesc, attnum);
 
-		if (hasnulls && att_isnull(attnum, bp))
+		if (hasnulls)
 		{
-			values[attnum] = (Datum) 0;
-			isnull[attnum] = true;
-			if (!slow)
+			if (att_isnull(attnum, bp))
 			{
-				*slowp = true;
-				return attnum + 1;
+				values[attnum] = (Datum) 0;
+				isnull[attnum] = true;
+				if (!slow)
+				{
+					*slowp = true;
+					return attnum + 1;
+				}
+				else
+					continue;
+
 			}
-			else
-				continue;
+			isnull[attnum] = false;
 		}
 
-		isnull[attnum] = false;
 
 		/* calculate the offset of this attribute */
-		if (checkvarlen && thisatt->attlen == -1)
+		if (hasbyref && thisatt->attlen == -1)
 		{
 			*offp = att_pointer_alignby(*offp,
 										thisatt->attalignby,
@@ -1075,7 +1082,7 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 		 * When checkbyref is const, we can eliminate the byval check when
 		 * inlining fetch_att()
 		 */
-		if (!checkbyref)
+		if (!hasbyref)
 			values[attnum] = fetch_att(tp + *offp,
 									   true,
 									   thisatt->attlen);
@@ -1084,7 +1091,7 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 									   thisatt->attbyval,
 									   thisatt->attlen);
 
-		if (checkvarlen)
+		if (hasbyref)
 			*offp = att_addlength_pointer(*offp, thisatt->attlen, tp + *offp);
 		else
 			*offp += thisatt->attlen;
@@ -1096,7 +1103,7 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 			 * We're unable to deform any further if the above code set
 			 * 'slownext', or if this isn't a fixed-width attribute.
 			 */
-			if (slownext || (thisatt->attlen <= 0 && checkvarlen))
+			if (slownext || (thisatt->attlen <= 0 && hasbyref))
 			{
 				*slowp = true;
 				return attnum + 1;
@@ -1167,18 +1174,21 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 		/* Tuple without any NULLs? We can skip doing any NULL checking */
 		if (!hasnulls)
 		{
-			if (slot->tts_tupleDescriptor->firstByRef == natts)
-				attnum = slot_deform_heap_tuple_internal(slot,
-														 tuple,
-														 attnum,
-														 natts,
-														 false, /* slow */
-														 false, /* hasnulls */
-														 false,  /* checkbyref */
-														 false,	/* checkvarlen */
-														 false, /* checkslow */
-														 &off,
-														 &slow);
+			/*
+			 * Deforming is more simple if we can skip checks for variable length and
+			 * byref attributes, so we start by deforming up until the first non byval
+			 * column.
+			 */
+			attnum = slot_deform_heap_tuple_internal(slot,
+													 tuple,
+													 attnum,
+													 Min(slot->tts_tupleDescriptor->firstByRef, natts),
+													 false, /* slow */
+													 false, /* hasnulls */
+													 false,  /* hasbyref */
+													 false, /* checkslow */
+													 &off,
+													 &slow);
 
 			/* do the fixed offsets first */
 			attnum = slot_deform_heap_tuple_internal(slot,
@@ -1187,8 +1197,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 													 natts,
 													 false, /* slow */
 													 false, /* hasnulls */
-													 true,  /* checkbyref */
-													 true,	/* checkvarlen */
+													 true,  /* hasbyref */
 													 true,	/* checkslow */
 													 &off,
 													 &slow);
@@ -1201,8 +1210,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 													 natts,
 													 false, /* slow */
 													 true,	/* hasnulls */
-													 true,  /* checkbyref */
-													 true,	/* checkvarlen */
+													 true,  /* hasbyref */
 													 true,	/* checkslow */
 													 &off,
 													 &slow);
@@ -1219,8 +1227,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 												 natts,
 												 true,	/* slow */
 												 hasnulls,
-												 true,  /* checkbyref */
-												 true,	/* checkvarlen */
+												 true,  /* hasbyref */
 												 true, /* checkslow */
 												 &off,
 												 &slow);
