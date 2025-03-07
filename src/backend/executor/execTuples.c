@@ -1023,6 +1023,7 @@ static pg_attribute_always_inline int
 slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 								int attnum, int natts, bool slow,
 								bool hasnulls, bool checkbyref, bool checkvarlen,
+								bool checkslow,
 								uint32 *offp, bool *slowp)
 {
 	TupleDesc	tupleDesc = slot->tts_tupleDescriptor;
@@ -1089,7 +1090,7 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 			*offp += thisatt->attlen;
 
 		/* check if we need to switch to slow mode */
-		if (!slow)
+		if (checkslow && !slow)
 		{
 			/*
 			 * We're unable to deform any further if the above code set
@@ -1166,8 +1167,8 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 		/* Tuple without any NULLs? We can skip doing any NULL checking */
 		if (!hasnulls)
 		{
-			if (slot->tts_tupleDescriptor->firstvarlena <= natts &&
-				slot->tts_tupleDescriptor->firstbyref <= natts)
+			if (slot->tts_tupleDescriptor->firstvarlena == natts &&
+				slot->tts_tupleDescriptor->firstbyref == natts)
 				attnum = slot_deform_heap_tuple_internal(slot,
 														 tuple,
 														 attnum,
@@ -1176,6 +1177,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 														 false, /* hasnulls */
 														 false,  /* checkbyref */
 														 false,	/* checkvarlen */
+														 false, /* checkslow */
 														 &off,
 														 &slow);
 
@@ -1188,6 +1190,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 													 false, /* hasnulls */
 													 true,  /* checkbyref */
 													 true,	/* checkvarlen */
+													 true,	/* checkslow */
 													 &off,
 													 &slow);
 		}
@@ -1201,6 +1204,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 													 true,	/* hasnulls */
 													 true,  /* checkbyref */
 													 true,	/* checkvarlen */
+													 true,	/* checkslow */
 													 &off,
 													 &slow);
 		}
@@ -1218,6 +1222,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 												 hasnulls,
 												 true,  /* checkbyref */
 												 true,	/* checkvarlen */
+												 true, /* checkslow */
 												 &off,
 												 &slow);
 	}
