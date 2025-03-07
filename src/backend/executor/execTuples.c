@@ -1036,31 +1036,24 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 
 	tp = (char *) tup + tup->t_hoff;
 
-	if (!hasnulls)
-		memset(&isnull[attnum], 0, natts - attnum);
-
 	for (; attnum < natts; attnum++)
 	{
 		CompactAttribute *thisatt = TupleDescCompactAttr(tupleDesc, attnum);
 
-		if (hasnulls)
+		if (hasnulls && att_isnull(attnum, bp))
 		{
-			if (att_isnull(attnum, bp))
+			values[attnum] = (Datum) 0;
+			isnull[attnum] = true;
+			if (!slow)
 			{
-				values[attnum] = (Datum) 0;
-				isnull[attnum] = true;
-				if (!slow)
-				{
-					*slowp = true;
-					return attnum + 1;
-				}
-				else
-					continue;
-
+				*slowp = true;
+				return attnum + 1;
 			}
-			isnull[attnum] = false;
+			else
+				continue;
 		}
 
+		isnull[attnum] = false;
 
 		/* calculate the offset of this attribute */
 		if (hasbyref && thisatt->attlen == -1)
