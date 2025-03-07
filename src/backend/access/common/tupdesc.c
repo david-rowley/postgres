@@ -496,34 +496,23 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 void
 TupleDescFinalize(TupleDesc tupdesc)
 {
-	uint32 offp = 0;
-	int i;
+	int firstvarlena = tupdesc->natts;
+	int firstbyref = tupdesc->natts;
 
-	tupdesc->firstvarlena = tupdesc->natts;
 
-	for (i = 0; i < tupdesc->natts; i++)
+	for (int i = 0; i < tupdesc->natts; i++)
 	{
 		CompactAttribute *cattr = TupleDescCompactAttr(tupdesc, i);
-
-		cattr->attcacheoff = offp;
 
 		if (cattr->attlen <= 0)
-		{
-			tupdesc->firstvarlena = i;
-			break;
-		}
+			firstvarlena = Min(firstvarlena, i);
 
-		/* increment offset beyond this fixed-width attribute */
-		offp = att_addlength_pointer(offp, cattr->attlen, NULL);
+		if (!cattr->attbyval)
+			firstbyref = Min(firstbyref, i);
 	}
 
-	/* Set attcacheoff to -1 for any trailing variable length attrs */
-	for (; i < tupdesc->natts; i++)
-	{
-		CompactAttribute *cattr = TupleDescCompactAttr(tupdesc, i);
-	
-		cattr->attcacheoff = -1;
-	}
+	tupdesc->firstvarlena = firstvarlena;
+	tupdesc->firstbyref = firstbyref;
 }
 
 /*

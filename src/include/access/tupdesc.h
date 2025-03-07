@@ -138,6 +138,9 @@ typedef struct TupleDescData
 	int			firstvarlena;	/* index into compact_attrs array of the first
 								 * attlen <= 0 element.  Set to natts when
 								 * there's only fixed-width types */
+	int			firstbyref;		/* index into compact_attrs array of the first
+								 * !attbyval.  Set to natts when there's only byval
+								 * types */
 	TupleConstr *constr;		/* constraints, or NULL if none */
 	/* compact_attrs[N] is the compact metadata of Attribute Number N+1 */
 	CompactAttribute compact_attrs[FLEXIBLE_ARRAY_MEMBER];
