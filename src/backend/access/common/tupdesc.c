@@ -496,23 +496,21 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 void
 TupleDescFinalize(TupleDesc tupdesc)
 {
-	int firstvarlena = tupdesc->natts;
-	int firstbyref = tupdesc->natts;
+	int firstByRef = tupdesc->natts;
 
 
 	for (int i = 0; i < tupdesc->natts; i++)
 	{
 		CompactAttribute *cattr = TupleDescCompactAttr(tupdesc, i);
 
-		if (cattr->attlen <= 0)
-			firstvarlena = Min(firstvarlena, i);
-
 		if (!cattr->attbyval)
-			firstbyref = Min(firstbyref, i);
+		{
+			firstByRef = i;
+			break;
+		}
 	}
 
-	tupdesc->firstvarlena = firstvarlena;
-	tupdesc->firstbyref = firstbyref;
+	tupdesc->firstByRef = firstByRef;
 }
 
 /*

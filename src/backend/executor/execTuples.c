@@ -1167,8 +1167,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 		/* Tuple without any NULLs? We can skip doing any NULL checking */
 		if (!hasnulls)
 		{
-			if (slot->tts_tupleDescriptor->firstvarlena == natts &&
-				slot->tts_tupleDescriptor->firstbyref == natts)
+			if (slot->tts_tupleDescriptor->firstByRef == natts)
 				attnum = slot_deform_heap_tuple_internal(slot,
 														 tuple,
 														 attnum,
