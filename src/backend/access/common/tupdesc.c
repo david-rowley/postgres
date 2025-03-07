@@ -503,7 +503,7 @@ TupleDescFinalize(TupleDesc tupdesc)
 	{
 		CompactAttribute *cattr = TupleDescCompactAttr(tupdesc, i);
 
-		if (!cattr->attbyval)
+		if (!cattr->attbyval || cattr->attalignby != cattr->attlen)
 		{
 			firstByRef = i;
 			break;

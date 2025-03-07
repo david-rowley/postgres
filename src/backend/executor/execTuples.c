@@ -1055,20 +1055,23 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 
 		isnull[attnum] = false;
 
-		/* calculate the offset of this attribute */
-		if (hasbyref && thisatt->attlen == -1)
+		if (hasbyref)
 		{
-			*offp = att_pointer_alignby(*offp,
-										thisatt->attalignby,
-										-1,
-										tp + *offp);
-			if (!slow)
-				slownext = true;
-		}
-		else
-		{
-			/* not varlena, so safe to use att_nominal_alignby */
-			*offp = att_nominal_alignby(*offp, thisatt->attalignby);
+			/* calculate the offset of this attribute */
+			if (hasbyref && thisatt->attlen == -1)
+			{
+				*offp = att_pointer_alignby(*offp,
+											thisatt->attalignby,
+											-1,
+											tp + *offp);
+				if (!slow)
+					slownext = true;
+			}
+			else
+			{
+				/* not varlena, so safe to use att_nominal_alignby */
+				*offp = att_nominal_alignby(*offp, thisatt->attalignby);
+			}
 		}
 
 		/*
