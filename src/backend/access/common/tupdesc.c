@@ -519,34 +519,28 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 void
 TupleDescFinalize(TupleDesc tupdesc)
 {
-	uint32 offp = 0;
-	int i;
+	int lastCachedOffAttr = tupdesc->natts;
+	int offp;
 
-	tupdesc->firstvarlena = tupdesc->natts;
-
-	for (i = 0; i < tupdesc->natts; i++)
+	for (int i = 0; i < tupdesc->natts; i++)
 	{
 		CompactAttribute *cattr = TupleDescCompactAttr(tupdesc, i);
 
+		if (cattr->attnullability != ATTNULLABLE_VALID)
+		{
+			lastCachedOffAttr = i;
+			break;
+		}
+	
+		offp = att_nominal_alignby(offp, cattr->attalignby);
+	
 		cattr->attcacheoff = offp;
 
 		if (cattr->attlen <= 0)
-		{
-			tupdesc->firstvarlena = i;
 			break;
-		}
-
-		/* increment offset beyond this fixed-width attribute */
-		offp = att_addlength_pointer(offp, cattr->attlen, NULL);
 	}
 
-	/* Set attcacheoff to -1 for any trailing variable length attrs */
-	for (; i < tupdesc->natts; i++)
-	{
-		CompactAttribute *cattr = TupleDescCompactAttr(tupdesc, i);
-	
-		cattr->attcacheoff = -1;
-	}
+	tupdesc->firstMisaligned = firstMisaligned;
 }
 
 /*
