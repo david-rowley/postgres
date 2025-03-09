@@ -1009,10 +1009,10 @@ tts_buffer_heap_store_tuple(TupleTableSlot *slot, HeapTuple tuple,
  * of this tuple must use a version of this function with "slow" passed as
  * true.
  *
- * Callers can pass "hasvarwidth" as true even if the tuple has no variable
- * width columns, however, callers *must not* pass it as false if there are
- * variable width columns.  The compiler can omit the attlen == -1 checks when
- * it's known there are no variable-width columns.
+ * Callers can pass "doalignment" as false providing there are no attributes
+ * up to the specified 'natts' which are any of; !byval, nullable, or have an
+ * alignment requirement not equal to the attlen.  A large portion of tables
+ * should start our this way or may consist entirely of such columns.
  *
  * Callers cannot assume when we return "attnum" (i.e. all requested
  * attributes have been deformed) that slow mode isn't required for any
@@ -1022,7 +1022,7 @@ tts_buffer_heap_store_tuple(TupleTableSlot *slot, HeapTuple tuple,
 static pg_attribute_always_inline int
 slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 								int attnum, int natts, bool slow,
-								bool hasnulls, bool hasbyref,
+								bool hasnulls, bool doalignment,
 								bool checkslow,
 								uint32 *offp, bool *slowp)
 {
@@ -1055,16 +1055,20 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 
 		isnull[attnum] = false;
 
-		if (hasbyref)
+		/*
+		 * Handle aligning of *offp so that it's correctly aligned for this
+		 * attribute.
+		 */
+		if (doalignment)
 		{
 			/* calculate the offset of this attribute */
-			if (hasbyref && thisatt->attlen == -1)
+			if (thisatt->attlen == -1)
 			{
 				*offp = att_pointer_alignby(*offp,
 											thisatt->attalignby,
 											-1,
 											tp + *offp);
-				if (!slow)
+				if (checkslow && !slow)
 					slownext = true;
 			}
 			else
@@ -1078,7 +1082,7 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 		 * When checkbyref is const, we can eliminate the byval check when
 		 * inlining fetch_att()
 		 */
-		if (!hasbyref)
+		if (!doalignment)
 			values[attnum] = fetch_att(tp + *offp,
 									   true,
 									   thisatt->attlen);
@@ -1087,7 +1091,13 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 									   thisatt->attbyval,
 									   thisatt->attlen);
 
-		if (hasbyref)
+		/*
+		 * Bump the offp pointer for the next attribute.  When doaligment is
+		 * false we're working with byval attrs which always have an attlen
+		 * greater than zero.  To eliminate some branching, we just add attlen
+		 * rather than doing att_addlength_pointer
+		 */
+		if (doalignment)
 			*offp = att_addlength_pointer(*offp, thisatt->attlen, tp + *offp);
 		else
 			*offp += thisatt->attlen;
@@ -1099,7 +1109,7 @@ slot_deform_heap_tuple_internal(TupleTableSlot *slot, HeapTuple tuple,
 			 * We're unable to deform any further if the above code set
 			 * 'slownext', or if this isn't a fixed-width attribute.
 			 */
-			if (slownext || (thisatt->attlen <= 0 && hasbyref))
+			if (slownext || (thisatt->attlen <= 0 && doalignment))
 			{
 				*slowp = true;
 				return attnum + 1;
@@ -1167,25 +1177,28 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	 */
 	if (!slow)
 	{
+		/*
+		 * Deforming is more simple if we can skip checks for variable length,
+		 * byref attributes, nullable and attributes that have alignment
+		 * requirements which don't match their attlen.  We can also eliminate
+		 * the checks for moving into slow mode because we'll break out of the
+		 * deform loop before we find anything we need to move into slow mode
+		 * for.
+		 */
+		attnum = slot_deform_heap_tuple_internal(slot,
+												 tuple,
+												 attnum,
+												 Min(slot->tts_tupleDescriptor->firstMisaligned, natts),
+												 false, /* slow */
+												 false, /* hasnulls */
+												 false,  /* doalignment */
+												 false, /* checkslow */
+												 &off,
+												 &slow);
+
 		/* Tuple without any NULLs? We can skip doing any NULL checking */
 		if (!hasnulls)
 		{
-			/*
-			 * Deforming is more simple if we can skip checks for variable length and
-			 * byref attributes, so we start by deforming up until the first non byval
-			 * column.
-			 */
-			attnum = slot_deform_heap_tuple_internal(slot,
-													 tuple,
-													 attnum,
-													 Min(slot->tts_tupleDescriptor->firstByRef, natts),
-													 false, /* slow */
-													 false, /* hasnulls */
-													 false,  /* hasbyref */
-													 false, /* checkslow */
-													 &off,
-													 &slow);
-
 			/* do the fixed offsets first */
 			attnum = slot_deform_heap_tuple_internal(slot,
 													 tuple,
@@ -1193,7 +1206,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 													 natts,
 													 false, /* slow */
 													 false, /* hasnulls */
-													 true,  /* hasbyref */
+													 true,  /* doalignment */
 													 true,	/* checkslow */
 													 &off,
 													 &slow);
@@ -1206,7 +1219,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 													 natts,
 													 false, /* slow */
 													 true,	/* hasnulls */
-													 true,  /* hasbyref */
+													 true,  /* doalignment */
 													 true,	/* checkslow */
 													 &off,
 													 &slow);
@@ -1216,14 +1229,13 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	/* If there's still work to do then we must be in slow mode */
 	if (attnum < natts)
 	{
-		/* XXX is it worth adding a separate call when hasnulls is false? */
 		attnum = slot_deform_heap_tuple_internal(slot,
 												 tuple,
 												 attnum,
 												 natts,
 												 true,	/* slow */
 												 hasnulls,
-												 true,  /* hasbyref */
+												 true,  /* doalignment */
 												 true, /* checkslow */
 												 &off,
 												 &slow);

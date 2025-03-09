@@ -126,6 +126,11 @@ typedef struct CompactAttribute
  * array must subsequently call populate_compact_attribute() to flush the
  * changes out to the corresponding 'compact_attrs' element.
  *
+ * firstMisaligned stores the index into the compact_attrs array for the first
+ * attribute that is either byref, nullable, or where the attalignby does not
+ * match the attlen.  This is stored as deforming attributes prior to this can
+ * be done more cheaply using fewer instructions.
+ *
  * Once a TupleDesc has been populated, before it is used for any purpose
  * TupleDescFinalize() must be called on it.
  */
@@ -135,9 +140,8 @@ typedef struct TupleDescData
 	Oid			tdtypeid;		/* composite type ID for tuple type */
 	int32		tdtypmod;		/* typmod for tuple type */
 	int			tdrefcount;		/* reference count, or -1 if not counting */
-	int			firstByRef;		/* index into compact_attrs array of the first
-								 * !attbyval element.  Set to natts when all
-								 * attrs are byval */
+	int			firstMisaligned; /* first misaligned, nullable or first byref
+								  * attr.  See above. */
 	TupleConstr *constr;		/* constraints, or NULL if none */
 	/* compact_attrs[N] is the compact metadata of Attribute Number N+1 */
 	CompactAttribute compact_attrs[FLEXIBLE_ARRAY_MEMBER];

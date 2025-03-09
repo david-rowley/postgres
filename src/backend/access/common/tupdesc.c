@@ -496,21 +496,25 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 void
 TupleDescFinalize(TupleDesc tupdesc)
 {
-	int firstByRef = tupdesc->natts;
-
+	int firstMisaligned = tupdesc->natts;
+	int byte_offset = 0;
 
 	for (int i = 0; i < tupdesc->natts; i++)
 	{
 		CompactAttribute *cattr = TupleDescCompactAttr(tupdesc, i);
 
-		if (!cattr->attbyval || cattr->attalignby != cattr->attlen)
+		if (!cattr->attbyval || !cattr->attnotnull ||
+			cattr->attalignby != cattr->attlen ||
+			TYPEALIGN(byte_offset, cattr->attalignby) != byte_offset)
 		{
-			firstByRef = i;
+			firstMisaligned = i;
 			break;
 		}
+
+		byte_offset += cattr->attlen;
 	}
 
-	tupdesc->firstByRef = firstByRef;
+	tupdesc->firstMisaligned = firstMisaligned;
 }
 
 /*
