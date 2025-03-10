@@ -1301,7 +1301,7 @@ _jumble${n}(JumbleState *jstate, Node *node)
 		if (($t =~ /^(\w+)\*$/ or $t =~ /^struct\s+(\w+)\*$/)
 			and elem $1, @node_types)
 		{
-			print $jff "\tJUMBLE_NODE($f);\n"
+			print $jff "\tJUMBLE_NODE($f, offsetof($n, $f));\n"
 			  unless $query_jumble_ignore;
 		}
 		elsif ($t eq 'ParseLoc')
@@ -1315,12 +1315,12 @@ _jumble${n}(JumbleState *jstate, Node *node)
 		}
 		elsif ($t eq 'char*')
 		{
-			print $jff "\tJUMBLE_STRING($f);\n"
+			print $jff "\tJUMBLE_STRING($f, offsetof($n, $f));\n"
 			  unless $query_jumble_ignore;
 		}
 		else
 		{
-			print $jff "\tJUMBLE_FIELD($f);\n"
+			print $jff "\tJUMBLE_FIELD($f, offsetof($n, $f));\n"
 			  unless $query_jumble_ignore;
 		}
 	}

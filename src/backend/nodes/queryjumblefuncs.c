@@ -52,9 +52,9 @@ int			compute_query_id = COMPUTE_QUERY_ID_AUTO;
 bool		query_id_enabled = false;
 
 static void AppendJumble(JumbleState *jstate,
-						 const unsigned char *item, Size size);
+						 const unsigned char *item, Size size, int seed);
 static void RecordConstLocation(JumbleState *jstate, int location);
-static void _jumbleNode(JumbleState *jstate, Node *node);
+static void _jumbleNode(JumbleState *jstate, Node *node, int seed);
 static void _jumbleA_Const(JumbleState *jstate, Node *node);
 static void _jumbleList(JumbleState *jstate, Node *node);
 static void _jumbleVariableSetStmt(JumbleState *jstate, Node *node);
@@ -127,7 +127,7 @@ JumbleQuery(Query *query)
 	jstate->highest_extern_param_id = 0;
 
 	/* Compute query ID and mark the Query node with it */
-	_jumbleNode(jstate, (Node *) query);
+	_jumbleNode(jstate, (Node *) query, 0); /* TODO seed? */
 	query->queryId = DatumGetUInt64(hash_any_extended(jstate->jumble,
 													  jstate->jumble_len,
 													  0));
@@ -165,7 +165,7 @@ EnableQueryId(void)
  * the current jumble.
  */
 static void
-AppendJumble(JumbleState *jstate, const unsigned char *item, Size size)
+AppendJumble(JumbleState *jstate, const unsigned char *item, Size size, int seed)
 {
 	unsigned char *jumble = jstate->jumble;
 	Size		jumble_len = jstate->jumble_len;
@@ -185,6 +185,11 @@ AppendJumble(JumbleState *jstate, const unsigned char *item, Size size)
 
 			start_hash = DatumGetUInt64(hash_any_extended(jumble,
 														  JUMBLE_SIZE, 0));
+
+			/* TODO, what's the best way to combine this? */
+			if (seed)
+				start_hash = hash_combine64(start_hash, seed);
+
 			memcpy(jumble, &start_hash, sizeof(start_hash));
 			jumble_len = sizeof(start_hash);
 		}
@@ -223,24 +228,24 @@ RecordConstLocation(JumbleState *jstate, int location)
 	}
 }
 
-#define JUMBLE_NODE(item) \
-	_jumbleNode(jstate, (Node *) expr->item)
+#define JUMBLE_NODE(item, seed) \
+	_jumbleNode(jstate, (Node *) expr->item, seed)
 #define JUMBLE_LOCATION(location) \
 	RecordConstLocation(jstate, expr->location)
-#define JUMBLE_FIELD(item) \
-	AppendJumble(jstate, (const unsigned char *) &(expr->item), sizeof(expr->item))
+#define JUMBLE_FIELD(item, seed) \
+	AppendJumble(jstate, (const unsigned char *) &(expr->item), sizeof(expr->item), seed)
 #define JUMBLE_FIELD_SINGLE(item) \
-	AppendJumble(jstate, (const unsigned char *) &(item), sizeof(item))
-#define JUMBLE_STRING(str) \
+	AppendJumble(jstate, (const unsigned char *) &(item), sizeof(item), 0)
+#define JUMBLE_STRING(str, seed) \
 do { \
 	if (expr->str) \
-		AppendJumble(jstate, (const unsigned char *) (expr->str), strlen(expr->str) + 1); \
+		AppendJumble(jstate, (const unsigned char *) (expr->str), strlen(expr->str) + 1, seed); \
 } while(0)
 
 #include "queryjumblefuncs.funcs.c"
 
 static void
-_jumbleNode(JumbleState *jstate, Node *node)
+_jumbleNode(JumbleState *jstate, Node *node, int seed)
 {
 	Node	   *expr = node;
 
@@ -250,11 +255,14 @@ _jumbleNode(JumbleState *jstate, Node *node)
 	/* Guard against stack overflow due to overly complex expressions */
 	check_stack_depth();
 
+	/* TODO how to jumble the seed? Make this proper. */
+	JUMBLE_FIELD_SINGLE(seed);
+
 	/*
 	 * We always emit the node's NodeTag, then any additional fields that are
 	 * considered significant, and then we recurse to any child nodes.
 	 */
-	JUMBLE_FIELD(type);
+	JUMBLE_FIELD(type, offsetof(Node, type));
 
 	switch (nodeTag(expr))
 	{
@@ -305,7 +313,7 @@ _jumbleList(JumbleState *jstate, Node *node)
 	{
 		case T_List:
 			foreach(l, expr)
-				_jumbleNode(jstate, lfirst(l));
+				_jumbleNode(jstate, lfirst(l), 0); /* TODO what to set as the seed? */
 			break;
 		case T_IntList:
 			foreach(l, expr)
@@ -331,26 +339,26 @@ _jumbleA_Const(JumbleState *jstate, Node *node)
 {
 	A_Const    *expr = (A_Const *) node;
 
-	JUMBLE_FIELD(isnull);
+	JUMBLE_FIELD(isnull, offsetof(A_Const, isnull));
 	if (!expr->isnull)
-	{
-		JUMBLE_FIELD(val.node.type);
+	{ /* TODO fix seeds */
+		JUMBLE_FIELD(val.node.type, 0);
 		switch (nodeTag(&expr->val))
 		{
 			case T_Integer:
-				JUMBLE_FIELD(val.ival.ival);
+				JUMBLE_FIELD(val.ival.ival, 0);
 				break;
 			case T_Float:
-				JUMBLE_STRING(val.fval.fval);
+				JUMBLE_STRING(val.fval.fval, 0);
 				break;
 			case T_Boolean:
-				JUMBLE_FIELD(val.boolval.boolval);
+				JUMBLE_FIELD(val.boolval.boolval, 0);
 				break;
 			case T_String:
-				JUMBLE_STRING(val.sval.sval);
+				JUMBLE_STRING(val.sval.sval, 0);
 				break;
 			case T_BitString:
-				JUMBLE_STRING(val.bsval.bsval);
+				JUMBLE_STRING(val.bsval.bsval, 0);
 				break;
 			default:
 				elog(ERROR, "unrecognized node type: %d",
@@ -365,15 +373,15 @@ _jumbleVariableSetStmt(JumbleState *jstate, Node *node)
 {
 	VariableSetStmt *expr = (VariableSetStmt *) node;
 
-	JUMBLE_FIELD(kind);
-	JUMBLE_STRING(name);
+	JUMBLE_FIELD(kind, offsetof(VariableSetStmt, kind));
+	JUMBLE_STRING(name, offsetof(VariableSetStmt, name));
 
 	/*
 	 * Account for the list of arguments in query jumbling only if told by the
 	 * parser.
 	 */
 	if (expr->jumble_args)
-		JUMBLE_NODE(args);
-	JUMBLE_FIELD(is_local);
+		JUMBLE_NODE(args, 0); /* TODO seed? */
+	JUMBLE_FIELD(is_local, offsetof(VariableSetStmt, is_local));
 	JUMBLE_LOCATION(location);
 }
