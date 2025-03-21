@@ -760,7 +760,7 @@ get_eclass_for_sort_expr(PlannerInfo *root,
  * Child EC members are ignored unless they belong to given 'relids'.
  */
 EquivalenceMember *
-find_ec_member_matching_expr(EquivalenceClass *ec,
+find_ec_member_matching_expr(PlannerInfo *root, EquivalenceClass *ec,
 							 Expr *expr,
 							 Relids relids)
 {
@@ -939,7 +939,7 @@ relation_can_be_sorted_early(PlannerInfo *root, RelOptInfo *rel,
 	{
 		Expr	   *targetexpr = (Expr *) lfirst(lc);
 
-		em = find_ec_member_matching_expr(ec, targetexpr, rel->relids);
+		em = find_ec_member_matching_expr(root, ec, targetexpr, rel->relids);
 		if (!em)
 			continue;
 
