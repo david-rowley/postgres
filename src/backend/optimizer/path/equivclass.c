@@ -3037,10 +3037,8 @@ add_setop_child_rel_equivalences(PlannerInfo *root, RelOptInfo *child_rel,
 		 * parent_em->em_relids has two or more members?
 		 */
 		if (root->append_rel_array == NULL)
-		{
 			root->append_rel_array = palloc0_array(AppendRelInfo *, root->simple_rel_array_size);
-			root->eclass_indexes_array = palloc0_array(EquivalenceClassIndexes, root->simple_rel_array_size);
-		}
+
 		root->append_rel_array[child_rel->relid] = makeNode(AppendRelInfo);
 		root->append_rel_array[child_rel->relid]->parent_relid = bms_next_member(parent_em->em_relids, -1);
 		root->append_rel_array[child_rel->relid]->child_relid = child_rel->relid;

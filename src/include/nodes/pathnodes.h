@@ -273,13 +273,6 @@ struct PlannerInfo
 	struct AppendRelInfo **append_rel_array pg_node_attr(read_write_ignore);
 
 	/*
-	 * eclass_indexes_array is the same length as simple_rel_array and holds
-	 * the indexes of the corresponding rels for faster EquivalenceMember
-	 * lookups. See the EquivalenceClass comment for more details.
-	 */
-	struct EquivalenceClassIndexes *eclass_indexes_array pg_node_attr(read_write_ignore);
-
-	/*
 	 * all_baserels is a Relids set of all base relids (but not joins or
 	 * "other" rels) in the query.  This is computed in deconstruct_jointree.
 	 */
