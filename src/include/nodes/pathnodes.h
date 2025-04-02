@@ -216,8 +216,6 @@ typedef struct PlannerInfo PlannerInfo;
 #define HAVE_PLANNERINFO_TYPEDEF 1
 #endif
 
-struct EquivalenceClassIndexes;
-
 struct PlannerInfo
 {
 	pg_node_attr(no_copy_equal, no_read, no_query_jumble)
@@ -994,17 +992,6 @@ typedef struct RelOptInfo
 	uint32		amflags;
 
 	/*
-	 * information about a join rel
-	 */
-	/* index in root->join_rel_list of this rel */
-	int			join_rel_list_index;
-
-	/*
-	 * EquivalenceMembers referencing this rel
-	 */
-	List	   *eclass_child_members;
-
-	/*
 	 * Information about foreign tables and foreign joins
 	 */
 	/* identifies server for the table or join */
@@ -1423,11 +1410,11 @@ typedef struct JoinDomain
  * entry: consider SELECT random() AS a, random() AS b ... ORDER BY b,a.
  * So we record the SortGroupRef of the originating sort clause.
  *
- * EquivalenceClass->ec_members can only have parent members, and child members
- * are stored in RelOptInfos, from which those child members are translated. To
- * lookup child EquivalenceMembers, we use EquivalenceMemberIterator. See
- * its comment for usage. The approach to lookup child members quickly is
- * described as setup_eclass_member_iterator_with_children() comment.
+ * 'ec_members' is a List of all EquivalenceMembers belonging to
+ * RELOPT_BASERELs.  EquivalenceMembers for any RELOPT_OTHER_MEMBER_REL and
+ * RELOPT_OTHER_JOINREL relations are stored in the 'ec_childmembers' array in
+ * the index corresponding to the relid.  'ec_childmembers' may be NULL if the
+ * class has no child EquivalenceMembers.
  *
  * NB: if ec_merged isn't NULL, this class has been merged into another, and
  * should be ignored in favor of using the pointed-to class.
@@ -1447,6 +1434,7 @@ typedef struct EquivalenceClass
 	List	   *ec_opfamilies;	/* btree operator family OIDs */
 	Oid			ec_collation;	/* collation, if datatypes are collatable */
 	List	   *ec_members;		/* list of EquivalenceMembers */
+	List	  **ec_childmembers; /* array of Lists of child EquivalenceMembers */
 	List	   *ec_sources;		/* list of generating RestrictInfos */
 	List	   *ec_derives;		/* list of derived RestrictInfos */
 	Relids		ec_relids;		/* all relids appearing in ec_members, except
@@ -1503,7 +1491,6 @@ typedef struct EquivalenceMember
 	JoinDomain *em_jdomain;		/* join domain containing the source clause */
 	/* if em_is_child is true, this links to corresponding EM for top parent */
 	struct EquivalenceMember *em_parent pg_node_attr(read_write_ignore);
-	EquivalenceClass *em_ec;	/* EquivalenceClass which has this member */
 } EquivalenceMember;
 
 /*

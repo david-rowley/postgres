@@ -7851,7 +7851,7 @@ find_em_for_rel(PlannerInfo *root, EquivalenceClass *ec, RelOptInfo *rel)
 	EquivalenceMemberIterator it;
 	EquivalenceMember *em;
 
-	setup_eclass_member_iterator_with_children(&it, root, ec, rel->relids);
+	setup_eclass_member_iterator(root, &it, ec, rel->relids);
 	while ((em = eclass_member_iterator_next(&it)) != NULL)
 	{
 		/*

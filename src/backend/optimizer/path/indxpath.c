@@ -3834,8 +3834,8 @@ match_pathkeys_to_index(PlannerInfo *root, IndexOptInfo *index, List *pathkeys,
 		 * be considered to match more than one pathkey list, which is OK
 		 * here.  See also get_eclass_for_sort_expr.)
 		 */
-		setup_eclass_member_iterator_with_children(&it, root, pathkey->pk_eclass,
-												   index->rel->relids);
+		setup_eclass_member_iterator(root, &it, pathkey->pk_eclass,
+									 index->rel->relids);
 		while ((member = eclass_member_iterator_next(&it)) != NULL)
 		{
 			int			indexcol;

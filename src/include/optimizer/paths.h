@@ -183,10 +183,10 @@ extern void add_setop_child_rel_equivalences(PlannerInfo *root,
 											 RelOptInfo *child_rel,
 											 List *child_tlist,
 											 List *setop_pathkeys);
-extern void setup_eclass_member_iterator_with_children(EquivalenceMemberIterator *it,
-													   PlannerInfo *root,
-													   EquivalenceClass *ec,
-													   Relids relids);
+extern void setup_eclass_member_iterator(PlannerInfo *root,
+										 EquivalenceMemberIterator *it,
+										 EquivalenceClass *ec,
+										 Relids relids);
 extern EquivalenceMember *eclass_member_iterator_next(EquivalenceMemberIterator *it);
 extern void dispose_eclass_member_iterator(EquivalenceMemberIterator *it);
 extern List *generate_implied_equalities_for_column(PlannerInfo *root,
