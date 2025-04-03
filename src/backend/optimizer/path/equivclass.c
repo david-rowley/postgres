@@ -3085,14 +3085,14 @@ setup_eclass_member_iterator(PlannerInfo *root, EquivalenceMemberIterator *it,
 	it->current_relid = -1;
 	it->current_list = ec->ec_members;
 	it->current_cell = list_head(it->current_list);
-
 }
 
 /*
  * eclass_member_iterator_next
  *	  Get a next EquivalenceMember from an EquivalenceMemberIterator 'it'
  *	  that was setup by setup_eclass_member_iterator(). NULL is
- *	  returned if there are no members left.
+ *	  returned if there are no members left, in which case callers must not
+ *	  call eclass_member_iterator_next() again for the given iterator.
  */
 EquivalenceMember *
 eclass_member_iterator_next(EquivalenceMemberIterator *it)
@@ -3112,18 +3112,12 @@ nextcell:
 		/* Search for the next list to return members from */
 		while ((it->current_relid = bms_next_member(it->relids, it->current_relid)) > 0)
 		{
-			/* Skip relids for RELOPT_BASEREL */
-			/*
-			 * XXX things should work fine without this check, the check below will
-			 * simply find the ec_childmembers list to be empty and skip to the next
-			 * relid
-			 */
-			if (it->root->append_rel_array[it->current_relid] == NULL)
-				continue;
-
 			it->current_list = it->ec->ec_childmembers[it->current_relid];
 
-			/* if there are members in this list, use it */
+			/*
+			 * If there are members in this list, use it, this will exclude
+			 * RELOPT_BASERELs as ec_childmembers[] are not populated for those.
+			 */
 			if (it->current_list != NIL)
 			{
 				/* point current_cell to the head of this list */
