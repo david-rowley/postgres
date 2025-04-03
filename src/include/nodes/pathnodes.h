@@ -1518,12 +1518,15 @@ typedef struct EquivalenceMember
  */
 typedef struct
 {
-	PlannerInfo *root;
-	EquivalenceClass *ec;
-	int			current_relid;
-	Relids		relids;
-	ListCell   *current_cell;
-	List	   *current_list;
+	PlannerInfo *root;			/* The PlannerInfo where 'ec' belongs */
+	EquivalenceClass *ec;		/* The EquivalenceClass to iterator over */
+	int			current_relid;	/* Current relid position within 'relids'. -1
+								 * when still looping over ec_members and -2
+								 * at the end of iteration */
+	Relids		relids;			/* Relids of child relations of interest.
+								 * Non-child rels are ignored */
+	ListCell   *current_cell;	/* current position within current_list */
+	List	   *current_list;	/* Current list of members being returned */
 } EquivalenceMemberIterator;
 
 /*

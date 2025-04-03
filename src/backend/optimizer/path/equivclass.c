@@ -42,6 +42,14 @@ static EquivalenceMember *add_eq_member(EquivalenceClass *ec,
 										Expr *expr, Relids relids,
 										JoinDomain *jdomain,
 										Oid datatype);
+static EquivalenceMember *add_child_eq_member(PlannerInfo *root,
+											  EquivalenceClass *ec,
+											  int ec_index, Expr *expr,
+											  Relids relids,
+											  JoinDomain *jdomain,
+											  EquivalenceMember *parent_em,
+											  Oid datatype,
+											  Relids child_relids);
 static void generate_base_implied_equalities_const(PlannerInfo *root,
 												   EquivalenceClass *ec);
 static void generate_base_implied_equalities_no_const(PlannerInfo *root,
@@ -556,13 +564,7 @@ make_eq_member(EquivalenceClass *ec, Expr *expr, Relids relids,
 }
 
 /*
- * add_eq_member - build a new EquivalenceMember and add it to an EC
- *
- * Note: We don't have a function to add a child member like
- * add_child_eq_member() because how to do it depends on the relations they
- * are translated from. See add_child_rel_equivalences(),
- * add_child_join_rel_equivalences() and add_setop_child_rel_equivalences()
- * to see how to add child members.
+ * add_eq_member - build a new non-child EquivalenceMember and add it to 'ec'.
  */
 static EquivalenceMember *
 add_eq_member(EquivalenceClass *ec, Expr *expr, Relids relids,
@@ -573,6 +575,40 @@ add_eq_member(EquivalenceClass *ec, Expr *expr, Relids relids,
 
 	ec->ec_members = lappend(ec->ec_members, em);
 	ec->ec_relids = bms_add_members(ec->ec_relids, relids);
+	return em;
+}
+
+static EquivalenceMember *
+add_child_eq_member(PlannerInfo *root, EquivalenceClass *ec, int ec_index,
+					Expr *expr, Relids relids, JoinDomain *jdomain,
+					EquivalenceMember *parent_em, Oid datatype,
+					Relids child_relids)
+{
+	EquivalenceMember *em;
+	int relid;
+
+	Assert(parent_em != NULL);
+
+	if (ec->ec_childmembers == NULL)
+		ec->ec_childmembers = (List **) palloc0(root->simple_rel_array_size * sizeof(List *));
+
+	em = make_eq_member(ec, expr, relids, jdomain, parent_em, datatype);
+
+	relid = -1;
+	while ((relid = bms_next_member(child_relids, relid)) >= 0)
+	{
+
+		ec->ec_childmembers[relid] = lappend(ec->ec_childmembers[relid], em);
+
+		/* Record this EC index for the child rel */
+		if (ec_index >= 0)
+		{
+			RelOptInfo *child_rel = root->simple_rel_array[relid];
+			child_rel->eclass_indexes =
+					bms_add_member(child_rel->eclass_indexes, ec_index);
+		}
+	}
+
 	return em;
 }
 
@@ -2756,9 +2792,6 @@ add_child_rel_equivalences(PlannerInfo *root,
 		if (cur_ec->ec_has_volatile)
 			continue;
 
-		if (cur_ec->ec_childmembers == NULL)
-			cur_ec->ec_childmembers = (List **) palloc0(root->simple_rel_array_size * sizeof(List *));
-
 		/* Sanity check eclass_indexes only contain ECs for parent_rel */
 		Assert(bms_is_subset(top_parent_relids, cur_ec->ec_relids));
 
@@ -2786,7 +2819,6 @@ add_child_rel_equivalences(PlannerInfo *root,
 				/* OK, generate transformed child version */
 				Expr	   *child_expr;
 				Relids		new_relids;
-				EquivalenceMember *child_em;
 
 				if (parent_rel->reloptkind == RELOPT_BASEREL)
 				{
@@ -2816,15 +2848,15 @@ add_child_rel_equivalences(PlannerInfo *root,
 											top_parent_relids);
 				new_relids = bms_add_members(new_relids, child_relids);
 
-				child_em = make_eq_member(cur_ec, child_expr, new_relids,
-										  cur_em->em_jdomain,
-										  cur_em, cur_em->em_datatype);
-				
-				cur_ec->ec_childmembers[child_rel->relid] =
-						lappend(cur_ec->ec_childmembers[child_rel->relid],
-								child_em);
-				/* Record this EC index for the child rel */
-				child_rel->eclass_indexes = bms_add_member(child_rel->eclass_indexes, i);
+				add_child_eq_member(root,
+									cur_ec,
+									i,
+									child_expr,
+									new_relids,
+									cur_em->em_jdomain,
+									cur_em,
+									cur_em->em_datatype,
+									child_rel->relids);
 			}
 		}
 	}
@@ -2881,9 +2913,6 @@ add_child_join_rel_equivalences(PlannerInfo *root,
 		if (cur_ec->ec_has_volatile)
 			continue;
 
-		/* We expect this was allocated in add_child_rel_equivalences() */
-		Assert(cur_ec->ec_childmembers != NULL);
-
 		/* Sanity check on get_eclass_indexes_for_relids result */
 		Assert(bms_overlap(top_parent_relids, cur_ec->ec_relids));
 
@@ -2910,8 +2939,6 @@ add_child_join_rel_equivalences(PlannerInfo *root,
 				/* Yes, generate transformed child version */
 				Expr	   *child_expr;
 				Relids		new_relids;
-				EquivalenceMember *child_em;
-				int			relid;
 
 				if (parent_joinrel->reloptkind == RELOPT_JOINREL)
 				{
@@ -2942,16 +2969,15 @@ add_child_join_rel_equivalences(PlannerInfo *root,
 											top_parent_relids);
 				new_relids = bms_add_members(new_relids, child_relids);
 
-				child_em = make_eq_member(cur_ec, child_expr, new_relids,
-										  cur_em->em_jdomain,
-										  cur_em, cur_em->em_datatype);
-
-				relid = -1;
-				while ((relid = bms_next_member(child_joinrel->relids, relid)) >= 0)
-				{
-					cur_ec->ec_childmembers[relid] =
-							lappend(cur_ec->ec_childmembers[relid], child_em);
-				}
+				add_child_eq_member(root,
+									cur_ec,
+									-1,
+									child_expr,
+									new_relids,
+									cur_em->em_jdomain,
+									cur_em,
+									cur_em->em_datatype,
+									child_joinrel->relids);
 			}
 		}
 	}
@@ -3001,44 +3027,18 @@ add_setop_child_rel_equivalences(PlannerInfo *root, RelOptInfo *child_rel,
 		 * We can safely pass the parent member as the first member in the
 		 * ec_members list as this is added first in generate_union_paths,
 		 * likewise, the JoinDomain can be that of the initial member of the
-		 * Pathkey's EquivalenceClass.
+		 * Pathkey's EquivalenceClass.  We pass -1 for ec_index since we
+		 * maintain the eclass_indexes for the child_rel after the loop.
 		 */
-		child_em = make_eq_member(pk->pk_eclass,
-								  tle->expr,
-								  child_rel->relids,
-								  parent_em->em_jdomain,
-								  parent_em,
-								  exprType((Node *) tle->expr));
-
-		if (parent_ec->ec_childmembers == NULL)
-			parent_ec->ec_childmembers = (List **) palloc0(root->simple_rel_array_size * sizeof(List *));
-
-		parent_ec->ec_childmembers[child_rel->relid] =
-				lappend(parent_ec->ec_childmembers[child_rel->relid],
-						child_em);
-
-		/*
-		 * Make an UNION parent-child relationship between parent_em and
-		 * child_rel->relid. We record this relationship in
-		 * root->append_rel_array, which generally has AppendRelInfo
-		 * relationships. We use the same array here to retrieve UNION child
-		 * members.
-		 *
-		 * XXX Here we create a dummy AppendRelInfo object to know that the
-		 * relation of 'child_rel->relid' is a child and there are some
-		 * children because root->append_rel_array is not NULL. However this
-		 * is just a workaround. We must consider better way.
-		 *
-		 * XXX Here we treat the first member of parent_em->em_relids as a
-		 * parent of child_rel. Is this correct? What happens if
-		 * parent_em->em_relids has two or more members?
-		 */
-		if (root->append_rel_array == NULL)
-			root->append_rel_array = palloc0_array(AppendRelInfo *, root->simple_rel_array_size);
-
-		root->append_rel_array[child_rel->relid] = makeNode(AppendRelInfo);
-		root->append_rel_array[child_rel->relid]->parent_relid = bms_next_member(parent_em->em_relids, -1);
-		root->append_rel_array[child_rel->relid]->child_relid = child_rel->relid;
+		add_child_eq_member(root,
+							pk->pk_eclass,
+							-1,
+							tle->expr,
+							child_rel->relids,
+							parent_em->em_jdomain,
+							parent_em,
+							exprType((Node *) tle->expr),
+							child_rel->relids);
 
 		lc2 = lnext(setop_pathkeys, lc2);
 	}
@@ -3069,9 +3069,12 @@ add_setop_child_rel_equivalences(PlannerInfo *root, RelOptInfo *child_rel,
  *	  the desired condition.
  *	- Once used, the caller should dispose of the iterator by calling
  *	  dispose_eclass_member_iterator().
+ *	- The given 'relids' must remain allocated and not be changed for the
+ *	  lifetime of the iterator.
  *
  * Parameters:
  *	root - The PlannerInfo context.
+ *	it - A pointer to the iterator to set up.
  *	ec - The EquivalenceClass from which to iterate members.
  *	relids - The Relids used to filter for relevant child members.
  */
@@ -3125,6 +3128,11 @@ nextcell:
 				goto nextcell;
 			}
 		}
+
+		/*
+		 * XXX because we don't NULLify current_list here, the iterator is not
+		 * safe to call again after it returns NULL.  Is that worth doing?
+		 */
 		goto end;
 	}
 
