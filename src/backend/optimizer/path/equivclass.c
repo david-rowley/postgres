@@ -551,10 +551,6 @@ make_eq_member(EquivalenceClass *ec, Expr *expr, Relids relids,
 		ec->ec_has_const = true;
 		/* it can't affect ec_relids */
 	}
-	else if (!parent)			/* child members don't add to ec_relids */
-	{
-		ec->ec_relids = bms_add_members(ec->ec_relids, relids);
-	}
 
 	return em;
 }
@@ -576,6 +572,7 @@ add_eq_member(EquivalenceClass *ec, Expr *expr, Relids relids,
 										   NULL, datatype);
 
 	ec->ec_members = lappend(ec->ec_members, em);
+	ec->ec_relids = bms_add_members(ec->ec_relids, relids);
 	return em;
 }
 
@@ -3086,17 +3083,15 @@ setup_eclass_member_iterator(PlannerInfo *root, EquivalenceMemberIterator *it,
 	/*
 	 * Initialize the iterator.
 	 */
-	it->index = -1;
-	it->list_is_copy = false;
-	it->ec_members = ec->ec_members;
+	it->lists = list_make1(ec->ec_members);
+	it->current_list = list_head(it->lists);
+	it->current_cell = list_head(lfirst(it->current_list));
 
 	/* If there are no child members, there's nothing more to add */
 	if (ec->ec_childmembers != NULL)
 	{
-		int i;
-
 		/*
-		 * EquivalenceClass->ec_members has only parent EquivalenceMembers. Child
+		 * Only parent members are stored in ec_members. 'ec_members has only parent EquivalenceMembers. Child
 		 * members are translated using child RelOptInfos and stored in them. This
 		 * is done in add_child_rel_equivalences(),
 		 * add_child_join_rel_equivalences(), and
@@ -3125,7 +3120,7 @@ setup_eclass_member_iterator(PlannerInfo *root, EquivalenceMemberIterator *it,
 		 * Iterate over the given relids, adding child members for simple rels and
 		 * taking union indexes for join rels.
 		 */
-		i = -1;
+		int i = -1;
 		while ((i = bms_next_member(relids, i)) >= 0)
 		{
 			RelOptInfo *child_rel;
@@ -3137,16 +3132,7 @@ setup_eclass_member_iterator(PlannerInfo *root, EquivalenceMemberIterator *it,
 			if (root->append_rel_array[i] == NULL)
 				continue;
 
-			if (!it->list_is_copy)
-			{
-				it->ec_members = list_copy(it->ec_members);
-				it->list_is_copy = true;
-			}
-
-			foreach (lc, ec->ec_childmembers[i])
-			{
-				it->ec_members = lappend(it->ec_members, lfirst(lc));
-			}
+			it->lists = lappend(it->lists, ec->ec_childmembers[i]);
 		}
 	}
 }
@@ -3160,24 +3146,36 @@ setup_eclass_member_iterator(PlannerInfo *root, EquivalenceMemberIterator *it,
 EquivalenceMember *
 eclass_member_iterator_next(EquivalenceMemberIterator *it)
 {
-	if (++it->index < list_length(it->ec_members))
-		return list_nth_node(EquivalenceMember, it->ec_members, it->index);
-	return NULL;
+	EquivalenceMember *em = NULL;
+
+	while (it->current_list != NULL)
+	{
+		while (it->current_cell != NULL)
+		{
+			em = lfirst_node(EquivalenceMember, it->current_cell);
+			it->current_cell = lnext(lfirst(it->current_list), it->current_cell);
+			goto out;
+		}
+		if (it->lists != NIL)
+		{
+			it->current_list = lnext(it->lists, it->current_list);
+			if (it->current_list != NULL)
+				it->current_cell = list_head(lfirst(it->current_list));
+		}
+	}
+
+out:
+	return em;
 }
 
 /*
  * dispose_eclass_member_iterator
- *	  Free any memory allocated by the iterator.
+ *	  Free memory allocated by the iterator.
  */
 void
 dispose_eclass_member_iterator(EquivalenceMemberIterator *it)
 {
-	/*
-	 * XXX Should we use list_free()? I decided to use this style to take
-	 * advantage of speculative execution.
-	 */
-	if (unlikely(it->list_is_copy))
-		pfree(it->ec_members);
+	list_free(it->lists);
 }
 
 

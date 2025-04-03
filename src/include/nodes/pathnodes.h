@@ -1508,7 +1508,7 @@ typedef struct EquivalenceMember
  * EquivalenceMemberIterator		it;
  * EquivalenceMember			   *em;
  *
- * setup_eclass_member_iterator_with_children(&it, root, ec, rel);
+ * setup_eclass_member_iterator(&it, root, ec, rel);
  * while ((em = eclass_member_iterator_next(&it)) != NULL)
  * {
  *     use em ...;
@@ -1518,9 +1518,9 @@ typedef struct EquivalenceMember
  */
 typedef struct
 {
-	int			index;			/* current index within 'ec_members'. */
-	bool		list_is_copy;	/* is 'ec_members' a newly allocated one? */
-	List	   *ec_members;		/* parent and child members */
+	List	   *lists;
+	ListCell   *current_cell;
+	ListCell   *current_list;
 } EquivalenceMemberIterator;
 
 /*
