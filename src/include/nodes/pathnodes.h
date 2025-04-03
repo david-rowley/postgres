@@ -1503,12 +1503,12 @@ typedef struct EquivalenceMember
  * The most common way to use this iterator is as follows:
  * -----
  * PlannerInfo					   *root = given;
- * EquivalenceClass				   *ec = given;
- * Relids							rel = given;
  * EquivalenceMemberIterator		it;
+ * EquivalenceClass				   *ec = given;
+ * Relids							relids = given;
  * EquivalenceMember			   *em;
  *
- * setup_eclass_member_iterator(&it, root, ec, rel);
+ * setup_eclass_member_iterator(root, &it, ec, relids);
  * while ((em = eclass_member_iterator_next(&it)) != NULL)
  * {
  *     use em ...;
@@ -1518,9 +1518,12 @@ typedef struct EquivalenceMember
  */
 typedef struct
 {
-	List	   *lists;
+	PlannerInfo *root;
+	EquivalenceClass *ec;
+	int			current_relid;
+	Relids		relids;
 	ListCell   *current_cell;
-	ListCell   *current_list;
+	List	   *current_list;
 } EquivalenceMemberIterator;
 
 /*

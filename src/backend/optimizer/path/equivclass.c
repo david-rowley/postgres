@@ -3079,62 +3079,13 @@ void
 setup_eclass_member_iterator(PlannerInfo *root, EquivalenceMemberIterator *it,
 							 EquivalenceClass *ec, Relids relids)
 {
+	it->root = root;
+	it->ec = ec;
+	it->relids = ec->ec_childmembers ? relids : NULL;
+	it->current_relid = -1;
+	it->current_list = ec->ec_members;
+	it->current_cell = list_head(it->current_list);
 
-	/*
-	 * Initialize the iterator.
-	 */
-	it->lists = list_make1(ec->ec_members);
-	it->current_list = list_head(it->lists);
-	it->current_cell = list_head(lfirst(it->current_list));
-
-	/* If there are no child members, there's nothing more to add */
-	if (ec->ec_childmembers != NULL)
-	{
-		/*
-		 * Only parent members are stored in ec_members. 'ec_members has only parent EquivalenceMembers. Child
-		 * members are translated using child RelOptInfos and stored in them. This
-		 * is done in add_child_rel_equivalences(),
-		 * add_child_join_rel_equivalences(), and
-		 * add_setop_child_rel_equivalences(). To retrieve child
-		 * EquivalenceMembers of some parent, we need to know which RelOptInfos
-		 * have such child members. We can know this information using indexes
-		 * like EquivalenceClassIndexes->joinrel_indexes.
-		 *
-		 * We use an inverted index mechanism to quickly iterate over the members
-		 * whose em_relids is a subset of the given 'relids'. The inverted indexes
-		 * store RelOptInfo indices that have EquivalenceMembers mentioning them.
-		 * Taking the union of these indexes allows to find which RelOptInfos have
-		 * the EquivalenceMember we are looking for. With this method, the
-		 * em_relids of the newly iterated ones overlap the given 'relids', but
-		 * may not be subsets, so the caller must check that they satisfy the
-		 * desired condition.
-		 *
-		 * The above comments are about joinrels, and for simple rels, this
-		 * mechanism is simpler. It is sufficient to simply add the child
-		 * EquivalenceMembers of RelOptInfo to the iterator.
-		 *
-		 * We need to perform these steps for each of the two types of relations.
-		 */
-
-		/*
-		 * Iterate over the given relids, adding child members for simple rels and
-		 * taking union indexes for join rels.
-		 */
-		int i = -1;
-		while ((i = bms_next_member(relids, i)) >= 0)
-		{
-			RelOptInfo *child_rel;
-			ListCell *lc;
-
-			/*
-			 * If this relation is a parent, we don't have to do anything.
-			 */
-			if (root->append_rel_array[i] == NULL)
-				continue;
-
-			it->lists = lappend(it->lists, ec->ec_childmembers[i]);
-		}
-	}
 }
 
 /*
@@ -3150,32 +3101,50 @@ eclass_member_iterator_next(EquivalenceMemberIterator *it)
 
 	while (it->current_list != NULL)
 	{
+nextcell:
 		while (it->current_cell != NULL)
 		{
 			em = lfirst_node(EquivalenceMember, it->current_cell);
-			it->current_cell = lnext(lfirst(it->current_list), it->current_cell);
-			goto out;
+			it->current_cell = lnext(it->current_list, it->current_cell);
+			goto end;
 		}
-		if (it->lists != NIL)
+
+		/* Search for the next list to return members from */
+		while ((it->current_relid = bms_next_member(it->relids, it->current_relid)) > 0)
 		{
-			it->current_list = lnext(it->lists, it->current_list);
-			if (it->current_list != NULL)
-				it->current_cell = list_head(lfirst(it->current_list));
+			/* Skip relids for RELOPT_BASEREL */
+			/*
+			 * XXX things should work fine without this check, the check below will
+			 * simply find the ec_childmembers list to be empty and skip to the next
+			 * relid
+			 */
+			if (it->root->append_rel_array[it->current_relid] == NULL)
+				continue;
+
+			it->current_list = it->ec->ec_childmembers[it->current_relid];
+
+			/* if there are members in this list, use it */
+			if (it->current_list != NIL)
+			{
+				/* point current_cell to the head of this list */
+				it->current_cell = list_head(it->current_list);
+				goto nextcell;
+			}
 		}
+		goto end;
 	}
 
-out:
+end:
 	return em;
 }
 
 /*
  * dispose_eclass_member_iterator
- *	  Free memory allocated by the iterator.
+ *	  Free any memory allocated by the iterator.
  */
 void
 dispose_eclass_member_iterator(EquivalenceMemberIterator *it)
 {
-	list_free(it->lists);
 }
 
 
