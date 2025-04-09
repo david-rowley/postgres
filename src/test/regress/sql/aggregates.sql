@@ -634,6 +634,26 @@ select sum(two order by two) from tenk1;
 reset enable_presorted_aggregate;
 
 --
+-- Test cases with FILTER clause
+--
+
+-- Ensure we presort when the aggregate contains plain Vars
+explain (costs off)
+select sum(reltuples order by reltuples) filter (where reltuples >= 0)
+from pg_class;
+
+-- Ensure we presort when there's an implicit cast on a Var
+explain (costs off)
+select string_agg(distinct relname, ',') filter (where relname like 'pg%')
+from pg_class;
+
+-- Ensure we don't presort when the aggregate's argument contains an
+-- explicit cast.
+explain (costs off)
+select string_agg(distinct relname::varchar(10), ',') filter (where relname like 'pg%')
+from pg_class;
+
+--
 -- Test combinations of DISTINCT and/or ORDER BY
 --
 

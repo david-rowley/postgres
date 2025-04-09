@@ -143,7 +143,10 @@ For example:
     {1 2},{2 3},{3 4}
     {1 2 3},{2 3 4}
     {1 2 3 4}
-    (other possibilities will be excluded for lack of join clauses)
+    (other possibilities will be excluded for lack of join clauses
+    (technically EquivalenceClasses do allow derived join clauses to exist for
+    this case, but for simplicity of this example, we ignore that fact for
+    now))
 
     SELECT  *
     FROM    tab1, tab2, tab3, tab4
