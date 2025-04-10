@@ -129,7 +129,8 @@ typedef struct PgStat_BackendSubEntry
  *
  * tuples_inserted/updated/deleted/hot_updated/newpage_updated count attempted
  * actions, regardless of whether the transaction committed.  delta_live_tuples,
- * delta_dead_tuples, and changed_tuples are set depending on commit or abort.
+ * delta_dead_tuples, changed_tuples, and commited_inserts are set depending on
+ * commit or abort.
  * Note that delta_live_tuples and delta_dead_tuples can be negative!
  * ----------
  */
@@ -150,6 +151,7 @@ typedef struct PgStat_TableCounts
 	PgStat_Counter delta_live_tuples;
 	PgStat_Counter delta_dead_tuples;
 	PgStat_Counter changed_tuples;
+	PgStat_Counter commited_inserts;
 
 	PgStat_Counter blocks_fetched;
 	PgStat_Counter blocks_hit;

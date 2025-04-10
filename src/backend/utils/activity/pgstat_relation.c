@@ -586,6 +586,7 @@ AtEOXact_PgStat_Relations(PgStat_SubXactStatus *xact_state, bool isCommit)
 			tabstat->counts.changed_tuples +=
 				trans->tuples_inserted + trans->tuples_updated +
 				trans->tuples_deleted;
+			tabstat->counts.commited_inserts += trans->tuples_inserted;
 		}
 		else
 		{
@@ -868,7 +869,7 @@ pgstat_relation_flush_cb(PgStat_EntryRef *entry_ref, bool nowait)
 	tabentry->live_tuples += lstats->counts.delta_live_tuples;
 	tabentry->dead_tuples += lstats->counts.delta_dead_tuples;
 	tabentry->mod_since_analyze += lstats->counts.changed_tuples;
-	tabentry->ins_since_vacuum += lstats->counts.tuples_inserted;
+	tabentry->ins_since_vacuum += lstats->counts.commited_inserts;
 	tabentry->blocks_fetched += lstats->counts.blocks_fetched;
 	tabentry->blocks_hit += lstats->counts.blocks_hit;
 
