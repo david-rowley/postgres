@@ -86,6 +86,14 @@ struct XidCache
  */
 extern PGDLLIMPORT int FastPathLockGroupsPerBackend;
 
+/*
+ * Define the maximum number of fast-path locking groups per backend.
+ * This must be a power-of-two value.  The actual number of fast-path
+ * locks calculated in InitializeFastPathLocks() based on max_locks_per_xact.
+ * 1024 is an arbitrary limit (matching max_locks_per_xact = 16k).  Values
+ * over 1024 are unlikely to be beneficial - there are bottlenecks we'll hit
+ * way before that.
+ */
 #define		FP_LOCK_GROUPS_PER_BACKEND_MAX	1024
 #define		FP_LOCK_SLOTS_PER_GROUP		16	/* don't change */
 #define		FastPathLockSlotsPerBackend() \

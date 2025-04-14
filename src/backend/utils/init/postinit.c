@@ -575,13 +575,6 @@ InitializeMaxBackends(void)
  *
  * This must be called after modules have had the chance to alter GUCs in
  * shared_preload_libraries and before shared memory size is determined.
- *
- * The default max_locks_per_xact=64 means 4 groups by default.
- *
- * We allow anything between 1 and 1024 groups, with the usual power-of-2
- * logic. The 1 is the "old" size with only 16 slots, 1024 is an arbitrary
- * limit (matching max_locks_per_xact = 16k). Values over 1024 are unlikely
- * to be beneficial - there are bottlenecks we'll hit way before that.
  */
 void
 InitializeFastPathLocks(void)
@@ -589,19 +582,25 @@ InitializeFastPathLocks(void)
 	/* Should be initialized only once. */
 	Assert(FastPathLockGroupsPerBackend == 0);
 
-	/* we need at least one group */
-	FastPathLockGroupsPerBackend = 1;
+	/*
+	 * Figure out the value for FastPathLockGroupsPerBackend.  We want a
+	 * power-of-two value based off of max_locks_per_xact divided by
+	 * FP_LOCK_SLOTS_PER_GROUP.
+	 *
+	 * FP_LOCK_SLOTS_PER_GROUP is always a power-of-two value and a power of
+	 * two divided by a power of two is still a power of two.  Ensure we never
+	 * go below 1.  Technically the minimum value for max_locks_per_xact is 10
+	 * and the next power of two for that is 16, so we shouldn't ever go below
+	 * 1, but for paranoia's sake, we explicitly clamp the value at 1 because
+	 * 0 isn't a valid value for FastPathLockGroupsPerBackend.
+	 */
+	FastPathLockGroupsPerBackend =
+		Max(Min(pg_nextpower2_32(max_locks_per_xact) / FP_LOCK_SLOTS_PER_GROUP,
+				FP_LOCK_GROUPS_PER_BACKEND_MAX), 1);
 
-	while (FastPathLockGroupsPerBackend < FP_LOCK_GROUPS_PER_BACKEND_MAX)
-	{
-		/* stop once we exceed max_locks_per_xact */
-		if (FastPathLockSlotsPerBackend() >= max_locks_per_xact)
-			break;
-
-		FastPathLockGroupsPerBackend *= 2;
-	}
-
-	Assert(FastPathLockGroupsPerBackend <= FP_LOCK_GROUPS_PER_BACKEND_MAX);
+	/* Validate we did get a power-of-two */
+	Assert(FastPathLockGroupsPerBackend ==
+		   pg_nextpower2_32(FastPathLockGroupsPerBackend));
 }
 
 /*
