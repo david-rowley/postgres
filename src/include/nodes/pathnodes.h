@@ -2140,6 +2140,7 @@ typedef struct MemoizePath
 								 * if unknown */
 	double		est_unique_keys;	/* Estimated number of distinct memoization keys,
 								 * used for cache size evaluation. Kept for EXPLAIN */
+	double		hit_ratio;		/* Estimated cache hit ratio. Kept for EXPLAIN */
 } MemoizePath;
 
 /*

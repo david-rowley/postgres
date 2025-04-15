@@ -1069,6 +1069,9 @@ typedef struct Memoize
 	 * used for cache size evaluation. Kept for EXPLAIN
 	 */
 	double		est_unique_keys;
+
+	/* Estimated cache hit ratio. Kept for EXPLAIN */
+	double		hit_ratio;
 } Memoize;
 
 /* ----------------

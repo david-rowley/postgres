@@ -3633,14 +3633,16 @@ show_memoize_info(MemoizeState *mstate, List *ancestors, ExplainState *es)
 		if (es->format == EXPLAIN_FORMAT_TEXT)
 		{
 			ExplainIndentText(es);
-			appendStringInfo(es->str, "Estimates: capacity=%u distinct keys=%.0f\n",
+			appendStringInfo(es->str, "Estimates: capacity=%u distinct keys=%.0f hit ratio=%.2f%%\n",
 							((Memoize *) plan)->est_entries,
-							((Memoize *) plan)->est_unique_keys);
+							((Memoize *) plan)->est_unique_keys,
+							((Memoize *) plan)->hit_ratio * 100.0);
 		}
 		else
 		{
 			ExplainPropertyUInteger("Estimated Capacity", "", ((Memoize *) plan)->est_entries, es);
 			ExplainPropertyFloat("Estimated Distinct Lookup Keys", "", ((Memoize *) plan)->est_unique_keys, 0, es);
+			ExplainPropertyFloat("Estimated Hit Ratio", "", ((Memoize *) plan)->hit_ratio * 100.0, 2, es);
 		}
 	}
 
