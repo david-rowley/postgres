@@ -1072,6 +1072,9 @@ typedef struct Memoize
 
 	/* Estimated cache hit ratio. Kept for EXPLAIN */
 	double		hit_ratio;
+
+	/* Estimated number of lookups. Kept for EXPLAIN */
+	double		lookups;
 } Memoize;
 
 /* ----------------
