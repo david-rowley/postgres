@@ -1702,6 +1702,12 @@ create_memoize_path(PlannerInfo *root, RelOptInfo *rel, Path *subpath,
 	pathnode->path.disabled_nodes = subpath->disabled_nodes;
 
 	/*
+	 * Estimated number of distinct memoization keys,
+	 * computed using estimate_num_groups()
+	 */
+	pathnode->est_unique_keys = 0;
+
+	/*
 	 * Add a small additional charge for caching the first entry.  All the
 	 * harder calculations for rescans are performed in cost_memoize_rescan().
 	 */

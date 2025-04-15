@@ -2138,6 +2138,8 @@ typedef struct MemoizePath
 	uint32		est_entries;	/* The maximum number of entries that the
 								 * planner expects will fit in the cache, or 0
 								 * if unknown */
+	double		est_unique_keys;	/* Estimated number of distinct memoization keys,
+								 * used for cache size evaluation. Kept for EXPLAIN */
 } MemoizePath;
 
 /*

@@ -1063,6 +1063,12 @@ typedef struct Memoize
 
 	/* paramids from param_exprs */
 	Bitmapset  *keyparamids;
+
+	/*
+	 * Estimated number of distinct memoization keys,
+	 * used for cache size evaluation. Kept for EXPLAIN
+	 */
+	double		est_unique_keys;
 } Memoize;
 
 /* ----------------

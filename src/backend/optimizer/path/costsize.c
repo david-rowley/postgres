@@ -2604,6 +2604,9 @@ cost_memoize_rescan(PlannerInfo *root, MemoizePath *mpath,
 	mpath->est_entries = Min(Min(ndistinct, est_cache_entries),
 							 PG_UINT32_MAX);
 
+	/* Remember ndistinct for a potential EXPLAIN later */
+	mpath->est_unique_keys = ndistinct;
+
 	/*
 	 * When the number of distinct parameter values is above the amount we can
 	 * store in the cache, then we'll have to evict some entries from the

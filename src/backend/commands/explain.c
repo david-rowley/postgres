@@ -3628,6 +3628,22 @@ show_memoize_info(MemoizeState *mstate, List *ancestors, ExplainState *es)
 	ExplainPropertyText("Cache Key", keystr.data, es);
 	ExplainPropertyText("Cache Mode", mstate->binary_mode ? "binary" : "logical", es);
 
+	if (es->costs)
+	{
+		if (es->format == EXPLAIN_FORMAT_TEXT)
+		{
+			ExplainIndentText(es);
+			appendStringInfo(es->str, "Estimates: capacity=%u distinct keys=%.0f\n",
+							((Memoize *) plan)->est_entries,
+							((Memoize *) plan)->est_unique_keys);
+		}
+		else
+		{
+			ExplainPropertyUInteger("Estimated Capacity", "", ((Memoize *) plan)->est_entries, es);
+			ExplainPropertyFloat("Estimated Distinct Lookup Keys", "", ((Memoize *) plan)->est_unique_keys, 0, es);
+		}
+	}
+
 	pfree(keystr.data);
 
 	if (!es->analyze)
