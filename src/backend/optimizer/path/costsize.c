@@ -3553,6 +3553,7 @@ initial_cost_mergejoin(PlannerInfo *root, JoinCostWorkspace *workspace,
 					   List *mergeclauses,
 					   Path *outer_path, Path *inner_path,
 					   List *outersortkeys, List *innersortkeys,
+					   int npresorted_outer, int npresorted_inner,
 					   JoinPathExtraData *extra)
 {
 	int			disabled_nodes;
@@ -3681,29 +3682,14 @@ initial_cost_mergejoin(PlannerInfo *root, JoinCostWorkspace *workspace,
 
 	/* cost of source data */
 
-	if (outersortkeys)			/* do we need to sort outer? */
+	/* do we need to sort outer? */
+	if (npresorted_outer < list_length(outersortkeys))
 	{
-		bool		use_incremental_sort = false;
-		int			presorted_keys;
-
 		/*
-		 * We choose to use incremental sort if it is enabled and there are
-		 * presorted keys; otherwise we use full sort.
+		 * Do a full sort if there's no presorted keys or if incremental sort
+		 * is disabled.
 		 */
-		if (enable_incremental_sort)
-		{
-			bool		is_sorted PG_USED_FOR_ASSERTS_ONLY;
-
-			is_sorted = pathkeys_count_contained_in(outersortkeys,
-													outer_path->pathkeys,
-													&presorted_keys);
-			Assert(!is_sorted);
-
-			if (presorted_keys > 0)
-				use_incremental_sort = true;
-		}
-
-		if (!use_incremental_sort)
+		if (npresorted_outer == 0 || !enable_incremental_sort)
 		{
 			cost_sort(&sort_path,
 					  root,
@@ -3721,7 +3707,7 @@ initial_cost_mergejoin(PlannerInfo *root, JoinCostWorkspace *workspace,
 			cost_incremental_sort(&sort_path,
 								  root,
 								  outersortkeys,
-								  presorted_keys,
+								  npresorted_outer,
 								  outer_path->disabled_nodes,
 								  outer_path->startup_cost,
 								  outer_path->total_cost,
@@ -3748,7 +3734,8 @@ initial_cost_mergejoin(PlannerInfo *root, JoinCostWorkspace *workspace,
 			* (outerendsel - outerstartsel);
 	}
 
-	if (innersortkeys)			/* do we need to sort inner? */
+	/* do we need to sort inner? */
+	if (npresorted_inner < list_length(innersortkeys))
 	{
 		/*
 		 * We do not consider incremental sort for inner path, because

@@ -179,7 +179,9 @@ extern MergePath *create_mergejoin_path(PlannerInfo *root,
 										Relids required_outer,
 										List *mergeclauses,
 										List *outersortkeys,
-										List *innersortkeys);
+										List *innersortkeys,
+										int npresorted_outer,
+										int npresorted_inner);
 
 extern HashPath *create_hashjoin_path(PlannerInfo *root,
 									  RelOptInfo *joinrel,

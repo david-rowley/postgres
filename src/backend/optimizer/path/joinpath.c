@@ -1043,6 +1043,8 @@ try_mergejoin_path(PlannerInfo *root,
 {
 	Relids		required_outer;
 	JoinCostWorkspace workspace;
+	int npresorted_outer = 0;
+	int npresorted_inner = 0;
 
 	if (is_partial)
 	{
@@ -1084,16 +1086,16 @@ try_mergejoin_path(PlannerInfo *root,
 		return;
 	}
 
-	/*
-	 * If the given paths are already well enough ordered, we can skip doing
-	 * an explicit sort.
-	 */
-	if (outersortkeys &&
-		pathkeys_contained_in(outersortkeys, outer_path->pathkeys))
-		outersortkeys = NIL;
-	if (innersortkeys &&
-		pathkeys_contained_in(innersortkeys, inner_path->pathkeys))
-		innersortkeys = NIL;
+	/* Figure out the sorted-ness of each input path. */
+	if (outersortkeys)
+		(void) pathkeys_count_contained_in(outersortkeys,
+										   outer_path->pathkeys,
+										   &npresorted_outer);
+
+	if (innersortkeys)
+		(void) pathkeys_count_contained_in(innersortkeys,
+										   inner_path->pathkeys,
+										   &npresorted_inner);
 
 	/*
 	 * See comments in try_nestloop_path().
@@ -1101,6 +1103,7 @@ try_mergejoin_path(PlannerInfo *root,
 	initial_cost_mergejoin(root, &workspace, jointype, mergeclauses,
 						   outer_path, inner_path,
 						   outersortkeys, innersortkeys,
+						   npresorted_outer, npresorted_inner,
 						   extra);
 
 	if (add_path_precheck(joinrel, workspace.disabled_nodes,
@@ -1120,7 +1123,9 @@ try_mergejoin_path(PlannerInfo *root,
 									   required_outer,
 									   mergeclauses,
 									   outersortkeys,
-									   innersortkeys));
+									   innersortkeys,
+									   npresorted_outer,
+									   npresorted_inner));
 	}
 	else
 	{
@@ -1147,6 +1152,8 @@ try_partial_mergejoin_path(PlannerInfo *root,
 						   JoinPathExtraData *extra)
 {
 	JoinCostWorkspace workspace;
+	int npresorted_outer = 0;
+	int npresorted_inner = 0;
 
 	/*
 	 * See comments in try_partial_hashjoin_path().
@@ -1156,16 +1163,15 @@ try_partial_mergejoin_path(PlannerInfo *root,
 	if (!bms_is_empty(PATH_REQ_OUTER(inner_path)))
 		return;
 
-	/*
-	 * If the given paths are already well enough ordered, we can skip doing
-	 * an explicit sort.
-	 */
-	if (outersortkeys &&
-		pathkeys_contained_in(outersortkeys, outer_path->pathkeys))
-		outersortkeys = NIL;
-	if (innersortkeys &&
-		pathkeys_contained_in(innersortkeys, inner_path->pathkeys))
-		innersortkeys = NIL;
+	/* Figure out the sorted-ness of each input path. */
+	if (outersortkeys)
+		(void) pathkeys_count_contained_in(outersortkeys,
+										   outer_path->pathkeys,
+										   &npresorted_outer);
+	if (innersortkeys)
+		(void) pathkeys_count_contained_in(innersortkeys,
+										   inner_path->pathkeys,
+										   &npresorted_inner);
 
 	/*
 	 * See comments in try_partial_nestloop_path().
@@ -1173,6 +1179,7 @@ try_partial_mergejoin_path(PlannerInfo *root,
 	initial_cost_mergejoin(root, &workspace, jointype, mergeclauses,
 						   outer_path, inner_path,
 						   outersortkeys, innersortkeys,
+						   npresorted_outer, npresorted_inner,
 						   extra);
 
 	if (!add_partial_path_precheck(joinrel, workspace.disabled_nodes,
@@ -1193,7 +1200,9 @@ try_partial_mergejoin_path(PlannerInfo *root,
 										   NULL,
 										   mergeclauses,
 										   outersortkeys,
-										   innersortkeys));
+										   innersortkeys,
+										   npresorted_outer,
+										   npresorted_inner));
 }
 
 /*

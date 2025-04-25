@@ -2248,10 +2248,11 @@ typedef struct NestPath
  * appear only in the parent's restrict list, and must be checked by a
  * qpqual at execution time.
  *
- * outersortkeys (resp. innersortkeys) is NIL if the outer path
- * (resp. inner path) is already ordered appropriately for the
- * mergejoin.  If it is not NIL then it is a PathKeys list describing
- * the ordering that must be created by an explicit Sort node.
+ * outersortkeys / innersortkeys are lists of PathKeys describing the
+ * sort order required by the corresponding side of the Merge Join.
+
+ * npresorted_outer and npresorted_inner denote the number of outersortkeys /
+ * innersortkeys the corresponding input path is sorted by.
  *
  * skip_mark_restore is true if the executor need not do mark/restore calls.
  * Mark/restore overhead is usually required, but can be skipped if we know
@@ -2270,6 +2271,8 @@ typedef struct MergePath
 	List	   *path_mergeclauses;	/* join clauses to be used for merge */
 	List	   *outersortkeys;	/* keys for explicit sort, if any */
 	List	   *innersortkeys;	/* keys for explicit sort, if any */
+	int			npresorted_outer;	/* number of presorted outer pathkeys */
+	int			npresorted_inner;	/* number of presorted inner pathkeys */
 	bool		skip_mark_restore;	/* can executor skip mark/restore? */
 	bool		materialize_inner;	/* add Materialize to inner? */
 } MergePath;

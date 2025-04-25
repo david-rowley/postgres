@@ -4515,33 +4515,15 @@ create_mergejoin_plan(PlannerInfo *root,
 										best_path->jpath.outerjoinpath->parent->relids);
 
 	/*
-	 * Create explicit sort nodes for the outer and inner paths if necessary.
+	 * Inject a Sort or Incremental Sort if the outer input isn't correctly
+	 * sorted already.
 	 */
-	if (best_path->outersortkeys)
+	if (best_path->npresorted_outer < list_length(best_path->outersortkeys))
 	{
 		Relids		outer_relids = outer_path->parent->relids;
 		Plan	   *sort_plan;
-		bool		use_incremental_sort = false;
-		int			presorted_keys;
 
-		/*
-		 * We choose to use incremental sort if it is enabled and there are
-		 * presorted keys; otherwise we use full sort.
-		 */
-		if (enable_incremental_sort)
-		{
-			bool		is_sorted PG_USED_FOR_ASSERTS_ONLY;
-
-			is_sorted = pathkeys_count_contained_in(best_path->outersortkeys,
-													outer_path->pathkeys,
-													&presorted_keys);
-			Assert(!is_sorted);
-
-			if (presorted_keys > 0)
-				use_incremental_sort = true;
-		}
-
-		if (!use_incremental_sort)
+		if (best_path->npresorted_outer == 0 || !enable_incremental_sort)
 		{
 			sort_plan = (Plan *)
 				make_sort_from_pathkeys(outer_plan,
@@ -4556,7 +4538,7 @@ create_mergejoin_plan(PlannerInfo *root,
 				make_incrementalsort_from_pathkeys(outer_plan,
 												   best_path->outersortkeys,
 												   outer_relids,
-												   presorted_keys);
+												   best_path->npresorted_outer);
 
 			label_incrementalsort_with_costsize(root,
 												(IncrementalSort *) sort_plan,
@@ -4570,7 +4552,7 @@ create_mergejoin_plan(PlannerInfo *root,
 	else
 		outerpathkeys = best_path->jpath.outerjoinpath->pathkeys;
 
-	if (best_path->innersortkeys)
+	if (best_path->npresorted_inner < list_length(best_path->innersortkeys))
 	{
 		/*
 		 * We do not consider incremental sort for inner path, because

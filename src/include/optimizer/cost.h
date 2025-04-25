@@ -160,6 +160,7 @@ extern void initial_cost_mergejoin(PlannerInfo *root,
 								   List *mergeclauses,
 								   Path *outer_path, Path *inner_path,
 								   List *outersortkeys, List *innersortkeys,
+								   int npresorted_outer, int npresorted_inner,
 								   JoinPathExtraData *extra);
 extern void final_cost_mergejoin(PlannerInfo *root, MergePath *path,
 								 JoinCostWorkspace *workspace,

@@ -2640,7 +2640,9 @@ create_mergejoin_path(PlannerInfo *root,
 					  Relids required_outer,
 					  List *mergeclauses,
 					  List *outersortkeys,
-					  List *innersortkeys)
+					  List *innersortkeys,
+					  int npresorted_outer,
+					  int npresorted_inner)
 {
 	MergePath  *pathnode = makeNode(MergePath);
 
@@ -2669,6 +2671,8 @@ create_mergejoin_path(PlannerInfo *root,
 	pathnode->path_mergeclauses = mergeclauses;
 	pathnode->outersortkeys = outersortkeys;
 	pathnode->innersortkeys = innersortkeys;
+	pathnode->npresorted_outer = npresorted_outer;
+	pathnode->npresorted_inner = npresorted_inner;
 	/* pathnode->skip_mark_restore will be set by final_cost_mergejoin */
 	/* pathnode->materialize_inner will be set by final_cost_mergejoin */
 
