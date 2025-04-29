@@ -1358,6 +1358,8 @@ is_dummy_rel(RelOptInfo *rel)
 			path = ((ProjectionPath *) path)->subpath;
 		else if (IsA(path, ProjectSetPath))
 			path = ((ProjectSetPath *) path)->subpath;
+		else if (IsA(path, SubqueryScanPath))
+			path = ((SubqueryScanPath *) path)->subpath;
 		else
 			break;
 	}

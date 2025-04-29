@@ -1132,6 +1132,98 @@ generate_nonunion_paths(SetOperationStmt *op, PlannerInfo *root,
 								 bms_union(lrel->relids, rrel->relids));
 	result_rel->reltarget = create_pathtarget(root, tlist);
 
+	/* Check for provably empty rels and add short-circuit paths. */
+	if (op->op == SETOP_INTERSECT)
+	{
+		/*
+		 * For INTERSECT, if either input is a dummy rel then we can mark the
+		 * result_rel as dummy since intersecting with an empty relation can
+		 * never yield any results.
+		 */
+		if (is_dummy_rel(lrel) || is_dummy_rel(rrel))
+		{
+			mark_dummy_rel(result_rel);
+			return result_rel;
+		}
+	}
+	else
+	{
+		/*
+		 * For EXCEPTS, if the left side is dummy then there's no need to
+		 * inspect the righthand side as scanning the right isn't going to
+		 * make the left any more empty.
+		 */
+		if (is_dummy_rel(lrel))
+		{
+			mark_dummy_rel(result_rel);
+			return result_rel;
+		}
+
+		/*
+		 * If the right side is dummy then we can simply scan the left side
+		 * without any set operations as it's guaranteed that no rows exist to
+		 * remove.
+		 */
+		if (is_dummy_rel(rrel))
+		{
+			if (op->all)
+			{
+				add_path(result_rel, lpath);
+				return result_rel;
+			}
+			else
+			{
+				if (can_hash)
+				{
+					/* Hashed aggregate plan --- no sort needed */
+					path = (Path *) create_agg_path(root,
+													result_rel,
+													lpath,
+													create_pathtarget(root, tlist),
+													AGG_HASHED,
+													AGGSPLIT_SIMPLE,
+													groupList,
+													NIL,
+													NULL,
+													dLeftGroups);
+					add_path(result_rel, path);
+				}
+
+				if (can_sort)
+				{
+					path = get_cheapest_path_for_pathkeys(lrel->pathlist,
+														   nonunion_pathkeys,
+														   NULL,
+														   TOTAL_COST,
+														   false);
+
+					if (path)
+					{
+						path = (Path *) create_upper_unique_path(root,
+																 result_rel,
+																 path,
+																 list_length(path->pathkeys),
+																 dLeftGroups);
+						add_path(result_rel, path);
+					}
+
+					path = (Path *) create_sort_path(root, result_rel, lpath,
+													 make_pathkeys_for_sortclauses(root, groupList, tlist),
+													 -1.0);
+					path = (Path *)
+							create_upper_unique_path(root,
+													 result_rel,
+													 path,
+													 list_length(path->pathkeys),
+													 dLeftGroups);
+					add_path(result_rel, path);
+
+				}
+				return result_rel;
+			}
+		}
+	}
+
 	/*
 	 * Estimate number of distinct groups that we'll need hashtable entries
 	 * for; this is the size of the left-hand input for EXCEPT, or the smaller
