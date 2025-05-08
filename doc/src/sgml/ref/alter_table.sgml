@@ -366,7 +366,7 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       <link linkend="sql-analyze"><command>ANALYZE</command></link>
       operations.  <literal>n_distinct</literal> affects the statistics for the table
       itself, while <literal>n_distinct_inherited</literal> affects the statistics
-      gathered for the table plus its inheritance children.  When set to a
+      gathered which include the descendant tables of partitioned tables and inheritance parent tables.  When set to a
       positive value, <command>ANALYZE</command> will assume that the column contains
       exactly the specified number of distinct nonnull values.  When set to a
       negative value, which must be greater
