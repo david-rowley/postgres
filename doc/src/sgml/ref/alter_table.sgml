@@ -364,9 +364,19 @@ WITH ( MODULUS <replaceable class="parameter">numeric_literal</replaceable>, REM
       <literal>n_distinct_inherited</literal>, which override the
       number-of-distinct-values estimates made by subsequent
       <link linkend="sql-analyze"><command>ANALYZE</command></link>
-      operations.  <literal>n_distinct</literal> affects the statistics for the table
-      itself, while <literal>n_distinct_inherited</literal> affects the statistics
-      gathered which include the descendant tables of partitioned tables and inheritance parent tables.  When set to a
+      operations.  For inheritance parent tables, <command>ANALYZE</command>
+      operates on two row sample sets, one which includes sample rows from
+      only the inheritance parent itself, and the other set also contains a
+      proportionate set of sample rows from the table's inheritance children.
+      Adjusting <literal>n_distinct</literal> affects the statistics for the
+      sample without the inheritance children, while
+      <literal>n_distinct_inherited</literal> affects the statistics which
+      include the child sample rows.  For partitioned tables,
+      <command>ANALYZE</command> does not gather statistics for the
+      partitioned table itself as it never contains rows, so
+      <literal>n_distinct_inherited</literal> must be used for partitioned
+      tables.  For non-partitioned and non-inheritance parent tables, only
+      <literal>n_distinct</literal> is applicable.  When set to a
       positive value, <command>ANALYZE</command> will assume that the column contains
       exactly the specified number of distinct nonnull values.  When set to a
       negative value, which must be greater
