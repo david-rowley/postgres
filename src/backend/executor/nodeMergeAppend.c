@@ -140,6 +140,7 @@ ExecInitMergeAppend(MergeAppend *node, EState *estate, int eflags)
 	{
 		Plan	   *initNode = (Plan *) list_nth(node->mergeplans, i);
 
+		/* XXX this looks more tricky to move */
 		mergeplanstates[j++] = ExecInitNode(initNode, estate, eflags);
 	}
 

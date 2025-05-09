@@ -213,6 +213,7 @@ ExecInitAppend(Append *node, EState *estate, int eflags)
 		if (i >= node->first_partial_plan && j < firstvalid)
 			firstvalid = j;
 
+		/* XXX worth fixing? */
 		appendplanstates[j++] = ExecInitNode(initNode, estate, eflags);
 	}
 

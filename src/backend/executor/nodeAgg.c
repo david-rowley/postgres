@@ -3283,6 +3283,7 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	AggStatePerTrans pertransstates;
 	AggStatePerGroup *pergroups;
 	Plan	   *outerPlan;
+	PlanState  *outerState;
 	ExprContext *econtext;
 	TupleDesc	scanDesc;
 	int			max_aggno;
@@ -3306,12 +3307,24 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
 
 	/*
+	 * Initialize child nodes.
+	 *
+	 * If we are doing a hashed aggregation then the child plan does not need
+	 * to handle REWIND efficiently; see ExecReScanAgg.
+	 */
+	if (node->aggstrategy == AGG_HASHED)
+		eflags &= ~EXEC_FLAG_REWIND;
+	outerPlan = outerPlan(node);
+	outerState = ExecInitNode(outerPlan, estate, eflags);
+
+	/*
 	 * create state structure
 	 */
 	aggstate = makeNode(AggState);
 	aggstate->ss.ps.plan = (Plan *) node;
 	aggstate->ss.ps.state = estate;
 	aggstate->ss.ps.ExecProcNode = ExecAgg;
+	outerPlanState(aggstate) = outerState;
 
 	aggstate->aggs = NIL;
 	aggstate->numaggs = 0;
@@ -3398,17 +3411,6 @@ ExecInitAgg(Agg *node, EState *estate, int eflags)
 		hash_create_memory(aggstate);
 
 	ExecAssignExprContext(estate, &aggstate->ss.ps);
-
-	/*
-	 * Initialize child nodes.
-	 *
-	 * If we are doing a hashed aggregation then the child plan does not need
-	 * to handle REWIND efficiently; see ExecReScanAgg.
-	 */
-	if (node->aggstrategy == AGG_HASHED)
-		eflags &= ~EXEC_FLAG_REWIND;
-	outerPlan = outerPlan(node);
-	outerPlanState(aggstate) = ExecInitNode(outerPlan, estate, eflags);
 
 	/*
 	 * initialize source tuple type.

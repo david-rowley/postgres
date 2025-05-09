@@ -292,11 +292,17 @@ ExecInitLockRows(LockRows *node, EState *estate, int eflags)
 {
 	LockRowsState *lrstate;
 	Plan	   *outerPlan = outerPlan(node);
+	PlanState  *outerState;
 	List	   *epq_arowmarks;
 	ListCell   *lc;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & EXEC_FLAG_MARK));
+
+	/*
+	 * initialize outer plan
+	 */
+	outerState = ExecInitNode(outerPlan, estate, eflags);
 
 	/*
 	 * create state structure
@@ -305,6 +311,7 @@ ExecInitLockRows(LockRows *node, EState *estate, int eflags)
 	lrstate->ps.plan = (Plan *) node;
 	lrstate->ps.state = estate;
 	lrstate->ps.ExecProcNode = ExecLockRows;
+	outerPlanState(lrstate) = outerState;
 
 	/*
 	 * Miscellaneous initialization
@@ -317,11 +324,6 @@ ExecInitLockRows(LockRows *node, EState *estate, int eflags)
 	 * Initialize result type.
 	 */
 	ExecInitResultTypeTL(&lrstate->ps);
-
-	/*
-	 * then initialize outer plan
-	 */
-	outerPlanState(lrstate) = ExecInitNode(outerPlan, estate, eflags);
 
 	/* node returns unmodified slots from the outer plan */
 	lrstate->ps.resultopsset = true;
