@@ -572,9 +572,22 @@ SetOpState *
 ExecInitSetOp(SetOp *node, EState *estate, int eflags)
 {
 	SetOpState *setopstate;
+	PlanState *outerState;
+	PlanState *innerState;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
+
+	/*
+	 * initialize child nodes
+	 *
+	 * If we are hashing then the child plans do not need to handle REWIND
+	 * efficiently; see ExecReScanSetOp.
+	 */
+	if (node->strategy == SETOP_HASHED)
+		eflags &= ~EXEC_FLAG_REWIND;
+	outerState = ExecInitNode(outerPlan(node), estate, eflags);
+	innerState = ExecInitNode(innerPlan(node), estate, eflags);
 
 	/*
 	 * create state structure
@@ -588,6 +601,9 @@ ExecInitSetOp(SetOp *node, EState *estate, int eflags)
 	setopstate->numOutput = 0;
 	setopstate->numCols = node->numCols;
 	setopstate->need_init = true;
+
+	outerPlanState(setopstate) = outerState;
+	innerPlanState(setopstate) = innerState;
 
 	/*
 	 * create expression context
@@ -606,17 +622,6 @@ ExecInitSetOp(SetOp *node, EState *estate, int eflags)
 			BumpContextCreate(CurrentMemoryContext,
 							  "SetOp hashed tuples",
 							  ALLOCSET_DEFAULT_SIZES);
-
-	/*
-	 * initialize child nodes
-	 *
-	 * If we are hashing then the child plans do not need to handle REWIND
-	 * efficiently; see ExecReScanSetOp.
-	 */
-	if (node->strategy == SETOP_HASHED)
-		eflags &= ~EXEC_FLAG_REWIND;
-	outerPlanState(setopstate) = ExecInitNode(outerPlan(node), estate, eflags);
-	innerPlanState(setopstate) = ExecInitNode(innerPlan(node), estate, eflags);
 
 	/*
 	 * Initialize locally-allocated slots.  In hashed mode, we just need a

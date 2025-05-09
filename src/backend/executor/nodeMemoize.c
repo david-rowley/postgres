@@ -952,8 +952,9 @@ ExecMemoize(PlanState *pstate)
 MemoizeState *
 ExecInitMemoize(Memoize *node, EState *estate, int eflags)
 {
-	MemoizeState *mstate = makeNode(MemoizeState);
+	MemoizeState *mstate;
 	Plan	   *outerNode;
+	PlanState  *outerState;
 	int			i;
 	int			nkeys;
 	Oid		   *eqfuncoids;
@@ -961,9 +962,14 @@ ExecInitMemoize(Memoize *node, EState *estate, int eflags)
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
 
+	outerNode = outerPlan(node);
+	outerState = ExecInitNode(outerNode, estate, eflags);
+
+	mstate = makeNode(MemoizeState);
 	mstate->ss.ps.plan = (Plan *) node;
 	mstate->ss.ps.state = estate;
 	mstate->ss.ps.ExecProcNode = ExecMemoize;
+	outerPlanState(mstate) = outerState;
 
 	/*
 	 * Miscellaneous initialization
@@ -971,9 +977,6 @@ ExecInitMemoize(Memoize *node, EState *estate, int eflags)
 	 * create expression context for node
 	 */
 	ExecAssignExprContext(estate, &mstate->ss.ps);
-
-	outerNode = outerPlan(node);
-	outerPlanState(mstate) = ExecInitNode(outerNode, estate, eflags);
 
 	/*
 	 * Initialize return slot and type. No need to initialize projection info

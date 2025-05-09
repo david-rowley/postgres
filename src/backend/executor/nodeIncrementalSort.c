@@ -976,6 +976,7 @@ IncrementalSortState *
 ExecInitIncrementalSort(IncrementalSort *node, EState *estate, int eflags)
 {
 	IncrementalSortState *incrsortstate;
+	PlanState *outerState;
 
 	SO_printf("ExecInitIncrementalSort: initializing sort node\n");
 
@@ -986,11 +987,22 @@ ExecInitIncrementalSort(IncrementalSort *node, EState *estate, int eflags)
 	 */
 	Assert((eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)) == 0);
 
+	/*
+	 * Initialize outer plan
+	 *
+	 * Incremental sort does not support backwards scans and mark/restore, so
+	 * we don't bother removing the flags from eflags here. We allow passing a
+	 * REWIND flag, because although incremental sort can't use it, the child
+	 * nodes may be able to do something more useful.
+	 */
+	outerState = ExecInitNode(outerPlan(node), estate, eflags);
+
 	/* Initialize state structure. */
 	incrsortstate = makeNode(IncrementalSortState);
 	incrsortstate->ss.ps.plan = (Plan *) node;
 	incrsortstate->ss.ps.state = estate;
 	incrsortstate->ss.ps.ExecProcNode = ExecIncrementalSort;
+	outerPlanState(incrsortstate) = outerState;
 
 	incrsortstate->execution_status = INCSORT_LOADFULLSORT;
 	incrsortstate->bounded = false;
@@ -1030,16 +1042,6 @@ ExecInitIncrementalSort(IncrementalSort *node, EState *estate, int eflags)
 	 * Sort nodes don't initialize their ExprContexts because they never call
 	 * ExecQual or ExecProject.
 	 */
-
-	/*
-	 * Initialize child nodes.
-	 *
-	 * Incremental sort does not support backwards scans and mark/restore, so
-	 * we don't bother removing the flags from eflags here. We allow passing a
-	 * REWIND flag, because although incremental sort can't use it, the child
-	 * nodes may be able to do something more useful.
-	 */
-	outerPlanState(incrsortstate) = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * Initialize scan slot and type.

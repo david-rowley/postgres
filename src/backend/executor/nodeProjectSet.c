@@ -227,11 +227,17 @@ ProjectSetState *
 ExecInitProjectSet(ProjectSet *node, EState *estate, int eflags)
 {
 	ProjectSetState *state;
+	PlanState *outerState;
 	ListCell   *lc;
 	int			off;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_MARK | EXEC_FLAG_BACKWARD)));
+
+	/*
+	 * initialize outer plan
+	 */
+	outerState = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * create state structure
@@ -240,6 +246,7 @@ ExecInitProjectSet(ProjectSet *node, EState *estate, int eflags)
 	state->ps.plan = (Plan *) node;
 	state->ps.state = estate;
 	state->ps.ExecProcNode = ExecProjectSet;
+	outerPlanState(state) = outerState;
 
 	state->pending_srf_tuples = false;
 
@@ -249,11 +256,6 @@ ExecInitProjectSet(ProjectSet *node, EState *estate, int eflags)
 	 * create expression context for node
 	 */
 	ExecAssignExprContext(estate, &state->ps);
-
-	/*
-	 * initialize child nodes
-	 */
-	outerPlanState(state) = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * we don't use inner plan

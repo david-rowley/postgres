@@ -89,6 +89,12 @@ ExecInitBitmapOr(BitmapOr *node, EState *estate, int eflags)
 	foreach(l, node->bitmapplans)
 	{
 		initNode = (Plan *) lfirst(l);
+
+		/*
+		 * XXX to fix this we'd need to allocate this array before
+		 * makeNode(BitmapOrState), so there's still defragmentation in the
+		 * memory allocations.
+		 */
 		bitmapplanstates[i] = ExecInitNode(initNode, estate, eflags);
 		i++;
 	}

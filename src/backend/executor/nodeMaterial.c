@@ -165,6 +165,20 @@ ExecInitMaterial(Material *node, EState *estate, int eflags)
 {
 	MaterialState *matstate;
 	Plan	   *outerPlan;
+	PlanState  *outerState;
+	int			outer_eflags;
+
+
+	/*
+	 * initialize outer plan
+	 *
+	 * We shield the child node from the need to support REWIND, BACKWARD, or
+	 * MARK/RESTORE.
+	 */
+	outer_eflags = eflags & ~(EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK);
+
+	outerPlan = outerPlan(node);
+	outerState = ExecInitNode(outerPlan, estate, outer_eflags);
 
 	/*
 	 * create state structure
@@ -173,6 +187,7 @@ ExecInitMaterial(Material *node, EState *estate, int eflags)
 	matstate->ss.ps.plan = (Plan *) node;
 	matstate->ss.ps.state = estate;
 	matstate->ss.ps.ExecProcNode = ExecMaterial;
+	outerPlanState(matstate) = outerState;
 
 	/*
 	 * We must have a tuplestore buffering the subplan output to do backward
@@ -203,17 +218,6 @@ ExecInitMaterial(Material *node, EState *estate, int eflags)
 	 * Materialization nodes don't need ExprContexts because they never call
 	 * ExecQual or ExecProject.
 	 */
-
-	/*
-	 * initialize child nodes
-	 *
-	 * We shield the child node from the need to support REWIND, BACKWARD, or
-	 * MARK/RESTORE.
-	 */
-	eflags &= ~(EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK);
-
-	outerPlan = outerPlan(node);
-	outerPlanState(matstate) = ExecInitNode(outerPlan, estate, eflags);
 
 	/*
 	 * Initialize result type and slot. No need to initialize projection info

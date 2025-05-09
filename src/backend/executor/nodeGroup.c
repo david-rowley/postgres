@@ -161,10 +161,16 @@ GroupState *
 ExecInitGroup(Group *node, EState *estate, int eflags)
 {
 	GroupState *grpstate;
+	PlanState *outerState;
 	const TupleTableSlotOps *tts_ops;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
+
+	/*
+	 * initialize outer plan
+	 */
+	outerState = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * create state structure
@@ -173,17 +179,13 @@ ExecInitGroup(Group *node, EState *estate, int eflags)
 	grpstate->ss.ps.plan = (Plan *) node;
 	grpstate->ss.ps.state = estate;
 	grpstate->ss.ps.ExecProcNode = ExecGroup;
+	outerPlanState(grpstate) = outerState;
 	grpstate->grp_done = false;
 
 	/*
 	 * create expression context
 	 */
 	ExecAssignExprContext(estate, &grpstate->ss.ps);
-
-	/*
-	 * initialize child nodes
-	 */
-	outerPlanState(grpstate) = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * Initialize scan slot and type.

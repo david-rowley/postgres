@@ -262,27 +262,14 @@ NestLoopState *
 ExecInitNestLoop(NestLoop *node, EState *estate, int eflags)
 {
 	NestLoopState *nlstate;
+	PlanState *outerPlan;
+	PlanState *innerPlan;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
 
 	NL1_printf("ExecInitNestLoop: %s\n",
 			   "initializing node");
-
-	/*
-	 * create state structure
-	 */
-	nlstate = makeNode(NestLoopState);
-	nlstate->js.ps.plan = (Plan *) node;
-	nlstate->js.ps.state = estate;
-	nlstate->js.ps.ExecProcNode = ExecNestLoop;
-
-	/*
-	 * Miscellaneous initialization
-	 *
-	 * create expression context for node
-	 */
-	ExecAssignExprContext(estate, &nlstate->js.ps);
 
 	/*
 	 * initialize child nodes
@@ -293,12 +280,30 @@ ExecInitNestLoop(NestLoop *node, EState *estate, int eflags)
 	 * inner child, because it will always be rescanned with fresh parameter
 	 * values.
 	 */
-	outerPlanState(nlstate) = ExecInitNode(outerPlan(node), estate, eflags);
+	outerPlan = ExecInitNode(outerPlan(node), estate, eflags);
 	if (node->nestParams == NIL)
 		eflags |= EXEC_FLAG_REWIND;
 	else
 		eflags &= ~EXEC_FLAG_REWIND;
-	innerPlanState(nlstate) = ExecInitNode(innerPlan(node), estate, eflags);
+	innerPlan = ExecInitNode(innerPlan(node), estate, eflags);
+
+	/*
+	 * create state structure
+	 */
+	nlstate = makeNode(NestLoopState);
+	nlstate->js.ps.plan = (Plan *) node;
+	nlstate->js.ps.state = estate;
+	nlstate->js.ps.ExecProcNode = ExecNestLoop;
+	outerPlanState(nlstate) = outerPlan;
+	innerPlanState(nlstate) = innerPlan;
+
+
+	/*
+	 * Miscellaneous initialization
+	 *
+	 * create expression context for node
+	 */
+	ExecAssignExprContext(estate, &nlstate->js.ps);
 
 	/*
 	 * Initialize result slot, type and projection.

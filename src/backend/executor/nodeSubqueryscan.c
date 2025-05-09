@@ -97,6 +97,7 @@ SubqueryScanState *
 ExecInitSubqueryScan(SubqueryScan *node, EState *estate, int eflags)
 {
 	SubqueryScanState *subquerystate;
+	PlanState		  *subplan;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & EXEC_FLAG_MARK));
@@ -106,12 +107,18 @@ ExecInitSubqueryScan(SubqueryScan *node, EState *estate, int eflags)
 	Assert(innerPlan(node) == NULL);
 
 	/*
+	 * initialize subquery
+	 */
+	subplan = ExecInitNode(node->subplan, estate, eflags);
+
+	/*
 	 * create state structure
 	 */
 	subquerystate = makeNode(SubqueryScanState);
 	subquerystate->ss.ps.plan = (Plan *) node;
 	subquerystate->ss.ps.state = estate;
 	subquerystate->ss.ps.ExecProcNode = ExecSubqueryScan;
+	subquerystate->subplan = subplan;
 
 	/*
 	 * Miscellaneous initialization
@@ -119,11 +126,6 @@ ExecInitSubqueryScan(SubqueryScan *node, EState *estate, int eflags)
 	 * create expression context for node
 	 */
 	ExecAssignExprContext(estate, &subquerystate->ss.ps);
-
-	/*
-	 * initialize subquery
-	 */
-	subquerystate->subplan = ExecInitNode(node->subplan, estate, eflags);
 
 	/*
 	 * Initialize scan slot and type (needed by ExecAssignScanProjectionInfo)

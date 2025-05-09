@@ -221,10 +221,22 @@ SortState *
 ExecInitSort(Sort *node, EState *estate, int eflags)
 {
 	SortState  *sortstate;
+	PlanState  *outerPlan;
 	TupleDesc	outerTupDesc;
+	int			outer_eflags;
 
 	SO1_printf("ExecInitSort: %s\n",
 			   "initializing sort node");
+
+	/*
+	 * initialize outer plan
+	 *
+	 * We shield the child node from the need to support REWIND, BACKWARD, or
+	 * MARK/RESTORE.
+	 */
+	outer_eflags = eflags & ~(EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK);
+
+	outerPlan = ExecInitNode(outerPlan(node), estate, outer_eflags);
 
 	/*
 	 * create state structure
@@ -233,6 +245,7 @@ ExecInitSort(Sort *node, EState *estate, int eflags)
 	sortstate->ss.ps.plan = (Plan *) node;
 	sortstate->ss.ps.state = estate;
 	sortstate->ss.ps.ExecProcNode = ExecSort;
+	outerPlanState(sortstate) = outerPlan;
 
 	/*
 	 * We must have random access to the sort output to do backward scan or
@@ -253,16 +266,6 @@ ExecInitSort(Sort *node, EState *estate, int eflags)
 	 * Sort nodes don't initialize their ExprContexts because they never call
 	 * ExecQual or ExecProject.
 	 */
-
-	/*
-	 * initialize child nodes
-	 *
-	 * We shield the child node from the need to support REWIND, BACKWARD, or
-	 * MARK/RESTORE.
-	 */
-	eflags &= ~(EXEC_FLAG_REWIND | EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK);
-
-	outerPlanState(sortstate) = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * Initialize scan slot and type.

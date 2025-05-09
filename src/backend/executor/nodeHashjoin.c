@@ -716,6 +716,8 @@ HashJoinState *
 ExecInitHashJoin(HashJoin *node, EState *estate, int eflags)
 {
 	HashJoinState *hjstate;
+	PlanState *outerState;
+	PlanState *innerState;
 	Plan	   *outerNode;
 	Hash	   *hashNode;
 	TupleDesc	outerDesc,
@@ -724,6 +726,19 @@ ExecInitHashJoin(HashJoin *node, EState *estate, int eflags)
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
+
+	/*
+	 * initialize child nodes
+	 *
+	 * Note: we could suppress the REWIND flag for the inner input, which
+	 * would amount to betting that the hash will be a single batch.  Not
+	 * clear if this would be a win or not.
+	 */
+	outerNode = outerPlan(node);
+	hashNode = (Hash *) innerPlan(node);
+
+	outerState = ExecInitNode(outerNode, estate, eflags);
+	innerState = ExecInitNode((Plan *) hashNode, estate, eflags);
 
 	/*
 	 * create state structure
@@ -738,6 +753,11 @@ ExecInitHashJoin(HashJoin *node, EState *estate, int eflags)
 	 * managed to launch a parallel query.
 	 */
 	hjstate->js.ps.ExecProcNode = ExecHashJoin;
+	outerPlanState(hjstate) = outerState;
+	innerPlanState(hjstate) = innerState;
+	outerDesc = ExecGetResultType(outerPlanState(hjstate));
+	innerDesc = ExecGetResultType(innerPlanState(hjstate));
+
 	hjstate->js.jointype = node->join.jointype;
 
 	/*
@@ -746,21 +766,6 @@ ExecInitHashJoin(HashJoin *node, EState *estate, int eflags)
 	 * create expression context for node
 	 */
 	ExecAssignExprContext(estate, &hjstate->js.ps);
-
-	/*
-	 * initialize child nodes
-	 *
-	 * Note: we could suppress the REWIND flag for the inner input, which
-	 * would amount to betting that the hash will be a single batch.  Not
-	 * clear if this would be a win or not.
-	 */
-	outerNode = outerPlan(node);
-	hashNode = (Hash *) innerPlan(node);
-
-	outerPlanState(hjstate) = ExecInitNode(outerNode, estate, eflags);
-	outerDesc = ExecGetResultType(outerPlanState(hjstate));
-	innerPlanState(hjstate) = ExecInitNode((Plan *) hashNode, estate, eflags);
-	innerDesc = ExecGetResultType(innerPlanState(hjstate));
 
 	/*
 	 * Initialize result slot, type and projection.

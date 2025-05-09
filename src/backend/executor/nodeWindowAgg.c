@@ -2499,6 +2499,7 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 {
 	WindowAggState *winstate;
 	Plan	   *outerPlan;
+	PlanState  *outerState;
 	ExprContext *econtext;
 	ExprContext *tmpcontext;
 	WindowStatePerFunc perfunc;
@@ -2515,12 +2516,19 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
 
 	/*
+	 * initialize outer plan
+	 */
+	outerPlan = outerPlan(node);
+	outerState = ExecInitNode(outerPlan, estate, eflags);
+
+	/*
 	 * create state structure
 	 */
 	winstate = makeNode(WindowAggState);
 	winstate->ss.ps.plan = (Plan *) node;
 	winstate->ss.ps.state = estate;
 	winstate->ss.ps.ExecProcNode = ExecWindowAgg;
+	outerPlanState(winstate) = outerState;
 
 	/* copy frame options to state node for easy access */
 	winstate->frameOptions = frameOptions;
@@ -2578,12 +2586,6 @@ ExecInitWindowAgg(WindowAgg *node, EState *estate, int eflags)
 
 	/* remember if we're the top-window or we are below the top-window */
 	winstate->top_window = node->topWindow;
-
-	/*
-	 * initialize child nodes
-	 */
-	outerPlan = outerPlan(node);
-	outerPlanState(winstate) = ExecInitNode(outerPlan, estate, eflags);
 
 	/*
 	 * initialize source tuple type (which is also the tuple type that we'll

@@ -1439,6 +1439,8 @@ MergeJoinState *
 ExecInitMergeJoin(MergeJoin *node, EState *estate, int eflags)
 {
 	MergeJoinState *mergestate;
+	PlanState *outerState;
+	PlanState *innerState;
 	TupleDesc	outerDesc,
 				innerDesc;
 	const TupleTableSlotOps *innerOps;
@@ -1450,6 +1452,21 @@ ExecInitMergeJoin(MergeJoin *node, EState *estate, int eflags)
 			   "initializing node");
 
 	/*
+	 * initialize child nodes
+	 *
+	 * inner child must support MARK/RESTORE, unless we have detected that we
+	 * don't need that.  Note that skip_mark_restore must never be set if
+	 * there are non-mergeclause joinquals, since the logic wouldn't work.
+	 */
+	Assert(node->join.joinqual == NIL || !node->skip_mark_restore);
+
+	outerState = ExecInitNode(outerPlan(node), estate, eflags);
+	innerState = ExecInitNode(innerPlan(node), estate,
+											  node->skip_mark_restore ?
+											  eflags :
+											  (eflags | EXEC_FLAG_MARK));
+
+	/*
 	 * create state structure
 	 */
 	mergestate = makeNode(MergeJoinState);
@@ -1458,6 +1475,12 @@ ExecInitMergeJoin(MergeJoin *node, EState *estate, int eflags)
 	mergestate->js.ps.ExecProcNode = ExecMergeJoin;
 	mergestate->js.jointype = node->join.jointype;
 	mergestate->mj_ConstFalseJoin = false;
+	mergestate->mj_SkipMarkRestore = node->skip_mark_restore;
+	outerPlanState(mergestate) = outerState;
+	innerPlanState(mergestate) = innerState;
+
+	outerDesc = ExecGetResultType(outerPlanState(mergestate));
+	innerDesc = ExecGetResultType(innerPlanState(mergestate));
 
 	/*
 	 * Miscellaneous initialization
@@ -1473,24 +1496,6 @@ ExecInitMergeJoin(MergeJoin *node, EState *estate, int eflags)
 	 */
 	mergestate->mj_OuterEContext = CreateExprContext(estate);
 	mergestate->mj_InnerEContext = CreateExprContext(estate);
-
-	/*
-	 * initialize child nodes
-	 *
-	 * inner child must support MARK/RESTORE, unless we have detected that we
-	 * don't need that.  Note that skip_mark_restore must never be set if
-	 * there are non-mergeclause joinquals, since the logic wouldn't work.
-	 */
-	Assert(node->join.joinqual == NIL || !node->skip_mark_restore);
-	mergestate->mj_SkipMarkRestore = node->skip_mark_restore;
-
-	outerPlanState(mergestate) = ExecInitNode(outerPlan(node), estate, eflags);
-	outerDesc = ExecGetResultType(outerPlanState(mergestate));
-	innerPlanState(mergestate) = ExecInitNode(innerPlan(node), estate,
-											  mergestate->mj_SkipMarkRestore ?
-											  eflags :
-											  (eflags | EXEC_FLAG_MARK));
-	innerDesc = ExecGetResultType(innerPlanState(mergestate));
 
 	/*
 	 * For certain types of inner child nodes, it is advantageous to issue

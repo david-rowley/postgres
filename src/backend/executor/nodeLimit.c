@@ -448,9 +448,16 @@ ExecInitLimit(Limit *node, EState *estate, int eflags)
 {
 	LimitState *limitstate;
 	Plan	   *outerPlan;
+	PlanState  *outerState;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & EXEC_FLAG_MARK));
+
+	/*
+	 * initialize outer plan
+	 */
+	outerPlan = outerPlan(node);
+	outerState = ExecInitNode(outerPlan, estate, eflags);
 
 	/*
 	 * create state structure
@@ -459,6 +466,7 @@ ExecInitLimit(Limit *node, EState *estate, int eflags)
 	limitstate->ps.plan = (Plan *) node;
 	limitstate->ps.state = estate;
 	limitstate->ps.ExecProcNode = ExecLimit;
+	outerPlanState(limitstate) = outerState;
 
 	limitstate->lstate = LIMIT_INITIAL;
 
@@ -469,12 +477,6 @@ ExecInitLimit(Limit *node, EState *estate, int eflags)
 	 * exprcontext anyway to evaluate the limit/offset parameters in.
 	 */
 	ExecAssignExprContext(estate, &limitstate->ps);
-
-	/*
-	 * initialize outer plan
-	 */
-	outerPlan = outerPlan(node);
-	outerPlanState(limitstate) = ExecInitNode(outerPlan, estate, eflags);
 
 	/*
 	 * initialize child expressions

@@ -180,10 +180,16 @@ ResultState *
 ExecInitResult(Result *node, EState *estate, int eflags)
 {
 	ResultState *resstate;
+	PlanState	*outerState;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_MARK | EXEC_FLAG_BACKWARD)) ||
 		   outerPlan(node) != NULL);
+
+	/*
+	 * initialize outer plan
+	 */
+	outerState = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * create state structure
@@ -192,6 +198,7 @@ ExecInitResult(Result *node, EState *estate, int eflags)
 	resstate->ps.plan = (Plan *) node;
 	resstate->ps.state = estate;
 	resstate->ps.ExecProcNode = ExecResult;
+	outerPlanState(resstate) = outerState;
 
 	resstate->rs_done = false;
 	resstate->rs_checkqual = (node->resconstantqual != NULL);
@@ -202,11 +209,6 @@ ExecInitResult(Result *node, EState *estate, int eflags)
 	 * create expression context for node
 	 */
 	ExecAssignExprContext(estate, &resstate->ps);
-
-	/*
-	 * initialize child nodes
-	 */
-	outerPlanState(resstate) = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * we don't use inner plan

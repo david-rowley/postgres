@@ -369,9 +369,15 @@ HashState *
 ExecInitHash(Hash *node, EState *estate, int eflags)
 {
 	HashState  *hashstate;
+	PlanState *outerState;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
+
+	/*
+	 * initialize outer plan
+	 */
+	outerState = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * create state structure
@@ -380,6 +386,7 @@ ExecInitHash(Hash *node, EState *estate, int eflags)
 	hashstate->ps.plan = (Plan *) node;
 	hashstate->ps.state = estate;
 	hashstate->ps.ExecProcNode = ExecHash;
+	outerPlanState(hashstate) = outerState;
 	/* delay building hashtable until ExecHashTableCreate() in executor run */
 	hashstate->hashtable = NULL;
 
@@ -389,11 +396,6 @@ ExecInitHash(Hash *node, EState *estate, int eflags)
 	 * create expression context for node
 	 */
 	ExecAssignExprContext(estate, &hashstate->ps);
-
-	/*
-	 * initialize child nodes
-	 */
-	outerPlanState(hashstate) = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * initialize our result slot and type. No need to build projection

@@ -179,10 +179,18 @@ RecursiveUnionState *
 ExecInitRecursiveUnion(RecursiveUnion *node, EState *estate, int eflags)
 {
 	RecursiveUnionState *rustate;
+	PlanState	   *outerState;
+	PlanState	   *innerState;
 	ParamExecData *prmdata;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
+
+	/*
+	 * initialize child nodes
+	 */
+	outerState = ExecInitNode(outerPlan(node), estate, eflags);
+	innerState = ExecInitNode(innerPlan(node), estate, eflags);
 
 	/*
 	 * create state structure
@@ -197,6 +205,8 @@ ExecInitRecursiveUnion(RecursiveUnion *node, EState *estate, int eflags)
 	rustate->hashtable = NULL;
 	rustate->tempContext = NULL;
 	rustate->tuplesContext = NULL;
+	outerPlanState(rustate) = outerState;
+	innerPlanState(rustate) = innerState;
 
 	/* initialize processing state */
 	rustate->recursing = false;
@@ -252,12 +262,6 @@ ExecInitRecursiveUnion(RecursiveUnion *node, EState *estate, int eflags)
 	 * to be valid.)
 	 */
 	rustate->ps.ps_ProjInfo = NULL;
-
-	/*
-	 * initialize child nodes
-	 */
-	outerPlanState(rustate) = ExecInitNode(outerPlan(node), estate, eflags);
-	innerPlanState(rustate) = ExecInitNode(innerPlan(node), estate, eflags);
 
 	/*
 	 * If hashing, precompute fmgr lookup data for inner loop, and create the

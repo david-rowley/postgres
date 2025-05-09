@@ -69,10 +69,17 @@ ExecInitGatherMerge(GatherMerge *node, EState *estate, int eflags)
 {
 	GatherMergeState *gm_state;
 	Plan	   *outerNode;
+	PlanState *outerState;
 	TupleDesc	tupDesc;
 
 	/* Gather merge node doesn't have innerPlan node. */
 	Assert(innerPlan(node) == NULL);
+
+	/*
+	 * initialize outer plan
+	 */
+	outerNode = outerPlan(node);
+	outerState = ExecInitNode(outerNode, estate, eflags);
 
 	/*
 	 * create state structure
@@ -81,6 +88,7 @@ ExecInitGatherMerge(GatherMerge *node, EState *estate, int eflags)
 	gm_state->ps.plan = (Plan *) node;
 	gm_state->ps.state = estate;
 	gm_state->ps.ExecProcNode = ExecGatherMerge;
+	outerPlanState(gm_state) = outerState;
 
 	gm_state->initialized = false;
 	gm_state->gm_initialized = false;
@@ -98,12 +106,6 @@ ExecInitGatherMerge(GatherMerge *node, EState *estate, int eflags)
 	 * to do it in the child node).
 	 */
 	Assert(!node->plan.qual);
-
-	/*
-	 * now initialize outer plan
-	 */
-	outerNode = outerPlan(node);
-	outerPlanState(gm_state) = ExecInitNode(outerNode, estate, eflags);
 
 	/*
 	 * Leader may access ExecProcNode result directly (if

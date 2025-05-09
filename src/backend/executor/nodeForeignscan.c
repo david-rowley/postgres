@@ -142,6 +142,7 @@ ForeignScanState *
 ExecInitForeignScan(ForeignScan *node, EState *estate, int eflags)
 {
 	ForeignScanState *scanstate;
+	PlanState		*outerState = NULL;
 	Relation	currentRelation = NULL;
 	Index		scanrelid = node->scan.scanrelid;
 	int			tlistvarno;
@@ -150,6 +151,10 @@ ExecInitForeignScan(ForeignScan *node, EState *estate, int eflags)
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
 
+	/* Initialize any outer plan. */
+	if (outerPlan(node))
+		outerState = ExecInitNode(outerPlan(node), estate, eflags);
+
 	/*
 	 * create state structure
 	 */
@@ -157,6 +162,7 @@ ExecInitForeignScan(ForeignScan *node, EState *estate, int eflags)
 	scanstate->ss.ps.plan = (Plan *) node;
 	scanstate->ss.ps.state = estate;
 	scanstate->ss.ps.ExecProcNode = ExecForeignScan;
+	outerPlanState(scanstate) = outerState;
 
 	/*
 	 * Miscellaneous initialization
@@ -259,10 +265,6 @@ ExecInitForeignScan(ForeignScan *node, EState *estate, int eflags)
 		scanstate->resultRelInfo = estate->es_result_relations[node->resultRelation - 1];
 	}
 
-	/* Initialize any outer plan. */
-	if (outerPlan(node))
-		outerPlanState(scanstate) =
-			ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * Tell the FDW to initialize the scan.
