@@ -333,6 +333,7 @@ BitmapHeapScanState *
 ExecInitBitmapHeapScan(BitmapHeapScan *node, EState *estate, int eflags)
 {
 	BitmapHeapScanState *scanstate;
+	PlanState *outerState;
 	Relation	currentRelation;
 
 	/* check for unsupported flags */
@@ -345,12 +346,18 @@ ExecInitBitmapHeapScan(BitmapHeapScan *node, EState *estate, int eflags)
 	Assert(IsMVCCSnapshot(estate->es_snapshot));
 
 	/*
+	 * initialize child nodes
+	 */
+	outerState = ExecInitNode(outerPlan(node), estate, eflags);
+
+	/*
 	 * create state structure
 	 */
 	scanstate = makeNode(BitmapHeapScanState);
 	scanstate->ss.ps.plan = (Plan *) node;
 	scanstate->ss.ps.state = estate;
 	scanstate->ss.ps.ExecProcNode = ExecBitmapHeapScan;
+	outerPlanState(scanstate) = outerState;
 
 	scanstate->tbm = NULL;
 
@@ -372,11 +379,6 @@ ExecInitBitmapHeapScan(BitmapHeapScan *node, EState *estate, int eflags)
 	 * open the scan relation
 	 */
 	currentRelation = ExecOpenScanRelation(estate, node->scan.scanrelid, eflags);
-
-	/*
-	 * initialize child nodes
-	 */
-	outerPlanState(scanstate) = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * get the scan type from the relation descriptor.

@@ -54,10 +54,17 @@ ExecInitGather(Gather *node, EState *estate, int eflags)
 {
 	GatherState *gatherstate;
 	Plan	   *outerNode;
+	PlanState *outerState;
 	TupleDesc	tupDesc;
 
 	/* Gather node doesn't have innerPlan node. */
 	Assert(innerPlan(node) == NULL);
+
+	/*
+	 * initialize outer plan
+	 */
+	outerNode = outerPlan(node);
+	outerState = ExecInitNode(outerNode, estate, eflags);
 
 	/*
 	 * create state structure
@@ -66,6 +73,8 @@ ExecInitGather(Gather *node, EState *estate, int eflags)
 	gatherstate->ps.plan = (Plan *) node;
 	gatherstate->ps.state = estate;
 	gatherstate->ps.ExecProcNode = ExecGather;
+	outerPlanState(gatherstate) = outerState;
+	tupDesc = ExecGetResultType(outerPlanState(gatherstate));
 
 	gatherstate->initialized = false;
 	gatherstate->need_to_scan_locally =
@@ -78,13 +87,6 @@ ExecInitGather(Gather *node, EState *estate, int eflags)
 	 * create expression context for node
 	 */
 	ExecAssignExprContext(estate, &gatherstate->ps);
-
-	/*
-	 * now initialize outer plan
-	 */
-	outerNode = outerPlan(node);
-	outerPlanState(gatherstate) = ExecInitNode(outerNode, estate, eflags);
-	tupDesc = ExecGetResultType(outerPlanState(gatherstate));
 
 	/*
 	 * Leader may access ExecProcNode result directly (if

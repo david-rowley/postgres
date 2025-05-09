@@ -114,9 +114,15 @@ UniqueState *
 ExecInitUnique(Unique *node, EState *estate, int eflags)
 {
 	UniqueState *uniquestate;
+	PlanState   *outerState;
 
 	/* check for unsupported flags */
 	Assert(!(eflags & (EXEC_FLAG_BACKWARD | EXEC_FLAG_MARK)));
+
+	/*
+	 * initialize outer plan
+	 */
+	outerState = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * create state structure
@@ -125,16 +131,12 @@ ExecInitUnique(Unique *node, EState *estate, int eflags)
 	uniquestate->ps.plan = (Plan *) node;
 	uniquestate->ps.state = estate;
 	uniquestate->ps.ExecProcNode = ExecUnique;
+	outerPlanState(uniquestate) = outerState;
 
 	/*
 	 * create expression context
 	 */
 	ExecAssignExprContext(estate, &uniquestate->ps);
-
-	/*
-	 * then initialize outer plan
-	 */
-	outerPlanState(uniquestate) = ExecInitNode(outerPlan(node), estate, eflags);
 
 	/*
 	 * Initialize result slot and type. Unique nodes do no projections, so
