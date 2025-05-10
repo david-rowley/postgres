@@ -673,7 +673,7 @@ heap_page_prune_and_freeze(Relation relation, Buffer buffer,
 	do_freeze = false;
 	if (prstate.freeze)
 	{
-		if (prstate.pagefrz.freeze_required)
+		if (1)//prstate.pagefrz.freeze_required)
 		{
 			/*
 			 * heap_prepare_freeze_tuple indicated that at least one XID/MXID
@@ -789,7 +789,12 @@ heap_page_prune_and_freeze(Relation relation, Buffer buffer,
 		}
 
 		if (do_freeze)
-			heap_freeze_prepared_tuples(buffer, prstate.frozen, prstate.nfrozen);
+		{
+			PageRepairFragmentation(page);
+			heap_freeze_prepared_tuples(buffer,
+										prstate.frozen,
+										prstate.nfrozen);
+		}
 
 		MarkBufferDirty(buffer);
 
