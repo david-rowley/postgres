@@ -435,6 +435,16 @@ get_relation_info(PlannerInfo *root, Oid relationObjectId, bool inhparent,
 			if (info->indpred && varno != 1)
 				ChangeVarNodes((Node *) info->indpred, 1, varno, 0);
 
+			info->indpred = (List *) eval_const_expressions(root, (Node *) info->indpred);
+			if (list_length(info->indpred) == 1 &&
+				IsA(linitial(info->indpred), Const))
+			{
+				Const *expr = (Const *) linitial(info->indpred);
+
+				if (!expr->constisnull && DatumGetBool(expr->constvalue))
+					info->indpred = NIL;
+			}
+
 			/* Build targetlist using the completed indexprs data */
 			info->indextlist = build_index_tlist(root, info, relation);
 
