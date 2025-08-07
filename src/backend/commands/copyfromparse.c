@@ -670,8 +670,12 @@ CopyLoadInputBuf(CopyFromState cstate)
 		/* If we now have some unconverted data, try to convert it */
 		CopyConvertBuf(cstate);
 
-		/* If we now have some more input bytes ready, return them */
-		if (INPUT_BUF_BYTES(cstate) > nbytes)
+		/*
+		 * If we now have at least sizeof(Vector8) input bytes ready, return
+		 * them. This is beneficial for SIMD processing in the
+		 * CopyReadLineText() function.
+		 */
+		if (INPUT_BUF_BYTES(cstate) > nbytes + sizeof(Vector8))
 			return;
 
 		/*
@@ -1322,7 +1326,7 @@ CopyReadLineText(CopyFromState cstate, bool is_csv)
 		 * unsafe with the old v2 COPY protocol, but we don't support that
 		 * anymore.
 		 */
-		if (input_buf_ptr >= copy_buf_len || need_data)
+		if (input_buf_ptr + sizeof(Vector8) >= copy_buf_len || need_data)
 		{
 			REFILL_LINEBUF;
 
@@ -1345,21 +1349,22 @@ CopyReadLineText(CopyFromState cstate, bool is_csv)
 		}
 
 #ifndef USE_NO_SIMD
+
 		/*
-		 * SIMD instructions are used here to efficiently scan the input buffer
-		 * for special characters (e.g., newline, carriage return, quotes, or
-		 * escape characters). This approach significantly improves performance
-		 * compared to byte-by-byte iteration, especially for large input
-		 * buffers.
+		 * SIMD instructions are used here to efficiently scan the input
+		 * buffer for special characters (e.g., newline, carriage return,
+		 * quotes, or escape characters). This approach significantly improves
+		 * performance compared to byte-by-byte iteration, especially for
+		 * large input buffers.
 		 *
-		 * However, SIMD optimization cannot be applied in the following cases:
-		 * - Inside quoted fields, where escape sequences and closing quotes
-		 *   require sequential processing to handle correctly.
-		 * - When the remaining buffer size is smaller than the size of a SIMD
-		 *   vector register, as SIMD operations require processing data in
-		 *   fixed-size chunks.
+		 * However, SIMD optimization cannot be applied in the following
+		 * cases: - Inside quoted fields, where escape sequences and closing
+		 * quotes require sequential processing to handle correctly. - When
+		 * the remaining buffer size is smaller than the size of a SIMD vector
+		 * register, as SIMD operations require processing data in fixed-size
+		 * chunks.
 		 */
-		if (!in_quote && copy_buf_len - input_buf_ptr >= sizeof(Vector8))
+		if (copy_buf_len - input_buf_ptr >= sizeof(Vector8))
 		{
 			Vector8		chunk;
 			Vector8		match;
@@ -1388,13 +1393,15 @@ CopyReadLineText(CopyFromState cstate, bool is_csv)
 				 * Found a special character. Advance up to that point and let
 				 * the scalar code handle it.
 				 */
-				int advance = pg_rightmost_one_pos32(mask);
+				int			advance = pg_rightmost_one_pos32(mask);
+
 				input_buf_ptr += advance;
 			}
 			else
 			{
 				/* No special characters found, so skip the entire chunk */
 				input_buf_ptr += sizeof(Vector8);
+				last_was_esc = false;
 				continue;
 			}
 		}
@@ -1650,6 +1657,11 @@ CopyReadAttributesText(CopyFromState cstate)
 	char	   *cur_ptr;
 	char	   *line_end_ptr;
 
+#ifndef USE_NO_SIMD
+	Vector8		bs = vector8_broadcast('\\');
+	Vector8		delim = vector8_broadcast(delimc);
+#endif
+
 	/*
 	 * We need a special case for zero-column tables: check that the input
 	 * line is empty, and return.
@@ -1716,6 +1728,44 @@ CopyReadAttributesText(CopyFromState cstate)
 		for (;;)
 		{
 			char		c;
+
+#ifndef USE_NO_SIMD
+			if (line_end_ptr - cur_ptr >= sizeof(Vector8))
+			{
+				Vector8		chunk;
+				Vector8		match;
+				uint32		mask;
+
+				/* Load a chunk of data into a vector register */
+				vector8_load(&chunk, (const uint8 *) cur_ptr);
+
+				/* Create a mask of all special characters we need to stop at */
+				match = vector8_or(vector8_eq(chunk, bs), vector8_eq(chunk, delim));
+
+				/* Check if we found any special characters */
+				mask = vector8_highbit_mask(match);
+				if (mask != 0)
+				{
+					/*
+					 * Found a special character. Advance up to that point and
+					 * let the scalar code handle it.
+					 */
+					int			advance = pg_rightmost_one_pos32(mask);
+
+					memcpy(output_ptr, cur_ptr, advance);
+					output_ptr += advance;
+					cur_ptr += advance;
+				}
+				else
+				{
+					/* No special characters found, so skip the entire chunk */
+					memcpy(output_ptr, cur_ptr, sizeof(Vector8));
+					output_ptr += sizeof(Vector8);
+					cur_ptr += sizeof(Vector8);
+					continue;
+				}
+			}
+#endif
 
 			end_ptr = cur_ptr;
 			if (cur_ptr >= line_end_ptr)
@@ -1906,6 +1956,12 @@ CopyReadAttributesCSV(CopyFromState cstate)
 	char	   *cur_ptr;
 	char	   *line_end_ptr;
 
+#ifndef USE_NO_SIMD
+	Vector8		quote = vector8_broadcast(quotec);
+	Vector8		delim = vector8_broadcast(delimc);
+	Vector8		escape = vector8_broadcast(escapec);
+#endif
+
 	/*
 	 * We need a special case for zero-column tables: check that the input
 	 * line is empty, and return.
@@ -1972,6 +2028,50 @@ CopyReadAttributesCSV(CopyFromState cstate)
 			/* Not in quote */
 			for (;;)
 			{
+#ifndef USE_NO_SIMD
+				if (line_end_ptr - cur_ptr >= sizeof(Vector8))
+				{
+					Vector8		chunk;
+					Vector8		match;
+					uint32		mask;
+
+					/* Load a chunk of data into a vector register */
+					vector8_load(&chunk, (const uint8 *) cur_ptr);
+
+					/*
+					 * Create a mask of all special characters we need to stop
+					 * at
+					 */
+					match = vector8_or(vector8_eq(chunk, quote), vector8_eq(chunk, delim));
+
+					/* Check if we found any special characters */
+					mask = vector8_highbit_mask(match);
+					if (mask != 0)
+					{
+						/*
+						 * Found a special character. Advance up to that point
+						 * and let the scalar code handle it.
+						 */
+						int			advance = pg_rightmost_one_pos32(mask);
+
+						memcpy(output_ptr, cur_ptr, advance);
+						output_ptr += advance;
+						cur_ptr += advance;
+					}
+					else
+					{
+						/*
+						 * No special characters found, so skip the entire
+						 * chunk
+						 */
+						memcpy(output_ptr, cur_ptr, sizeof(Vector8));
+						output_ptr += sizeof(Vector8);
+						cur_ptr += sizeof(Vector8);
+						continue;
+					}
+				}
+#endif
+
 				end_ptr = cur_ptr;
 				if (cur_ptr >= line_end_ptr)
 					goto endfield;
@@ -1995,6 +2095,50 @@ CopyReadAttributesCSV(CopyFromState cstate)
 			/* In quote */
 			for (;;)
 			{
+#ifndef USE_NO_SIMD
+				if (line_end_ptr - cur_ptr >= sizeof(Vector8))
+				{
+					Vector8		chunk;
+					Vector8		match;
+					uint32		mask;
+
+					/* Load a chunk of data into a vector register */
+					vector8_load(&chunk, (const uint8 *) cur_ptr);
+
+					/*
+					 * Create a mask of all special characters we need to stop
+					 * at
+					 */
+					match = vector8_or(vector8_eq(chunk, quote), vector8_eq(chunk, escape));
+
+					/* Check if we found any special characters */
+					mask = vector8_highbit_mask(match);
+					if (mask != 0)
+					{
+						/*
+						 * Found a special character. Advance up to that point
+						 * and let the scalar code handle it.
+						 */
+						int			advance = pg_rightmost_one_pos32(mask);
+
+						memcpy(output_ptr, cur_ptr, advance);
+						output_ptr += advance;
+						cur_ptr += advance;
+					}
+					else
+					{
+						/*
+						 * No special characters found, so skip the entire
+						 * chunk
+						 */
+						memcpy(output_ptr, cur_ptr, sizeof(Vector8));
+						output_ptr += sizeof(Vector8);
+						cur_ptr += sizeof(Vector8);
+						continue;
+					}
+				}
+#endif
+
 				end_ptr = cur_ptr;
 				if (cur_ptr >= line_end_ptr)
 					ereport(ERROR,
