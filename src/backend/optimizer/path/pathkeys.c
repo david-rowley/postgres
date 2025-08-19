@@ -1161,7 +1161,7 @@ subquery_matches_pathkeys_recurse(SubqueryPathKeyMatchContext *ctx,
 			/*
 			 * The subquery pathkey must have been removed because it's redundant.
 			 * skip to the next query_pathkey.  We needn't check for matching
-			 * pk_strategy and pk_nulls_first as if the pathkey is redundant then
+			 * pk_cmptype and pk_nulls_first as if the pathkey is redundant then
 			 * there can only be at most 1 distinct value for this pathkey.
 			 */
 			continue;
@@ -1184,7 +1184,7 @@ subquery_matches_pathkeys_recurse(SubqueryPathKeyMatchContext *ctx,
 			 * don't care about the properties.
 			 */
 			if (!list_member(ctx->query_pathkeys_matched, pathkey) &&
-				(sub_pathkey->pk_strategy != pathkey->pk_strategy ||
+				(sub_pathkey->pk_cmptype != pathkey->pk_cmptype ||
 				sub_pathkey->pk_nulls_first != pathkey->pk_nulls_first))
 				return false;
 
