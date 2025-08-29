@@ -490,6 +490,16 @@ heap_setscanlimits(TableScanDesc sscan, BlockNumber startBlk, BlockNumber numBlk
 
 	scan->rs_startblock = startBlk;
 	scan->rs_numblocks = numBlks;
+
+	/* set the limits in the ParallelBlockTableScanDesc, when present as leader */
+	if (scan->rs_base.rs_parallel != NULL && !IsParallelWorker())
+	{
+		ParallelBlockTableScanDesc bpscan;
+
+		bpscan = (ParallelBlockTableScanDesc) scan->rs_base.rs_parallel;
+		bpscan->phs_startblock = startBlk;
+		bpscan->phs_numblock = numBlks;
+	}
 }
 
 /*

@@ -250,9 +250,13 @@ TidRangeNext(TidRangeScanState *node)
 		}
 		else
 		{
-			/* rescan with the updated TID range */
-			table_rescan_tidrange(scandesc, &node->trss_mintid,
-								  &node->trss_maxtid);
+			/* rescan with the updated TID range only in non-parallel mode */
+			if (scandesc->rs_parallel == NULL)
+			{
+				/* rescan with the updated TID range */
+				table_rescan_tidrange(scandesc, &node->trss_mintid,
+									  &node->trss_maxtid);
+			}
 		}
 
 		node->trss_inScan = true;
@@ -414,4 +418,108 @@ ExecInitTidRangeScan(TidRangeScan *node, EState *estate, int eflags)
 	 * all done.
 	 */
 	return tidrangestate;
+}
+/* ----------------------------------------------------------------
+ *						Parallel Scan Support
+ * ----------------------------------------------------------------
+ */
+
+/* ----------------------------------------------------------------
+ *		ExecTidRangeScanEstimate
+ *
+ *		Compute the amount of space we'll need in the parallel
+ *		query DSM, and inform pcxt->estimator about our needs.
+ * ----------------------------------------------------------------
+ */
+void
+ExecTidRangeScanEstimate(TidRangeScanState *node, ParallelContext *pcxt)
+{
+	EState	   *estate = node->ss.ps.state;
+
+	node->trss_pscanlen =
+		table_parallelscan_estimate(node->ss.ss_currentRelation,
+									estate->es_snapshot);
+	shm_toc_estimate_chunk(&pcxt->estimator, node->trss_pscanlen);
+	shm_toc_estimate_keys(&pcxt->estimator, 1);
+}
+
+/* ----------------------------------------------------------------
+ *		ExecTidRangeScanInitializeDSM
+ *
+ *		Set up a parallel TID scan descriptor.
+ * ----------------------------------------------------------------
+ */
+void
+ExecTidRangeScanInitializeDSM(TidRangeScanState *node, ParallelContext *pcxt)
+{
+	EState	   *estate = node->ss.ps.state;
+	ParallelTableScanDesc pscan;
+
+	pscan = shm_toc_allocate(pcxt->toc, node->trss_pscanlen);
+	table_parallelscan_initialize(node->ss.ss_currentRelation,
+								  pscan,
+								  estate->es_snapshot);
+	shm_toc_insert(pcxt->toc, node->ss.ps.plan->plan_node_id, pscan);
+
+	/*
+	 * Initialize parallel scan descriptor with given TID range if it can be
+	 * evaluated successfully.
+	 */
+	if (TidRangeEval(node))
+		node->ss.ss_currentScanDesc =
+			table_beginscan_parallel_tidrange(node->ss.ss_currentRelation, pscan,
+					&node->trss_mintid, &node->trss_maxtid);
+	else
+		node->ss.ss_currentScanDesc =
+			table_beginscan_parallel_tidrange(node->ss.ss_currentRelation, pscan,
+					NULL, NULL);
+}
+
+/* ----------------------------------------------------------------
+ *		ExecTidRangeScanReInitializeDSM
+ *
+ *		Reset shared state before beginning a fresh scan.
+ * ----------------------------------------------------------------
+ */
+void
+ExecTidRangeScanReInitializeDSM(TidRangeScanState *node,
+						   ParallelContext *pcxt)
+{
+	ParallelTableScanDesc pscan;
+
+	pscan = node->ss.ss_currentScanDesc->rs_parallel;
+	table_parallelscan_reinitialize(node->ss.ss_currentRelation, pscan);
+
+	/* Set the new TID range if it can be evaluated successfully */
+	if (TidRangeEval(node))
+		node->ss.ss_currentRelation->rd_tableam->scan_set_tidrange(
+				node->ss.ss_currentScanDesc, &node->trss_mintid,
+				&node->trss_maxtid);
+	else
+		node->ss.ss_currentRelation->rd_tableam->scan_set_tidrange(
+					node->ss.ss_currentScanDesc, NULL, NULL);
+}
+
+/* ----------------------------------------------------------------
+ *		ExecTidRangeScanInitializeWorker
+ *
+ *		Copy relevant information from TOC into planstate.
+ * ----------------------------------------------------------------
+ */
+void
+ExecTidRangeScanInitializeWorker(TidRangeScanState *node,
+							ParallelWorkerContext *pwcxt)
+{
+	ParallelTableScanDesc pscan;
+
+	pscan = shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, false);
+
+	if (TidRangeEval(node))
+		node->ss.ss_currentScanDesc =
+			table_beginscan_parallel_tidrange(node->ss.ss_currentRelation, pscan,
+					&node->trss_mintid, &node->trss_maxtid);
+	else
+		node->ss.ss_currentScanDesc =
+			table_beginscan_parallel_tidrange(node->ss.ss_currentRelation, pscan,
+					NULL, NULL);
 }
