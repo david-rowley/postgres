@@ -188,6 +188,42 @@ table_beginscan_parallel(Relation relation, ParallelTableScanDesc pscan)
 											pscan, flags);
 }
 
+TableScanDesc
+table_beginscan_parallel_tidrange(Relation relation, ParallelTableScanDesc pscan,
+		ItemPointerData * mintid, ItemPointerData * maxtid)
+{
+	Snapshot	snapshot;
+	uint32		flags = SO_TYPE_TIDRANGESCAN | SO_ALLOW_PAGEMODE;
+	TableScanDesc sscan;
+
+	Assert(RelFileLocatorEquals(relation->rd_locator, pscan->phs_locator));
+
+	/* disable syncscan in parallel tid range scan. */
+	pscan->phs_syncscan = false;
+
+	if (!pscan->phs_snapshot_any)
+	{
+		/* Snapshot was serialized -- restore it */
+		snapshot = RestoreSnapshot((char *) pscan + pscan->phs_snapshot_off);
+		RegisterSnapshot(snapshot);
+		flags |= SO_TEMP_SNAPSHOT;
+	}
+	else
+	{
+		/* SnapshotAny passed by caller (not serialized) */
+		snapshot = SnapshotAny;
+	}
+
+	sscan = relation->rd_tableam->scan_begin(relation, snapshot, 0, NULL,
+											 pscan, flags);
+
+	/* Set the TID range if needed */
+	if (mintid && maxtid)
+		relation->rd_tableam->scan_set_tidrange(sscan, mintid, maxtid);
+
+	return sscan;
+}
+
 
 /* ----------------------------------------------------------------------------
  * Index scan related functions.
@@ -398,6 +434,7 @@ table_block_parallelscan_initialize(Relation rel, ParallelTableScanDesc pscan)
 		bpscan->phs_nblocks > NBuffers / 4;
 	SpinLockInit(&bpscan->phs_mutex);
 	bpscan->phs_startblock = InvalidBlockNumber;
+	bpscan->phs_numblock = InvalidBlockNumber;
 	pg_atomic_init_u64(&bpscan->phs_nallocated, 0);
 
 	return sizeof(ParallelBlockTableScanDescData);
@@ -577,8 +614,15 @@ table_block_parallelscan_nextpage(Relation rel,
 		pbscanwork->phsw_chunk_remaining = pbscanwork->phsw_chunk_size - 1;
 	}
 
+	/*
+	 * Check if we've allocated every block in the relation, or if we've
+	 * reached the limit imposed by pbscan->phs_numblock (if set).
+	 */
 	if (nallocated >= pbscan->phs_nblocks)
-		page = InvalidBlockNumber;	/* all blocks have been allocated */
+		page = InvalidBlockNumber; /* all blocks have been allocated */
+	else if (pbscan->phs_numblock != InvalidBlockNumber &&
+			 nallocated >= pbscan->phs_numblock)
+		page = InvalidBlockNumber; /* upper scan limit reached */
 	else
 		page = (nallocated + pbscan->phs_startblock) % pbscan->phs_nblocks;
 
