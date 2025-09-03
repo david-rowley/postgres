@@ -540,7 +540,7 @@ TupleDescFinalize(TupleDesc tupdesc)
 			break;
 	}
 
-	tupdesc->firstMisaligned = firstMisaligned;
+	tupdesc->lastCachedOffAttr = lastCachedOffAttr;
 }
 
 /*

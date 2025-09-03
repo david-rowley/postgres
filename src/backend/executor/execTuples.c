@@ -1190,7 +1190,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 		attnum = slot_deform_heap_tuple_internal(slot,
 												 tuple,
 												 attnum,
-												 Min(slot->tts_tupleDescriptor->firstMisaligned, natts),
+												 Min(slot->tts_tupleDescriptor->lastCachedOffAttr, natts),
 												 false, /* slow */
 												 false, /* hasnulls */
 												 false,  /* doalignment */
