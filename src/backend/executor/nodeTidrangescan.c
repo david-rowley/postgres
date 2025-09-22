@@ -128,14 +128,17 @@ TidExprListCreate(TidRangeScanState *tidrangestate)
  *		TidRangeEval
  *
  *		Compute and set node's block and offset range to scan by evaluating
- *		node->trss_tidexprs.  Returns false if we detect the range cannot
- *		contain any tuples.  Returns true if it's possible for the range to
- *		contain tuples.  We don't bother validating that trss_mintid is less
- *		than or equal to trss_maxtid, as the scan_set_tidrange() table AM
- *		function will handle that.
+ *		node->trss_tidexprs.  Sets node's trss_rangeIsEmpty to true if the
+ *		calculated range must be empty of any tuples, otherwise sets
+ *		trss_rangeIsEmpty to false and sets trss_mintid and trss_maxtid to the
+ *		calculated range.
+ *
+ *		We don't bother validating that trss_mintid is less than or equal to
+ *		trss_maxtid, as the scan_set_tidrange() table AM function will handle
+ *		that.
  * ----------------------------------------------------------------
  */
-static bool
+static void
 TidRangeEval(TidRangeScanState *node)
 {
 	ExprContext *econtext = node->ss.ps.ps_ExprContext;
@@ -165,7 +168,10 @@ TidRangeEval(TidRangeScanState *node)
 
 		/* If the bound is NULL, *nothing* matches the qual. */
 		if (isNull)
-			return false;
+		{
+			node->trss_rangeIsEmpty = true;
+			return;
+		}
 
 		if (tidopexpr->exprtype == TIDEXPR_LOWER_BOUND)
 		{
@@ -207,7 +213,7 @@ TidRangeEval(TidRangeScanState *node)
 	ItemPointerCopy(&lowerBound, &node->trss_mintid);
 	ItemPointerCopy(&upperBound, &node->trss_maxtid);
 
-	return true;
+	node->trss_rangeIsEmpty = false;
 }
 
 /* ----------------------------------------------------------------
@@ -234,12 +240,19 @@ TidRangeNext(TidRangeScanState *node)
 	slot = node->ss.ss_ScanTupleSlot;
 	direction = estate->es_direction;
 
+	/* First time through, compute TID range to scan */
+	if (!node->trss_rangeCalcDone)
+	{
+		TidRangeEval(node);
+		node->trss_rangeCalcDone = true;
+	}
+
+	/* Check if the range was detected not to contain any tuples */
+	if (node->trss_rangeIsEmpty)
+		return NULL;
+
 	if (!node->trss_inScan)
 	{
-		/* First time through, compute TID range to scan */
-		if (!TidRangeEval(node))
-			return NULL;
-
 		if (scandesc == NULL)
 		{
 			scandesc = table_beginscan_tidrange(node->ss.ss_currentRelation,
@@ -278,13 +291,18 @@ TidRangeNext(TidRangeScanState *node)
 static bool
 TidRangeRecheck(TidRangeScanState *node, TupleTableSlot *slot)
 {
-	if (!TidRangeEval(node))
-		return false;
+	/* First call? Compute the TID Range */
+	if (!node->trss_rangeCalcDone)
+	{
+		TidRangeEval(node);
+		node->trss_rangeCalcDone = true;
+	}
 
 	Assert(ItemPointerIsValid(&slot->tts_tid));
 
 	/* Recheck the ctid is still within range */
-	if (ItemPointerCompare(&slot->tts_tid, &node->trss_mintid) < 0 ||
+	if (node->trss_rangeIsEmpty ||
+		ItemPointerCompare(&slot->tts_tid, &node->trss_mintid) < 0 ||
 		ItemPointerCompare(&slot->tts_tid, &node->trss_maxtid) > 0)
 		return false;
 
@@ -325,6 +343,9 @@ ExecReScanTidRangeScan(TidRangeScanState *node)
 {
 	/* mark scan as not in progress, and tid range list as not computed yet */
 	node->trss_inScan = false;
+
+	/* mark that the TID range needs to be recalculated */
+	node->trss_rangeCalcDone = false;
 
 	/*
 	 * We must wait until TidRangeNext before calling table_rescan_tidrange.
@@ -384,6 +405,10 @@ ExecInitTidRangeScan(TidRangeScan *node, EState *estate, int eflags)
 	 * mark scan as not in progress, and TID range as not computed yet
 	 */
 	tidrangestate->trss_inScan = false;
+	tidrangestate->trss_rangeCalcDone = false;
+
+	/* This will be calculated correctly in TidRangeEval() */
+	tidrangestate->trss_rangeIsEmpty = true;
 
 	/*
 	 * open the scan relation
@@ -461,18 +486,19 @@ ExecTidRangeScanInitializeDSM(TidRangeScanState *node, ParallelContext *pcxt)
 								  estate->es_snapshot);
 	shm_toc_insert(pcxt->toc, node->ss.ps.plan->plan_node_id, pscan);
 
-	/*
-	 * Initialize parallel scan descriptor with given TID range if it can be
-	 * evaluated successfully.
-	 */
-	if (TidRangeEval(node))
+	/* Determine the TID Range */
+	TidRangeEval(node);
+	node->trss_rangeCalcDone = true;
+
+	/* Setup the scandesc, unless TidRangeEval found the range is empty */
+	if (!node->trss_rangeIsEmpty)
 		node->ss.ss_currentScanDesc =
-			table_beginscan_parallel_tidrange(node->ss.ss_currentRelation, pscan,
-					&node->trss_mintid, &node->trss_maxtid);
+				table_beginscan_parallel_tidrange(node->ss.ss_currentRelation,
+												  pscan,
+												  &node->trss_mintid,
+												  &node->trss_maxtid);
 	else
-		node->ss.ss_currentScanDesc =
-			table_beginscan_parallel_tidrange(node->ss.ss_currentRelation, pscan,
-					NULL, NULL);
+		node->ss.ss_currentScanDesc = NULL;
 }
 
 /* ----------------------------------------------------------------
@@ -483,21 +509,21 @@ ExecTidRangeScanInitializeDSM(TidRangeScanState *node, ParallelContext *pcxt)
  */
 void
 ExecTidRangeScanReInitializeDSM(TidRangeScanState *node,
-						   ParallelContext *pcxt)
+								ParallelContext *pcxt)
 {
 	ParallelTableScanDesc pscan;
 
 	pscan = node->ss.ss_currentScanDesc->rs_parallel;
 	table_parallelscan_reinitialize(node->ss.ss_currentRelation, pscan);
 
-	/* Set the new TID range if it can be evaluated successfully */
-	if (TidRangeEval(node))
-		node->ss.ss_currentRelation->rd_tableam->scan_set_tidrange(
-				node->ss.ss_currentScanDesc, &node->trss_mintid,
-				&node->trss_maxtid);
-	else
-		node->ss.ss_currentRelation->rd_tableam->scan_set_tidrange(
-					node->ss.ss_currentScanDesc, NULL, NULL);
+	/* Determine the TID Range */
+	TidRangeEval(node);
+	node->trss_rangeCalcDone = true;
+
+	if (!node->trss_rangeIsEmpty)
+		node->ss.ss_currentRelation->rd_tableam->scan_set_tidrange(node->ss.ss_currentScanDesc,
+																   &node->trss_mintid,
+																   &node->trss_maxtid);
 }
 
 /* ----------------------------------------------------------------
@@ -514,12 +540,13 @@ ExecTidRangeScanInitializeWorker(TidRangeScanState *node,
 
 	pscan = shm_toc_lookup(pwcxt->toc, node->ss.ps.plan->plan_node_id, false);
 
-	if (TidRangeEval(node))
-		node->ss.ss_currentScanDesc =
-			table_beginscan_parallel_tidrange(node->ss.ss_currentRelation, pscan,
-					&node->trss_mintid, &node->trss_maxtid);
-	else
-		node->ss.ss_currentScanDesc =
-			table_beginscan_parallel_tidrange(node->ss.ss_currentRelation, pscan,
-					NULL, NULL);
+	/* Determine the TID Range */
+	TidRangeEval(node);
+	node->trss_rangeCalcDone = true;
+
+	if (!node->trss_rangeIsEmpty)
+		node->ss.ss_currentScanDesc = table_beginscan_parallel_tidrange(node->ss.ss_currentRelation,
+																		pscan,
+																		&node->trss_mintid,
+																		&node->trss_maxtid);
 }
