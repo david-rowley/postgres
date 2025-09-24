@@ -40,8 +40,8 @@
 #include "executor/nodeSeqscan.h"
 #include "executor/nodeSort.h"
 #include "executor/nodeSubplan.h"
-#include "executor/tqueue.h"
 #include "executor/nodeTidrangescan.h"
+#include "executor/tqueue.h"
 #include "jit/jit.h"
 #include "nodes/nodeFuncs.h"
 #include "pgstat.h"
@@ -1008,7 +1008,7 @@ ExecParallelReInitializeDSM(PlanState *planstate,
 		case T_TidRangeScanState:
 			if (planstate->plan->parallel_aware)
 				ExecTidRangeScanReInitializeDSM((TidRangeScanState *) planstate,
-										   	    pcxt);
+												pcxt);
 			break;
 		case T_AppendState:
 			if (planstate->plan->parallel_aware)

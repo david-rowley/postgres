@@ -189,8 +189,9 @@ table_beginscan_parallel(Relation relation, ParallelTableScanDesc pscan)
 }
 
 TableScanDesc
-table_beginscan_parallel_tidrange(Relation relation, ParallelTableScanDesc pscan,
-		ItemPointerData * mintid, ItemPointerData * maxtid)
+table_beginscan_parallel_tidrange(Relation relation,
+								  ParallelTableScanDesc pscan,
+								  ItemPointer mintid, ItemPointer maxtid)
 {
 	Snapshot	snapshot;
 	uint32		flags = SO_TYPE_TIDRANGESCAN | SO_ALLOW_PAGEMODE;
@@ -217,9 +218,8 @@ table_beginscan_parallel_tidrange(Relation relation, ParallelTableScanDesc pscan
 	sscan = relation->rd_tableam->scan_begin(relation, snapshot, 0, NULL,
 											 pscan, flags);
 
-	/* Set the TID range if needed */
-	if (mintid && maxtid)
-		relation->rd_tableam->scan_set_tidrange(sscan, mintid, maxtid);
+	/* Set the scan limits based on the given min and max tids */
+	relation->rd_tableam->scan_set_tidrange(sscan, mintid, maxtid);
 
 	return sscan;
 }

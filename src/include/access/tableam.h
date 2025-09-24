@@ -1139,8 +1139,8 @@ extern TableScanDesc table_beginscan_parallel(Relation relation,
  */
 extern TableScanDesc table_beginscan_parallel_tidrange(Relation relation,
 													   ParallelTableScanDesc pscan,
-													   ItemPointerData * mintid,
-													   ItemPointerData * maxtid);
+													   ItemPointer mintid,
+													   ItemPointer maxtid);
 
 /*
  * Restart a parallel scan.  Call this in the leader process.  Caller is
