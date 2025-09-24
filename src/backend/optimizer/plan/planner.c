@@ -1173,12 +1173,14 @@ subquery_planner(PlannerGlobal *glob, Query *parse, char *plan_name,
 	foreach(l, (List *) parse->havingQual)
 	{
 		Node	   *havingclause = (Node *) lfirst(l);
+		Relids having_relids;
 
 		if (contain_agg_clause(havingclause) ||
 			contain_volatile_functions(havingclause) ||
 			contain_subplans(havingclause) ||
 			(parse->groupClause && parse->groupingSets &&
-			 bms_is_member(root->group_rtindex, pull_varnos(root, havingclause))))
+			((having_relids = pull_varnos(root, havingclause)) == NULL ||
+			  bms_is_member(root->group_rtindex, having_relids))))
 		{
 			/* keep it in HAVING */
 			newHaving = lappend(newHaving, havingclause);

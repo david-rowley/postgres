@@ -47,7 +47,6 @@
 #include "optimizer/pathnode.h"
 #include "optimizer/paths.h"
 #include "optimizer/restrictinfo.h"
-#include "optimizer/cost.h"
 
 
 /*
@@ -493,7 +492,8 @@ ec_member_matches_ctid(PlannerInfo *root, RelOptInfo *rel,
  * create_tidscan_paths
  *	  Create paths corresponding to direct TID scans of the given rel.
  *
- *	  Candidate paths are added to the rel's pathlist (using add_path).
+ *	  Candidate paths are added to the rel's pathlist (using add_path) and to
+ *	  partial_pathlist via add_partial_path, in the case of partial paths.
  */
 bool
 create_tidscan_paths(PlannerInfo *root, RelOptInfo *rel)
