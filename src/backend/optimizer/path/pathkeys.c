@@ -2161,7 +2161,24 @@ pathkeys_useful_for_ordering(PlannerInfo *root, List *pathkeys)
 {
 	int			n_common_pathkeys;
 
-	(void) pathkeys_count_contained_in(root->query_pathkeys, pathkeys,
+	(void) pathkeys_count_contained_in(root->sort_pathkeys, pathkeys,
+									   &n_common_pathkeys);
+
+	return n_common_pathkeys;
+}
+
+/*
+ * pathkeys_useful_for_windowing
+ *		Count the number of pathkeys that are useful for meeting the
+ *		query's desired sort order for window function evaluation.
+ */
+static int
+pathkeys_useful_for_windowing(PlannerInfo *root, List *pathkeys)
+{
+	int			n_common_pathkeys;
+
+	(void) pathkeys_count_contained_in(root->window_pathkeys,
+									   pathkeys,
 									   &n_common_pathkeys);
 
 	return n_common_pathkeys;
@@ -2276,6 +2293,9 @@ truncate_useless_pathkeys(PlannerInfo *root,
 
 	nuseful = pathkeys_useful_for_merging(root, rel, pathkeys);
 	nuseful2 = pathkeys_useful_for_ordering(root, pathkeys);
+	if (nuseful2 > nuseful)
+		nuseful = nuseful2;
+	nuseful2 = pathkeys_useful_for_windowing(root, pathkeys);
 	if (nuseful2 > nuseful)
 		nuseful = nuseful2;
 	nuseful2 = pathkeys_useful_for_grouping(root, pathkeys);
