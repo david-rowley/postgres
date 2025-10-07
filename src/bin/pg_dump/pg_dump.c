@@ -5204,8 +5204,8 @@ getSubscriptions(Archive *fout)
 		appendPQExpBufferStr(query,
 							 " s.submaxretention\n");
 	else
-		appendPQExpBuffer(query,
-						  " 0 AS submaxretention\n");
+		appendPQExpBufferStr(query,
+							 " 0 AS submaxretention\n");
 
 	appendPQExpBufferStr(query,
 						 "FROM pg_subscription s\n");
