@@ -205,7 +205,7 @@ oauth_json_object_start(void *state)
 
 	++ctx->nested;
 	if (ctx->nested > MAX_SASL_NESTING_LEVEL)
-		oauth_json_set_error(ctx, libpq_gettext("JSON is too deeply nested"));
+		oauth_json_set_error(ctx, libpq_gettext("JSON is too deeply nested (%d deep)"), ctx->nested);
 
 	return oauth_json_has_error(ctx) ? JSON_SEM_ACTION_FAILED : JSON_SUCCESS;
 }
@@ -267,7 +267,7 @@ oauth_json_array_start(void *state)
 
 	++ctx->nested;
 	if (ctx->nested > MAX_SASL_NESTING_LEVEL)
-		oauth_json_set_error(ctx, libpq_gettext("JSON is too deeply nested"));
+		oauth_json_set_error(ctx, libpq_gettext("JSON is too deeply nested (%d deep)"), ctx->nested);
 
 	return oauth_json_has_error(ctx) ? JSON_SEM_ACTION_FAILED : JSON_SUCCESS;
 }
