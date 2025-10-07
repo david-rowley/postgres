@@ -146,6 +146,7 @@ typedef struct SlabBlock
 {
 	SlabContext *slab;			/* owning context */
 	int32		nfree;			/* number of chunks on free + unused chunks */
+	int32		blocklist_shift;	/* duplicate of SlabContext.blocklist_shift */
 	uint32		freeoffset;		/* bytes into the block of the first free chunk */
 	uint32		unusedoffset;	/* bytes into the block of the next unused chunk */
 	dlist_node	node;			/* doubly-linked list for blocklist[] */
@@ -213,10 +214,9 @@ typedef struct SlabBlock
  *		number of free chunks.
  */
 static inline int32
-SlabBlocklistIndex(SlabContext *slab, int nfree)
+SlabBlocklistIndex(SlabContext *slab, int blocklist_shift, int32 nfree)
 {
 	int32		index;
-	int32		blocklist_shift = slab->blocklist_shift;
 
 	Assert(nfree >= 0 && nfree <= slab->chunksPerBlock);
 
@@ -605,13 +605,14 @@ SlabAllocFromNewBlock(MemoryContext context, Size size, int flags)
 		chunk = SlabBlockGetChunk(slab, block, 0);
 
 		block->nfree = slab->chunksPerBlock - 1;
+		block->blocklist_shift = slab->blocklist_shift;
 		/* make the unusedoffset the offset for the first MemoryChunk on the block */
 		block->unusedoffset = (uint32) (((char *) SlabBlockGetChunk(slab, block, 1)) - (char *) block);
 		block->freeoffset = 0;
 	}
 
 	/* find the blocklist element for storing blocks with 1 used chunk */
-	blocklist_idx = SlabBlocklistIndex(slab, block->nfree);
+	blocklist_idx = SlabBlocklistIndex(slab, block->blocklist_shift, block->nfree);
 	blocklist = &slab->blocklist[blocklist_idx];
 
 	/* this better be empty.  We just added a block thinking it was */
@@ -668,7 +669,7 @@ SlabAlloc(MemoryContext context, Size size, int flags)
 
 	/* sanity check that this is pointing to a valid blocklist */
 	Assert(slab->curBlocklistIndex >= 0);
-	Assert(slab->curBlocklistIndex <= SlabBlocklistIndex(slab, slab->chunksPerBlock));
+	Assert(slab->curBlocklistIndex <= SlabBlocklistIndex(slab, slab->blocklist_shift, slab->chunksPerBlock));
 
 	/*
 	 * Make sure we only allow correct request size.  This doubles as the
@@ -698,14 +699,14 @@ SlabAlloc(MemoryContext context, Size size, int flags)
 
 		/* make sure we actually got a valid block, with matching nfree */
 		Assert(block != NULL);
-		Assert(slab->curBlocklistIndex == SlabBlocklistIndex(slab, block->nfree));
+		Assert(slab->curBlocklistIndex == SlabBlocklistIndex(slab, block->blocklist_shift, block->nfree));
 		Assert(block->nfree > 0);
 
 		/* fetch the next chunk from this block */
 		chunk = SlabGetNextFreeChunk(slab, block);
 
 		/* get the new blocklist index based on the new free chunk count */
-		new_blocklist_idx = SlabBlocklistIndex(slab, block->nfree);
+		new_blocklist_idx = SlabBlocklistIndex(slab, block->blocklist_shift, block->nfree);
 
 		/*
 		 * Handle the case where the blocklist index changes.  This also deals
@@ -773,8 +774,8 @@ SlabFree(void *pointer)
 			 slab->chunkSize - sizeof(uint32));
 #endif
 
-	curBlocklistIdx = SlabBlocklistIndex(slab, block->nfree - 1);
-	newBlocklistIdx = SlabBlocklistIndex(slab, block->nfree);
+	curBlocklistIdx = SlabBlocklistIndex(slab, block->blocklist_shift, block->nfree - 1);
+	newBlocklistIdx = SlabBlocklistIndex(slab, block->blocklist_shift, block->nfree);
 
 	/*
 	 * Check if the block needs to be moved to another element on the
@@ -1069,9 +1070,9 @@ SlabCheck(MemoryContext context)
 			 * Make sure the number of free chunks (in the block header)
 			 * matches the position in the blocklist.
 			 */
-			if (SlabBlocklistIndex(slab, block->nfree) != i)
+			if (SlabBlocklistIndex(slab, block->blocklist_shift, block->nfree) != i)
 				elog(WARNING, "problem in slab %s: block %p is on blocklist %d but should be on blocklist %d",
-					 name, block, i, SlabBlocklistIndex(slab, block->nfree));
+					 name, block, i, SlabBlocklistIndex(slab, block->blocklist_shift, block->nfree));
 
 			/* make sure the block is not empty */
 			if (block->nfree >= slab->chunksPerBlock)
