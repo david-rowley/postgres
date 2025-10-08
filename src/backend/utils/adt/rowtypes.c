@@ -549,7 +549,7 @@ record_recv(PG_FUNCTION_ARGS)
 	validcols = 0;
 	for (i = 0; i < ncolumns; i++)
 	{
-		if (!TupleDescAttr(tupdesc, i)->attisdropped)
+		if (!TupleDescCompactAttr(tupdesc, i)->attisdropped)
 			validcols++;
 	}
 	if (usercols != validcols)
@@ -754,7 +754,7 @@ record_send(PG_FUNCTION_ARGS)
 	validcols = 0;
 	for (i = 0; i < ncolumns; i++)
 	{
-		if (!TupleDescAttr(tupdesc, i)->attisdropped)
+		if (!TupleDescCompactAttr(tupdesc, i)->attisdropped)
 			validcols++;
 	}
 	pq_sendint32(&buf, validcols);

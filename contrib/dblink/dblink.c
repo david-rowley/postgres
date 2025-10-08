@@ -2169,7 +2169,7 @@ get_sql_insert(Relation rel, int *pkattnums, int pknumatts, char **src_pkattvals
 	needComma = false;
 	for (i = 0; i < natts; i++)
 	{
-		if (TupleDescAttr(tupdesc, i)->attisdropped)
+		if (TupleDescCompactAttr(tupdesc, i)->attisdropped)
 			continue;
 
 		if (needComma)
@@ -3011,7 +3011,7 @@ validate_pkattnums(Relation rel,
 		for (j = 0; j < natts; j++)
 		{
 			/* dropped columns don't count */
-			if (TupleDescAttr(tupdesc, j)->attisdropped)
+			if (TupleDescCompactAttr(tupdesc, j)->attisdropped)
 				continue;
 
 			if (++lnum == pkattnum)
