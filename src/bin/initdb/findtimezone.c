@@ -70,7 +70,7 @@ pg_open_tzfile(const char *name, char *canonname)
 		strlcpy(canonname, name, TZ_STRLEN_MAX + 1);
 
 	strlcpy(fullname, pg_TZDIR(), sizeof(fullname));
-	if (strlen(fullname) + 1 + strlen(name) >= MAXPGPATH)
+	if (strlen(fullname) + 1 + strlen(name) >= MAXPGPATH) //
 		return -1;				/* not gonna fit */
 	strcat(fullname, "/");
 	strcat(fullname, name);

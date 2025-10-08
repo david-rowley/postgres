@@ -9854,7 +9854,7 @@ ChooseForeignKeyConstraintNameAddition(List *colnames)
 		 * than NAMEDATALEN already, but use strlcpy for paranoia.
 		 */
 		strlcpy(buf + buflen, name, NAMEDATALEN);
-		buflen += strlen(buf + buflen);
+		buflen += strlen(buf + buflen); //
 		if (buflen >= NAMEDATALEN)
 			break;
 	}
