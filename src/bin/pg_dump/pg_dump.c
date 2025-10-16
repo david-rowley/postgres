@@ -7904,13 +7904,13 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 		appendPQExpBufferStr(query, "0 AS relallfrozen, ");
 
 	appendPQExpBufferStr(query,
-						 "pg_catalog.pg_get_indexdef(i.indexrelid) AS indexdef, "
+						 "CASE WHEN c.conrelid IS NULL THEN pg_catalog.pg_get_indexdef(i.indexrelid) END AS indexdef, "
 						 "i.indkey, i.indisclustered, "
 						 "c.contype, c.conname, "
 						 "c.condeferrable, c.condeferred, "
 						 "c.tableoid AS contableoid, "
 						 "c.oid AS conoid, "
-						 "pg_catalog.pg_get_constraintdef(c.oid, false) AS condef, "
+						 "CASE WHEN c.contype = 'x' THEN pg_catalog.pg_get_constraintdef(c.oid, false) ELSE '' END AS condef, "
 						 "i.indattnames, "
 						 "s.spcname AS tablespace, "
 						 "t.reloptions AS indreloptions, "
@@ -8113,7 +8113,10 @@ getIndexes(Archive *fout, TableInfo tblinfo[], int numTables)
 			indxinfo[j].dobj.name = pg_strdup(PQgetvalue(res, j, i_indexname));
 			indxinfo[j].dobj.namespace = tbinfo->dobj.namespace;
 			indxinfo[j].indextable = tbinfo;
-			indxinfo[j].indexdef = pg_strdup(PQgetvalue(res, j, i_indexdef));
+			if (PQgetisnull(res, j, i_indexdef))
+				indxinfo[j].indexdef = NULL;
+			else
+				indxinfo[j].indexdef =  pg_strdup(PQgetvalue(res, j, i_indexdef));
 			indxinfo[j].indnkeyattrs = atoi(PQgetvalue(res, j, i_indnkeyatts));
 			indxinfo[j].indnattrs = atoi(PQgetvalue(res, j, i_indnatts));
 			indxinfo[j].tablespace = pg_strdup(PQgetvalue(res, j, i_tablespace));
