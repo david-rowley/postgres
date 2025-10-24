@@ -70,6 +70,31 @@ typedef struct SupportRequestSimplify
 } SupportRequestSimplify;
 
 /*
+ * Similar to SupportRequestSimplify but for Aggref node types.
+ *
+ * The supports conversions such as swapping a COUNT(1) or COUNT(notnullcol)
+ * to COUNT(*).
+ *
+ * Supporting functions can consult 'root' and the input 'aggref'.  When the
+ * implementing support function deems the simplification is possible, it must
+ * create a new Node (probably another Aggref) and not modify the original.
+ * The newly created Node should then be returned to indicate that the
+ * conversion is to take place.  When no conversion is possible, a NULL
+ * pointer should be returned.
+ *
+ * It is important to consider that implementing support functions can receive
+ * Aggrefs with agglevelsup > 0.  Careful consideration should be given to
+ * whether the simplification is still possible at levels above 0.
+ */
+typedef struct SupportRequestSimplifyAggref
+{
+	NodeTag		type;
+
+	PlannerInfo *root;			/* Planner's infrastructure */
+	Aggref	   *aggref;			/* Aggref to be simplified */
+} SupportRequestSimplifyAggref;
+
+/*
  * The Selectivity request allows the support function to provide a
  * selectivity estimate for a function appearing at top level of a WHERE
  * clause (so it applies only to functions returning boolean).

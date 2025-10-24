@@ -131,6 +131,8 @@ static Expr *simplify_function(Oid funcid,
 							   Oid result_collid, Oid input_collid, List **args_p,
 							   bool funcvariadic, bool process_args, bool allow_non_const,
 							   eval_const_expressions_context *context);
+static Node *simplify_aggref(Aggref *aggref,
+							 eval_const_expressions_context *context);
 static List *reorder_function_arguments(List *args, int pronargs,
 										HeapTuple func_tuple);
 static List *add_function_defaults(List *args, int pronargs,
@@ -2628,6 +2630,9 @@ eval_const_expressions_mutator(Node *node,
 				newexpr->location = expr->location;
 				return (Node *) newexpr;
 			}
+		case T_Aggref:
+			node = ece_generic_processing(node);
+			return simplify_aggref((Aggref *) node, context);
 		case T_OpExpr:
 			{
 				OpExpr	   *expr = (OpExpr *) node;
@@ -4195,6 +4200,59 @@ simplify_function(Oid funcid, Oid result_type, int32 result_typmod,
 }
 
 /*
+ * simplify_aggref
+ *		Call the Aggref.aggfnoid's prosupport function to allow it to
+ *		determine if simplification of the Aggref is possible.  Returns the
+ *		newly simplified node if conversion took place; otherwise, returns the
+ *		original Aggref.
+ *
+ * See SupportRequestSimplifyAggref comments in supportnodes.h for further
+ * details.
+ */
+static Node *
+simplify_aggref(Aggref *aggref, eval_const_expressions_context *context)
+{
+	HeapTuple	agg_tuple;
+	Form_pg_proc aggform;
+	Oid			prosupport;
+
+	agg_tuple = SearchSysCache1(PROCOID, ObjectIdGetDatum(aggref->aggfnoid));
+	if (!HeapTupleIsValid(agg_tuple))
+		elog(ERROR, "cache lookup failed for function %u", aggref->aggfnoid);
+	aggform = (Form_pg_proc) GETSTRUCT(agg_tuple);
+	prosupport = aggform->prosupport;
+	ReleaseSysCache(agg_tuple);
+
+	if (OidIsValid(prosupport))
+	{
+		SupportRequestSimplifyAggref req;
+		Aggref	   *newaggref;
+
+		/*
+		 * Build a SupportRequestSimplifyAggref node to pass to the support
+		 * function.
+		 */
+		req.type = T_SupportRequestSimplifyAggref;
+		req.root = context->root;
+		req.aggref = aggref;
+
+		newaggref = (Aggref *) DatumGetPointer(OidFunctionCall1(prosupport,
+																PointerGetDatum(&req)));
+
+		/*
+		 * We expect the support function to return either a new Aggref or
+		 * NULL (when simplification isn't possible).
+		 */
+		Assert(newaggref != aggref || newaggref == NULL);
+
+		if (newaggref != NULL)
+			return (Node *) newaggref;
+	}
+
+	return (Node *) aggref;
+}
+
+/*
  * var_is_nonnullable: check to see if the Var cannot be NULL
  *
  * If the Var is defined NOT NULL and meanwhile is not nulled by any outer
@@ -4251,6 +4309,24 @@ var_is_nonnullable(PlannerInfo *root, Var *var, bool use_rel_info)
 	if (var->varattno > 0 &&
 		bms_is_member(var->varattno, notnullattnums))
 		return true;
+
+	return false;
+}
+
+/*
+ * expr_is_nonnullable: check to see if the Expr cannot be NULL
+ *
+ * This is mostly a wrapper around var_is_nonnullable() but also made to
+ * handle Const.  We don't currently have the ability to handle Exprs any
+ * more complex than that.
+ */
+bool
+expr_is_nonnullable(PlannerInfo *root, Expr *expr, bool use_rel_info)
+{
+	if (IsA(expr, Var))
+		return var_is_nonnullable(root, (Var *) expr, use_rel_info);
+	if (IsA(expr, Const))
+		return !castNode(Const, expr)->constisnull;
 
 	return false;
 }
