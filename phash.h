@@ -100,4 +100,3 @@ PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words, PH_HASHTYPE *wordhashes,
 #undef PH_SHIFTEND
 #undef PH_HASHTYPE
 #undef PH_KEYSIZE
-
