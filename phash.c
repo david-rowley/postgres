@@ -361,7 +361,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 			best_nbuckets = searchhash_2by2(kls, words, wordhashes16, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
-			if (best_nbuckets != 0) 
+			if (best_nbuckets != 0)
 			{
 				if (verbose)
 					printf(" found perfect hash\n");
@@ -388,7 +388,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 			best_nbuckets = searchhash_4by1(kls, words, wordhashes32, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
-			if (best_nbuckets != 0) 
+			if (best_nbuckets != 0)
 			{
 				if (verbose)
 					printf(" found perfect hash\n");
@@ -416,7 +416,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 				best_nbuckets = searchhash_4by2(kls, words, wordhashes32, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
-				if (best_nbuckets != 0) 
+				if (best_nbuckets != 0)
 				{
 					if (verbose)
 						printf(" found perfect hash\n");
@@ -449,7 +449,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 						best_nbuckets = searchhash_4by4(kls, words, wordhashes32, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
-						if (best_nbuckets != 0) 
+						if (best_nbuckets != 0)
 						{
 							if (verbose)
 								printf(" found perfect hash\n");
@@ -479,7 +479,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 			best_nbuckets = searchhash_8by1(kls, words, wordhashes64, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
-			if (best_nbuckets != 0) 
+			if (best_nbuckets != 0)
 			{
 				if (verbose) printf(" found perfect hash\n");
 				found = 1;
@@ -506,7 +506,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 				best_nbuckets = searchhash_8by2(kls, words, wordhashes64, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
-				if (best_nbuckets != 0) 
+				if (best_nbuckets != 0)
 				{
 					if (verbose) printf(" found perfect hash\n");
 					found = 1;
@@ -538,7 +538,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 						best_nbuckets = searchhash_8by4(kls, words, wordhashes64, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
-						if (best_nbuckets != 0) 
+						if (best_nbuckets != 0)
 						{
 							if (verbose)
 								printf(" found perfect hash\n");
