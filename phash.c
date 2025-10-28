@@ -53,7 +53,7 @@ static uint16
 preparekey_2by2(const char *word, uint32 wordlen, uint32 *startpos)
 {
 	uint8 values[2];
-	
+
 	memcpy(&values[0], word + startpos[0], 1);
 	memcpy(&values[1], word + startpos[1], 1);
 	return (uint16) (values[1]) << 8 | (uint16) values[0];
@@ -72,7 +72,7 @@ uint32
 preparekey_4by2(const char *word, uint32 wordlen, uint32 *startpos)
 {
 	uint16 values[2];
-	
+
 	memcpy(&values[0], word + startpos[0], 2);
 	memcpy(&values[1], word + startpos[1], 2);
 	return (uint32) (values[1]) << 16 | (uint32) values[0];
@@ -82,12 +82,12 @@ uint32
 preparekey_4by4(const char *word, uint32 wordlen, uint32 *startpos)
 {
 	unsigned char values[4];
-	
+
 	memcpy(&values[0], word + startpos[0], 1);
 	memcpy(&values[1], word + startpos[1], 1);
 	memcpy(&values[2], word + startpos[2], 1);
 	memcpy(&values[3], word + startpos[3], 1);
-	
+
 	return (uint32) (values[3]) << 24 |
 		   (uint32) values[2] << 16 |
 		   (uint32) values[1] << 8 |
@@ -107,7 +107,7 @@ uint64
 preparekey_8by2(const char *word, uint32 wordlen, uint32 *startpos)
 {
 	uint32 values[2];
-	
+
 	memcpy(&values[0], word + startpos[0], 4);
 	memcpy(&values[1], word + startpos[1], 4);
 	return (uint64) (values[1]) << 32 | (uint64) values[0];
@@ -117,12 +117,12 @@ uint64
 preparekey_8by4(const char *word, uint32 wordlen, uint32 *startpos)
 {
 	uint16 values[4];
-	
+
 	memcpy(&values[0], word + startpos[0], 2);
 	memcpy(&values[1], word + startpos[1], 2);
 	memcpy(&values[2], word + startpos[2], 2);
 	memcpy(&values[3], word + startpos[3], 2);
-	
+
 	return (uint64) (values[3]) << 48 |
 		   (uint64) values[2] << 32 |
 		   (uint64) values[1] << 16 |
@@ -382,7 +382,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 			if (has_duplicates32(wordhashes32, numwords))
 				continue;
-			
+
 			if (verbose)
 				printf("Found 4by1 way unique at pos %d ... ", startpos);
 
@@ -410,7 +410,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 				if (has_duplicates32(wordhashes32, numwords))
 					continue;
-				
+
 				if (verbose)
 					printf("Found 4by2 way unique at pos %d %d ... ", startpos[0], startpos[1]);
 
@@ -443,7 +443,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 						if (has_duplicates32(wordhashes32, numwords))
 							continue;
-						
+
 						if (verbose)
 							printf("Found 4by4 way unique at pos %d %d %d %d ... ", startpos[0], startpos[1], startpos[2], startpos[3]);
 
@@ -473,7 +473,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 			if (has_duplicates64(wordhashes64, numwords))
 				continue;
-			
+
 			if (verbose)
 				printf("Found 8by1 way unique at pos %d ... ", startpos);
 
@@ -500,7 +500,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 				if (has_duplicates64(wordhashes64, numwords))
 					continue;
-				
+
 				if (verbose)
 					printf("Found 8by2 way unique at pos %d %d ... ", startpos[0], startpos[1]);
 
@@ -532,7 +532,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 
 						if (has_duplicates64(wordhashes64, numwords))
 							continue;
-						
+
 						if (verbose)
 							printf("Found 8by4 way unique at pos %d %d %d %d ... ", startpos[0], startpos[1], startpos[2], startpos[3]);
 
@@ -575,7 +575,7 @@ void
 addkeyword(char *keyword, bool verbose)
 {
 	Keyword *newword;
-	
+
 	if (keywords_size == 0)
 	{
 		keywords_size = 512;
@@ -599,7 +599,7 @@ KeywordLengthSpecific *
 addKeywordLengthSpecific(void)
 {
 	KeywordLengthSpecific *kls;
-	
+
 	if (keywordlengthspecific_size == 0)
 	{
 		keywordlengthspecific_size = 32;
@@ -620,7 +620,7 @@ addKeywordLengthSpecific(void)
 static void
 addLookupBucket(int16 value)
 {
-	
+
 	if (lookupbuckets_size == 0)
 	{
 		lookupbuckets_size = 2048;
@@ -642,7 +642,7 @@ cmp_keyword(const void *pa, const void *pb)
 	Keyword *b = (Keyword *) pb;
 	size_t a_len = strlen(a->keyword);
 	size_t b_len = strlen(b->keyword);
-	
+
 	if (a_len == b_len)
 		return strcmp(a->keyword, b->keyword);
 	return a_len < b_len ? -1 : 1;
@@ -653,7 +653,7 @@ cmp_keyword_by_name(const void *pa, const void *pb)
 {
 	Keyword *a = (Keyword *) pa;
 	Keyword *b = (Keyword *) pb;
-	
+
 	return strcmp(a->keyword, b->keyword);
 }
 
@@ -722,7 +722,7 @@ process_word(uint32 wordlen, uint32 rounds, bool verbose)
 
 	if (first == -1)
 		return -1;
-	
+
 	for (; i < nkeywords; i++)
 	{
 		Keyword *kw = &keywords[i];
@@ -730,7 +730,7 @@ process_word(uint32 wordlen, uint32 rounds, bool verbose)
 		if (strlen(kw->keyword) != wordlen)
 			break;
 	}
-	
+
 	last = i;
 
 	if (verbose)
@@ -753,12 +753,12 @@ uint32
 preparekey_4by4(const char *word, uint32 wordlen, uint32 *startpos)
 {
 	unsigned char values[4];
-	
+
 	memcpy(&values[0], word + startpos[0], 1);
 	memcpy(&values[1], word + startpos[1], 1);
 	memcpy(&values[2], word + startpos[2], 1);
 	memcpy(&values[3], word + startpos[3], 1);
-	
+
 	return (uint32) (values[3]) << 24 |
 		   (uint32) values[2] << 16 |
 		   (uint32) values[1] << 8 |
@@ -810,7 +810,7 @@ print_final_code(const char *prefix)
 	for (uint32 i = 0; i < nlookupbuckets; i++)
 	{
 		bool notlast = i + 1 != nlookupbuckets;
-		
+
 		printf("%s%d%s%s", i % ITEMS_PER_LINE == 0 ? "\t" : " ",
 			   lookupbuckets[i],
 			   notlast ? "," : "",
@@ -869,7 +869,7 @@ int main(int argc, char **argv)
 	uint32 wordlen;
 	uint32 rounds;
 	bool 	verbose = false;
-	
+
 	if (argc < 3)
 	{
 		fprintf(stderr, "Usage: %s <word len> <rounds>\n", argv[0]);
@@ -885,7 +885,7 @@ int main(int argc, char **argv)
 	if (wordlen != 0)
 	{
 		uint32 best_nbuckets;
-		
+
 		best_nbuckets = process_word(wordlen, rounds, verbose);
 		printf("best nbuckets for wordlen = %u is %u\n", wordlen, best_nbuckets);
 	}
@@ -898,9 +898,9 @@ int main(int argc, char **argv)
 		for (uint32 wordlen = 1; wordlen <= longest_word; wordlen++)
 		{
 			int32 best_nbuckets;
-			
+
 			best_nbuckets = process_word(wordlen, rounds, verbose);
-			
+
 			if (best_nbuckets == 0)
 			{
 				printf("Can't hash for wordlen = %u\n", wordlen);
