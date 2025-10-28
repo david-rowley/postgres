@@ -239,8 +239,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_2by1
 #define PH_IDENT "2by1"
 #define PH_WAYS 1
-#define PH_SHIFTSTART 30
-#define PH_SHIFTEND 8
+#define PH_SHIFTSTART 1
+#define PH_SHIFTEND 14
 #define PH_HASHTYPE uint16
 #define PH_KEYSIZE 2
 #include "phash.h"
@@ -248,8 +248,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_2by2
 #define PH_IDENT "2by2"
 #define PH_WAYS 2
-#define PH_SHIFTSTART 30
-#define PH_SHIFTEND 8
+#define PH_SHIFTSTART 1
+#define PH_SHIFTEND 14
 #define PH_HASHTYPE uint16
 #define PH_KEYSIZE 2
 #include "phash.h"
@@ -257,8 +257,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_4by1
 #define PH_IDENT "4by1"
 #define PH_WAYS 1
-#define PH_SHIFTSTART 30
-#define PH_SHIFTEND 8
+#define PH_SHIFTSTART 8
+#define PH_SHIFTEND 30
 #define PH_HASHTYPE uint32
 #define PH_KEYSIZE 4
 #include "phash.h"
@@ -266,8 +266,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_4by2
 #define PH_IDENT "4by2"
 #define PH_WAYS 2
-#define PH_SHIFTSTART 30
-#define PH_SHIFTEND 8
+#define PH_SHIFTSTART 8
+#define PH_SHIFTEND 30
 #define PH_HASHTYPE uint32
 #define PH_KEYSIZE 4
 #include "phash.h"
@@ -275,8 +275,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_4by4
 #define PH_IDENT "4by4"
 #define PH_WAYS 4
-#define PH_SHIFTSTART 30
-#define PH_SHIFTEND 8
+#define PH_SHIFTSTART 8
+#define PH_SHIFTEND 30
 #define PH_HASHTYPE uint32
 #define PH_KEYSIZE 4
 #include "phash.h"
@@ -284,8 +284,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_8by1
 #define PH_IDENT "8by1"
 #define PH_WAYS 1
-#define PH_SHIFTSTART 61
-#define PH_SHIFTEND 8
+#define PH_SHIFTSTART 8
+#define PH_SHIFTEND 61
 #define PH_HASHTYPE uint64
 #define PH_KEYSIZE 8
 #include "phash.h"
@@ -293,8 +293,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_8by2
 #define PH_IDENT "8by2"
 #define PH_WAYS 2
-#define PH_SHIFTSTART 61
-#define PH_SHIFTEND 8
+#define PH_SHIFTSTART 8
+#define PH_SHIFTEND 61
 #define PH_HASHTYPE uint64
 #define PH_KEYSIZE 8
 #include "phash.h"
@@ -302,8 +302,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_8by4
 #define PH_IDENT "8by4"
 #define PH_WAYS 4
-#define PH_SHIFTSTART 61
-#define PH_SHIFTEND 8
+#define PH_SHIFTSTART 8
+#define PH_SHIFTEND 61
 #define PH_HASHTYPE uint64
 #define PH_KEYSIZE 8
 #include "phash.h"
