@@ -590,8 +590,6 @@ addkeyword(char *keyword, bool verbose)
 	newword = &keywords[nkeywords];
 	newword->keyword = strdup(keyword);
 	newword->kw_index = nkeywords;
-	if (verbose)
-		printf("Added word %s at index %u\n", keyword, nkeywords);
 	nkeywords++;
 }
 
@@ -692,13 +690,6 @@ int loadkeywords(bool verbose)
 	qsort(keywords, nkeywords, sizeof(Keyword), cmp_keyword);
 }
 
-void
-print_keywords(void)
-{
-	for (int i = 0; i < nkeywords; i++)
-		printf("%s %u\n", keywords[i].keyword, keywords[i].kw_index);
-}
-
 int32
 process_word(uint32 wordlen, uint32 rounds, bool verbose)
 {
@@ -748,23 +739,7 @@ process_word(uint32 wordlen, uint32 rounds, bool verbose)
 		exit(-1);
 	}
 }
-/*
-uint32
-preparekey_4by4(const char *word, uint32 wordlen, uint32 *startpos)
-{
-	unsigned char values[4];
 
-	memcpy(&values[0], word + startpos[0], 1);
-	memcpy(&values[1], word + startpos[1], 1);
-	memcpy(&values[2], word + startpos[2], 1);
-	memcpy(&values[3], word + startpos[3], 1);
-
-	return (uint32) (values[3]) << 24 |
-		   (uint32) values[2] << 16 |
-		   (uint32) values[1] << 8 |
-		   (uint32) values[0];
-}
-*/
 void
 print_final_code(const char *prefix)
 {
@@ -846,7 +821,7 @@ print_final_code(const char *prefix)
 			}
 		}
 
-		printf("\tbucketidx = ((value * %u) >> %u) %% %u;\n", kls->hashseed, kls->rightshift, kls->nbuckets);
+		printf("\tbucketidx = ((value * (uint32) %u) >> %u) %% %u;\n", kls->hashseed, kls->rightshift, kls->nbuckets);
 
 		if (offsetbase > 0)
 			printf("\tbucketidx += %u;\n", offsetbase);
@@ -880,7 +855,6 @@ int main(int argc, char **argv)
 	rounds = atoi(argv[2]);
 
 	loadkeywords(verbose);
-	//print_keywords();
 
 	if (wordlen != 0)
 	{
@@ -910,7 +884,6 @@ int main(int argc, char **argv)
 		}
 
 		print_final_code("ScanKeywords");
-		//print_keywords();
 	}
 
 	return 0;

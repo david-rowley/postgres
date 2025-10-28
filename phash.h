@@ -81,12 +81,7 @@ PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words, PH_HASHTYPE *wordhashes,
 	}
 
 	for (uint32 i = 0; i < best_nbuckets; i++)
-	{
-		if (best_buckets[i] == -1)
-			addLookupBucket(-1);	/* empty bucket */
-		else
-			addLookupBucket(best_buckets[i]);
-	}
+		addLookupBucket(best_buckets[i]);
 
 	free(best_buckets);
 
