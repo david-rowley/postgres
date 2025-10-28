@@ -239,8 +239,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_2by1
 #define PH_IDENT "2by1"
 #define PH_WAYS 1
-#define PH_SHIFTSTART 31
-#define PH_SHIFTEND 1
+#define PH_SHIFTSTART 30
+#define PH_SHIFTEND 8
 #define PH_HASHTYPE uint16
 #define PH_KEYSIZE 2
 #include "phash.h"
@@ -248,8 +248,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_2by2
 #define PH_IDENT "2by2"
 #define PH_WAYS 2
-#define PH_SHIFTSTART 31
-#define PH_SHIFTEND 1
+#define PH_SHIFTSTART 30
+#define PH_SHIFTEND 8
 #define PH_HASHTYPE uint16
 #define PH_KEYSIZE 2
 #include "phash.h"
@@ -257,8 +257,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_4by1
 #define PH_IDENT "4by1"
 #define PH_WAYS 1
-#define PH_SHIFTSTART 31
-#define PH_SHIFTEND 1
+#define PH_SHIFTSTART 30
+#define PH_SHIFTEND 8
 #define PH_HASHTYPE uint32
 #define PH_KEYSIZE 4
 #include "phash.h"
@@ -266,8 +266,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_4by2
 #define PH_IDENT "4by2"
 #define PH_WAYS 2
-#define PH_SHIFTSTART 31
-#define PH_SHIFTEND 1
+#define PH_SHIFTSTART 30
+#define PH_SHIFTEND 8
 #define PH_HASHTYPE uint32
 #define PH_KEYSIZE 4
 #include "phash.h"
@@ -275,8 +275,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_4by4
 #define PH_IDENT "4by4"
 #define PH_WAYS 4
-#define PH_SHIFTSTART 31
-#define PH_SHIFTEND 1
+#define PH_SHIFTSTART 30
+#define PH_SHIFTEND 8
 #define PH_HASHTYPE uint32
 #define PH_KEYSIZE 4
 #include "phash.h"
@@ -284,8 +284,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_8by1
 #define PH_IDENT "8by1"
 #define PH_WAYS 1
-#define PH_SHIFTSTART 63
-#define PH_SHIFTEND 1
+#define PH_SHIFTSTART 61
+#define PH_SHIFTEND 8
 #define PH_HASHTYPE uint64
 #define PH_KEYSIZE 8
 #include "phash.h"
@@ -293,8 +293,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_8by2
 #define PH_IDENT "8by2"
 #define PH_WAYS 2
-#define PH_SHIFTSTART 63
-#define PH_SHIFTEND 1
+#define PH_SHIFTSTART 61
+#define PH_SHIFTEND 8
 #define PH_HASHTYPE uint64
 #define PH_KEYSIZE 8
 #include "phash.h"
@@ -302,8 +302,8 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_8by4
 #define PH_IDENT "8by4"
 #define PH_WAYS 4
-#define PH_SHIFTSTART 63
-#define PH_SHIFTEND 1
+#define PH_SHIFTSTART 61
+#define PH_SHIFTEND 8
 #define PH_HASHTYPE uint64
 #define PH_KEYSIZE 8
 #include "phash.h"
@@ -315,7 +315,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 	uint16 *wordhashes16 = aligned_alloc(64, sizeof(uint16) * numwords);
 	uint32 *wordhashes32 = aligned_alloc(64, sizeof(uint32) * numwords);
 	uint64 *wordhashes64 = aligned_alloc(64, sizeof(uint64) * numwords);
-	int32 *buckets = aligned_alloc(64, sizeof(int32) * max_buckets);
+	int16 *buckets = aligned_alloc(64, sizeof(int16) * max_buckets);
 
 	int found = 0;
 
@@ -329,18 +329,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 			continue;
 
 		if (verbose)
-			printf("Found 2by1 way unique at pos %d ... ", startpos);
+			printf("Found 2by1 way unique at pos %d\n", startpos);
 
 		best_nbuckets = searchhash_2by1(kls, words, wordhashes16, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
 		if (best_nbuckets != 0)
 		{
-			if (verbose)
-				printf(" found perfect hash\n");
 			found = 1;
 			goto cleanup;
 		}
-		printf("Can't find perfect hash for 2by1\n");
 	}
 
 	/* 2by2 */
@@ -357,18 +354,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 				continue;
 
 			if (verbose)
-				printf("Found 2by2 way unique at pos %d %d ... ", startpos[0], startpos[1]);
+				printf("Found 2by2 way unique at pos %d %d\n", startpos[0], startpos[1]);
 
 			best_nbuckets = searchhash_2by2(kls, words, wordhashes16, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
 			if (best_nbuckets != 0)
 			{
-				if (verbose)
-					printf(" found perfect hash\n");
 				found = 1;
 				goto cleanup;
 			}
-			printf("Can't find perfect hash for 2by2\n");
 		}
 	}
 
@@ -384,18 +378,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 				continue;
 
 			if (verbose)
-				printf("Found 4by1 way unique at pos %d ... ", startpos);
+				printf("Found 4by1 way unique at pos %d\n", startpos);
 
 			best_nbuckets = searchhash_4by1(kls, words, wordhashes32, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
 			if (best_nbuckets != 0)
 			{
-				if (verbose)
-					printf(" found perfect hash\n");
 				found = 1;
 				goto cleanup;
 			}
-			printf("Can't find perfect hash for 4by1\n");
 		}
 
 		/* 4by2 */
@@ -412,18 +403,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 					continue;
 
 				if (verbose)
-					printf("Found 4by2 way unique at pos %d %d ... ", startpos[0], startpos[1]);
+					printf("Found 4by2 way unique at pos %d %d\n", startpos[0], startpos[1]);
 
 				best_nbuckets = searchhash_4by2(kls, words, wordhashes32, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
 				if (best_nbuckets != 0)
 				{
-					if (verbose)
-						printf(" found perfect hash\n");
 					found = 1;
 					goto cleanup;
 				}
-				printf("Can't find perfect hash for 4by2\n");
 			}
 		}
 
@@ -445,18 +433,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 							continue;
 
 						if (verbose)
-							printf("Found 4by4 way unique at pos %d %d %d %d ... ", startpos[0], startpos[1], startpos[2], startpos[3]);
+							printf("Found 4by4 way unique at pos %d %d %d %d\n", startpos[0], startpos[1], startpos[2], startpos[3]);
 
 						best_nbuckets = searchhash_4by4(kls, words, wordhashes32, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
 						if (best_nbuckets != 0)
 						{
-							if (verbose)
-								printf(" found perfect hash\n");
 							found = 1;
 							goto cleanup;
 						}
-						printf("Can't find perfect hash for 4by4\n");
 					}
 				}
 			}
@@ -475,17 +460,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 				continue;
 
 			if (verbose)
-				printf("Found 8by1 way unique at pos %d ... ", startpos);
+				printf("Found 8by1 way unique at pos %d\n", startpos);
 
 			best_nbuckets = searchhash_8by1(kls, words, wordhashes64, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
 			if (best_nbuckets != 0)
 			{
-				if (verbose) printf(" found perfect hash\n");
 				found = 1;
 				goto cleanup;
 			}
-			printf("Can't find perfect hash for 8by1\n");
 		}
 
 		/* 8by2 */
@@ -502,17 +485,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 					continue;
 
 				if (verbose)
-					printf("Found 8by2 way unique at pos %d %d ... ", startpos[0], startpos[1]);
+					printf("Found 8by2 way unique at pos %d %d\n", startpos[0], startpos[1]);
 
 				best_nbuckets = searchhash_8by2(kls, words, wordhashes64, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
 				if (best_nbuckets != 0)
 				{
-					if (verbose) printf(" found perfect hash\n");
 					found = 1;
 					goto cleanup;
 				}
-				printf("Can't find perfect hash for 8by2\n");
 			}
 		}
 
@@ -534,18 +515,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 							continue;
 
 						if (verbose)
-							printf("Found 8by4 way unique at pos %d %d %d %d ... ", startpos[0], startpos[1], startpos[2], startpos[3]);
+							printf("Found 8by4 way unique at pos %d %d %d %d\n", startpos[0], startpos[1], startpos[2], startpos[3]);
 
 						best_nbuckets = searchhash_8by4(kls, words, wordhashes64, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
 
 						if (best_nbuckets != 0)
 						{
-							if (verbose)
-								printf(" found perfect hash\n");
 							found = 1;
 							goto cleanup;
 						}
-						printf("Can't find perfect hash for 8by4\n");
 					}
 				}
 			}
@@ -656,7 +634,8 @@ cmp_keyword_by_name(const void *pa, const void *pb)
 }
 
 
-int loadkeywords(bool verbose)
+int
+loadkeywords(bool verbose)
 {
 	char buffer[1024];
 
@@ -741,7 +720,7 @@ process_word(uint32 wordlen, uint32 rounds, bool verbose)
 }
 
 void
-print_final_code(const char *prefix)
+print_final_code(const char *prefix, bool addstringterm)
 {
 	uint32 offsetbase = 0;
 	Keyword *alphabetical_keywords = malloc(sizeof(Keyword) * nkeywords);
@@ -757,12 +736,12 @@ print_final_code(const char *prefix)
 	{
 		const char *word = alphabetical_keywords[i].keyword;
 		if (i + 1 != nkeywords)
-			printf("\t\"%s\\0\"\n", word);
+			printf("\t\"%s%s\"\n", word, addstringterm ? "\\0" : "");
 		else
 			printf("\t\"%s\";\n\n", word);
 
 		offsets[i] = (uint16) curoffset;
-		curoffset += strlen(word) + 1; /* length + \0 */
+		curoffset += strlen(word) + (addstringterm == true); /* length + \0 */
 	}
 
 	if (curoffset >= USHRT_MAX)
@@ -882,7 +861,7 @@ int main(int argc, char **argv)
 			total_buckets += best_nbuckets;
 		}
 
-		print_final_code("ScanKeywords");
+		print_final_code("ScanKeywords", false);
 	}
 
 	return 0;
