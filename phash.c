@@ -808,7 +808,7 @@ print_final_code(const char *prefix)
 		}
 		else
 		{
-			printf("\tuint%u values[%u];\n\n", kls->hashkeysize * 8, kls->hashway);
+			printf("\tuint%u values[%u];\n\n", kls->hashkeysize * 8 / kls->hashway, kls->hashway);
 
 			for (uint32 j = 0; j < kls->hashway; j++)
 				printf("\tmemcpy(&values[%u], word + %u, %u);\n", j, kls->startpositions[j], kls->hashkeysize / kls->hashway);
@@ -860,8 +860,7 @@ int main(int argc, char **argv)
 	{
 		uint32 best_nbuckets;
 
-		best_nbuckets = process_word(wordlen, rounds, verbose);
-		printf("best nbuckets for wordlen = %u is %u\n", wordlen, best_nbuckets);
+		best_nbuckets = process_word(wordlen, rounds, true);
 	}
 	else
 	{
