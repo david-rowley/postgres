@@ -32,7 +32,7 @@ PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words, PH_HASHTYPE *wordhashes,
 					const char *word = words[i].keyword;
 					PH_HASHTYPE wordhash;
 					uint32 bucketidx;
-					
+
 					wordhash = wordhashes[i];
 
 					bucketidx = ((wordhash * seed) >> rshift) % nbuckets;
