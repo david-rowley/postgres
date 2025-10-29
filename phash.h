@@ -11,13 +11,13 @@
 static inline uint32
 PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words,
 			PH_HASHTYPE *wordhashes, uint32 numwords, uint32 wordlen,
-			uint32 *startpos, int16 *buckets, uint32 start_buckets,
+			uint32 *startpos, int32 *buckets, uint32 start_buckets,
 			uint32 max_buckets, uint32 rounds, bool verbose)
 {
 	uint32 best_seed = 0;
 	uint32 best_nbuckets = UINT_MAX;
 	uint32 best_rshift = 0;
-	int16 *best_buckets = malloc(sizeof(int16) * max_buckets);
+	int32 *best_buckets = malloc(sizeof(int32) * max_buckets);
 	uint32 *unset = malloc(sizeof(uint32) * numwords);
 	PH_HASHTYPE *seededwords = malloc(sizeof(PH_HASHTYPE) * numwords);
 
@@ -29,7 +29,7 @@ PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words,
 	 * elements we've changed in the 'unset' array and just do those ones.
 	 * This seems to help performance
 	 */
-	memset(buckets, -1, sizeof(int16) * max_buckets);
+	memset(buckets, -1, sizeof(int32) * max_buckets);
 
 	/*
 	 * Start looking for the smallest number of buckets we can use for this
@@ -57,9 +57,11 @@ PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words,
 					uint32 bucketidx = (seededwords[i] >> rshift) % nbuckets;
 
 					if (buckets[bucketidx] != -1)
+					{
 						goto resetbuckets;
+					}
 
-					buckets[bucketidx] = words[i].kw_index;
+					buckets[bucketidx] = i;
 					unset[i] = bucketidx;
 				}
 
@@ -68,12 +70,16 @@ PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words,
 					best_nbuckets = nbuckets;
 					best_seed = seed;
 					best_rshift = rshift;
-					memcpy(best_buckets, buckets, sizeof(int16) * nbuckets);
+					memcpy(best_buckets, buckets, sizeof(int32) * nbuckets);
 				}
 resetbuckets:
+#define SWAP(T, a, b) do { T tmp = a; a = b; a = tmp; } while (0)
+				SWAP(Keyword, words[buckets[i]], words[1]);
+				SWAP(Keyword, words[i], words[0]);
+
 				/* put -1 back in any buckets elements we've changed */
 				if (i >= numwords >> 1)
-					memset(buckets, -1, sizeof(int16) * nbuckets);
+					memset(buckets, -1, sizeof(int32) * nbuckets);
 				else
 				{
 					for (int j = 0; j < i; j++)
@@ -108,7 +114,12 @@ resetbuckets:
 
 		/* record the best buckets for this wordlen in the global bucket array */
 		for (uint32 i = 0; i < best_nbuckets; i++)
-			addLookupBucket(best_buckets[i]);
+		{
+			if (best_buckets[i] == -1)
+				addLookupBucket(-1);
+			else
+				addLookupBucket(words[best_buckets[i]].kw_index);
+		}
 	}
 	else
 	{

@@ -315,7 +315,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 	uint16 *wordhashes16 = aligned_alloc(64, sizeof(uint16) * numwords);
 	uint32 *wordhashes32 = aligned_alloc(64, sizeof(uint32) * numwords);
 	uint64 *wordhashes64 = aligned_alloc(64, sizeof(uint64) * numwords);
-	int16 *buckets = aligned_alloc(64, sizeof(int16) * max_buckets);
+	int32 *buckets = aligned_alloc(64, sizeof(int32) * max_buckets);
 
 	int found = 0;
 
@@ -778,39 +778,51 @@ print_final_code(const char *prefix, bool addstringterm)
 
 		printf("int16 wordlookup%u(const char *word)\n", kls->keywordlen);
 		printf("{\n");
-		printf("\tuint32 bucketidx;\n");
-		printf("\tuint%u value;\n", kls->hashkeysize * 8);
-		printf("\tint16 keywordidx;\n");
-		if (kls->hashway == 1)
+
+		if (kls->nbuckets > 1)
 		{
-			printf("\n\tmemcpy(&value, word + %u, %u);\n\n", kls->startpositions[0], kls->hashkeysize);
+			printf("\tuint32 bucketidx;\n");
+			printf("\tuint%u value;\n", kls->hashkeysize * 8);
+			printf("\tint16 keywordidx;\n");
+			if (kls->hashway == 1)
+			{
+				printf("\n\tmemcpy(&value, word + %u, %u);\n\n", kls->startpositions[0], kls->hashkeysize);
+			}
+			else
+			{
+				printf("\tuint%u values[%u];\n\n", kls->hashkeysize * 8 / kls->hashway, kls->hashway);
+
+				for (uint32 j = 0; j < kls->hashway; j++)
+					printf("\tmemcpy(&values[%u], word + %u, %u);\n", j, kls->startpositions[j], kls->hashkeysize / kls->hashway);
+
+				printf("\n\tvalue = ");
+				for (uint32 j = 0; j < kls->hashway; j++)
+				{
+					int tmp = kls->hashway - j - 1;
+					printf("(uint%u) values[%u] << %u%s", kls->hashkeysize * 8, tmp, tmp * 8 * (kls->hashkeysize / kls->hashway), j + 1 == kls->hashway ? ";\n" : " | ");
+				}
+			}
+
+			printf("\tbucketidx = ((value * (uint32) %u) >> %u) %% %u;\n", kls->hashseed, kls->rightshift, kls->nbuckets);
+
+			if (offsetbase > 0)
+				printf("\tbucketidx += %u;\n", offsetbase);
+			printf("\tkeywordidx = %s_kw_perfecthash[bucketidx];\n", prefix);
+			printf("\tif (keywordidx == -1)\n");
+			printf("\t\treturn -1; /* no match, slot empty */\n\n");
+			printf("\tif (memcmp(&%s_kw_string[%s_kw_offsets[keywordidx]], word, %u) == 0)\n", prefix, prefix, kls->keywordlen);
+			printf("\t\treturn keywordidx; /* match! */\n\n");
+			printf("\t/* no match */\n");
+			printf("\treturn -1;\n");
 		}
 		else
 		{
-			printf("\tuint%u values[%u];\n\n", kls->hashkeysize * 8 / kls->hashway, kls->hashway);
-
-			for (uint32 j = 0; j < kls->hashway; j++)
-				printf("\tmemcpy(&values[%u], word + %u, %u);\n", j, kls->startpositions[j], kls->hashkeysize / kls->hashway);
-
-			printf("\n\tvalue = ");
-			for (uint32 j = 0; j < kls->hashway; j++)
-			{
-				int tmp = kls->hashway - j - 1;
-				printf("(uint%u) values[%u] << %u%s", kls->hashkeysize * 8, tmp, tmp * 8 * (kls->hashkeysize / kls->hashway), j + 1 == kls->hashway ? ";\n" : " | ");
-			}
+			/* When there's only 1 bucket, don't bother with hashing, just compare to the keyword stored in the bucket */
+			printf("\tif (memcmp(&%s_kw_string[%s_kw_offsets[%u]], word, %u) == 0)\n", prefix, prefix, lookupbuckets[offsetbase], kls->keywordlen);
+			printf("\t\treturn %u; /* match! */\n\n", offsetbase);
+			printf("\t/* no match */\n");
+			printf("\treturn -1;\n");
 		}
-
-		printf("\tbucketidx = ((value * (uint32) %u) >> %u) %% %u;\n", kls->hashseed, kls->rightshift, kls->nbuckets);
-
-		if (offsetbase > 0)
-			printf("\tbucketidx += %u;\n", offsetbase);
-		printf("\tkeywordidx = %s_kw_perfecthash[bucketidx];\n", prefix);
-		printf("\tif (keywordidx == -1)\n");
-		printf("\t\treturn -1; /* no match, slot empty */\n\n");
-		printf("\tif (memcmp(&%s_kw_string[%s_kw_offsets[keywordidx]], word, %u) == 0)\n", prefix, prefix, kls->keywordlen);
-		printf("\t\treturn keywordidx; /* match! */\n\n");
-		printf("\t/* no match */\n");
-		printf("\treturn -1;\n");
 		offsetbase +=  kls->nbuckets;
 		printf("}\n\n");
 	}
