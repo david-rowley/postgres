@@ -40,46 +40,63 @@ int16 *lookupbuckets = NULL;
 uint32 nlookupbuckets = 0;
 uint32 lookupbuckets_size = 0;
 
+typedef struct Options {
+	char	*prefix;				/* Prefix for the output global variable names */
+	bool	NullTerminateKeyWords;	/* Keywords go into a single string const, should we put a NUL terminator between each? */
+	bool	EmptyHashSlotReturnFirstKeyWord;	/* Store 0 instead of -1 in empty perfect hash slots */
+	bool	ExtraOffsetElement; /* Useful so it's possible to get length of keyword by always being table to subtract offset from next keyword's offset */
+	bool	CaseInsensitive;
+	bool	Verbose;
+} Options;
+
 static uint16
-preparekey_2by1(const char *word, uint32 wordlen, uint32 *startpos)
+preparekey_2by1(const char *word, uint32 wordlen, uint32 *startpos, Options *options)
 {
 	uint16 value;
 	memcpy(&value, word + startpos[0], 2);
 
-	return (uint32) value;
+	if (options->CaseInsensitive)
+		return value | 0x2020U;
+	return value;
 }
 
 static uint16
-preparekey_2by2(const char *word, uint32 wordlen, uint32 *startpos)
+preparekey_2by2(const char *word, uint32 wordlen, uint32 *startpos, Options *options)
 {
 	uint8 values[2];
 
 	memcpy(&values[0], word + startpos[0], 1);
 	memcpy(&values[1], word + startpos[1], 1);
+	if (options->CaseInsensitive)
+		return ((uint16) (values[1]) << 8 | (uint16) values[0]) | 0x2020U;
 	return (uint16) (values[1]) << 8 | (uint16) values[0];
 }
 
 static uint32
-preparekey_4by1(const char *word, uint32 wordlen, uint32 *startpos)
+preparekey_4by1(const char *word, uint32 wordlen, uint32 *startpos, Options *options)
 {
 	uint32 value;
 	memcpy(&value, word + startpos[0], 4);
 
+	if (options->CaseInsensitive)
+		return value | 0x20202020U;
 	return value;
 }
 
 uint32
-preparekey_4by2(const char *word, uint32 wordlen, uint32 *startpos)
+preparekey_4by2(const char *word, uint32 wordlen, uint32 *startpos, Options *options)
 {
 	uint16 values[2];
 
 	memcpy(&values[0], word + startpos[0], 2);
 	memcpy(&values[1], word + startpos[1], 2);
+	if (options->CaseInsensitive)
+		return ((uint32) (values[1]) << 16 | (uint32) values[0]) | 0x20202020U;
 	return (uint32) (values[1]) << 16 | (uint32) values[0];
 }
 
 uint32
-preparekey_4by4(const char *word, uint32 wordlen, uint32 *startpos)
+preparekey_4by4(const char *word, uint32 wordlen, uint32 *startpos, Options *options)
 {
 	unsigned char values[4];
 
@@ -88,6 +105,11 @@ preparekey_4by4(const char *word, uint32 wordlen, uint32 *startpos)
 	memcpy(&values[2], word + startpos[2], 1);
 	memcpy(&values[3], word + startpos[3], 1);
 
+	if (options->CaseInsensitive)
+		return ((uint32) (values[3]) << 24 |
+			   (uint32) values[2] << 16 |
+			   (uint32) values[1] << 8 |
+			   (uint32) values[0]) | 0x20202020U;
 	return (uint32) (values[3]) << 24 |
 		   (uint32) values[2] << 16 |
 		   (uint32) values[1] << 8 |
@@ -95,26 +117,30 @@ preparekey_4by4(const char *word, uint32 wordlen, uint32 *startpos)
 }
 
 static uint64
-preparekey_8by1(const char *word, uint32 wordlen, uint32 *startpos)
+preparekey_8by1(const char *word, uint32 wordlen, uint32 *startpos, Options *options)
 {
 	uint64 value;
 	memcpy(&value, word + startpos[0], 8);
 
+	if (options->CaseInsensitive)
+		return value | 0x2020202020202020ULL;
 	return value;
 }
 
 uint64
-preparekey_8by2(const char *word, uint32 wordlen, uint32 *startpos)
+preparekey_8by2(const char *word, uint32 wordlen, uint32 *startpos, Options *options)
 {
 	uint32 values[2];
 
 	memcpy(&values[0], word + startpos[0], 4);
 	memcpy(&values[1], word + startpos[1], 4);
+	if (options->CaseInsensitive)
+		return ((uint64) (values[1]) << 32 | (uint64) values[0]) | 0x2020202020202020ULL;
 	return (uint64) (values[1]) << 32 | (uint64) values[0];
 }
 
 uint64
-preparekey_8by4(const char *word, uint32 wordlen, uint32 *startpos)
+preparekey_8by4(const char *word, uint32 wordlen, uint32 *startpos, Options *options)
 {
 	uint16 values[4];
 
@@ -123,6 +149,11 @@ preparekey_8by4(const char *word, uint32 wordlen, uint32 *startpos)
 	memcpy(&values[2], word + startpos[2], 2);
 	memcpy(&values[3], word + startpos[3], 2);
 
+	if (options->CaseInsensitive)
+		return ((uint64) (values[3]) << 48 |
+				(uint64) values[2] << 32 |
+				(uint64) values[1] << 16 |
+				(uint64) values[0]) | 0x2020202020202020ULL;
 	return (uint64) (values[3]) << 48 |
 		   (uint64) values[2] << 32 |
 		   (uint64) values[1] << 16 |
@@ -325,7 +356,7 @@ static uint32 SeedGenerator_NextSeed(SeedGenerator *seeder)
 #include "phash.h"
 
 static int
-search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordlen, uint32 start_buckets, uint32 max_buckets, uint32 rounds, bool verbose)
+search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordlen, uint32 start_buckets, uint32 max_buckets, uint32 rounds, Options *options)
 {
 	uint32 best_nbuckets;
 	uint16 *wordhashes16 = aligned_alloc(64, sizeof(uint16) * numwords);
@@ -339,15 +370,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 	for (int32 startpos = 0; startpos <= wordlen - 2; startpos++)
 	{
 		for (uint32 i = 0; i < numwords; i++)
-			wordhashes16[i] = preparekey_2by1(words[i].keyword, wordlen, &startpos);
+			wordhashes16[i] = preparekey_2by1(words[i].keyword, wordlen, &startpos, options);
 
 		if (has_duplicates16(wordhashes16, numwords))
 			continue;
 
-		if (verbose)
+		if (options->Verbose)
 			printf("Found 2by1 way unique at pos %d\n", startpos);
 
-		best_nbuckets = searchhash_2by1(kls, words, wordhashes16, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, verbose);
+		best_nbuckets = searchhash_2by1(kls, words, wordhashes16, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, options->Verbose);
 
 		if (best_nbuckets != 0)
 		{
@@ -364,15 +395,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 			int32 startpos[2] = { startpos1, startpos2 };
 
 			for (uint32 i = 0; i < numwords; i++)
-				wordhashes16[i] = preparekey_2by2(words[i].keyword, wordlen, startpos);
+				wordhashes16[i] = preparekey_2by2(words[i].keyword, wordlen, startpos, options);
 
 			if (has_duplicates16(wordhashes16, numwords))
 				continue;
 
-			if (verbose)
+			if (options->Verbose)
 				printf("Found 2by2 way unique at pos %d %d\n", startpos[0], startpos[1]);
 
-			best_nbuckets = searchhash_2by2(kls, words, wordhashes16, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
+			best_nbuckets = searchhash_2by2(kls, words, wordhashes16, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, options->Verbose);
 
 			if (best_nbuckets != 0)
 			{
@@ -388,15 +419,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 		for (int32 startpos = 0; startpos <= wordlen - 4; startpos++)
 		{
 			for (uint32 i = 0; i < numwords; i++)
-				wordhashes32[i] = preparekey_4by1(words[i].keyword, wordlen, &startpos);
+				wordhashes32[i] = preparekey_4by1(words[i].keyword, wordlen, &startpos, options);
 
 			if (has_duplicates32(wordhashes32, numwords))
 				continue;
 
-			if (verbose)
+			if (options->Verbose)
 				printf("Found 4by1 way unique at pos %d\n", startpos);
 
-			best_nbuckets = searchhash_4by1(kls, words, wordhashes32, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, verbose);
+			best_nbuckets = searchhash_4by1(kls, words, wordhashes32, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, options->Verbose);
 
 			if (best_nbuckets != 0)
 			{
@@ -413,15 +444,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 				int32 startpos[2] = { startpos1, startpos2 };
 
 				for (uint32 i = 0; i < numwords; i++)
-					wordhashes32[i] = preparekey_4by2(words[i].keyword, wordlen, startpos);
+					wordhashes32[i] = preparekey_4by2(words[i].keyword, wordlen, startpos, options);
 
 				if (has_duplicates32(wordhashes32, numwords))
 					continue;
 
-				if (verbose)
+				if (options->Verbose)
 					printf("Found 4by2 way unique at pos %d %d\n", startpos[0], startpos[1]);
 
-				best_nbuckets = searchhash_4by2(kls, words, wordhashes32, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
+				best_nbuckets = searchhash_4by2(kls, words, wordhashes32, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, options->Verbose);
 
 				if (best_nbuckets != 0)
 				{
@@ -443,15 +474,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 						int32 startpos[4] = { startpos1, startpos2, startpos3, startpos4 };
 
 						for (uint32 i = 0; i < numwords; i++)
-							wordhashes32[i] = preparekey_4by4(words[i].keyword, wordlen, startpos);
+							wordhashes32[i] = preparekey_4by4(words[i].keyword, wordlen, startpos, options);
 
 						if (has_duplicates32(wordhashes32, numwords))
 							continue;
 
-						if (verbose)
+						if (options->Verbose)
 							printf("Found 4by4 way unique at pos %d %d %d %d\n", startpos[0], startpos[1], startpos[2], startpos[3]);
 
-						best_nbuckets = searchhash_4by4(kls, words, wordhashes32, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
+						best_nbuckets = searchhash_4by4(kls, words, wordhashes32, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, options->Verbose);
 
 						if (best_nbuckets != 0)
 						{
@@ -470,15 +501,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 		for (int32 startpos = 0; startpos <= wordlen - 8; startpos++)
 		{
 			for (uint32 i = 0; i < numwords; i++)
-				wordhashes64[i] = preparekey_8by1(words[i].keyword, wordlen, &startpos);
+				wordhashes64[i] = preparekey_8by1(words[i].keyword, wordlen, &startpos, options);
 
 			if (has_duplicates64(wordhashes64, numwords))
 				continue;
 
-			if (verbose)
+			if (options->Verbose)
 				printf("Found 8by1 way unique at pos %d\n", startpos);
 
-			best_nbuckets = searchhash_8by1(kls, words, wordhashes64, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, verbose);
+			best_nbuckets = searchhash_8by1(kls, words, wordhashes64, numwords, wordlen, &startpos, buckets, start_buckets, max_buckets, rounds, options->Verbose);
 
 			if (best_nbuckets != 0)
 			{
@@ -495,15 +526,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 				int32 startpos[2] = { startpos1, startpos2 };
 
 				for (uint32 i = 0; i < numwords; i++)
-					wordhashes64[i] = preparekey_8by2(words[i].keyword, wordlen, startpos);
+					wordhashes64[i] = preparekey_8by2(words[i].keyword, wordlen, startpos, options);
 
 				if (has_duplicates64(wordhashes64, numwords))
 					continue;
 
-				if (verbose)
+				if (options->Verbose)
 					printf("Found 8by2 way unique at pos %d %d\n", startpos[0], startpos[1]);
 
-				best_nbuckets = searchhash_8by2(kls, words, wordhashes64, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
+				best_nbuckets = searchhash_8by2(kls, words, wordhashes64, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, options->Verbose);
 
 				if (best_nbuckets != 0)
 				{
@@ -525,15 +556,15 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 						int32 startpos[4] = { startpos1, startpos2, startpos3, startpos4 };
 
 						for (uint32 i = 0; i < numwords; i++)
-							wordhashes64[i] = preparekey_8by4(words[i].keyword, wordlen, startpos);
+							wordhashes64[i] = preparekey_8by4(words[i].keyword, wordlen, startpos, options);
 
 						if (has_duplicates64(wordhashes64, numwords))
 							continue;
 
-						if (verbose)
+						if (options->Verbose)
 							printf("Found 8by4 way unique at pos %d %d %d %d\n", startpos[0], startpos[1], startpos[2], startpos[3]);
 
-						best_nbuckets = searchhash_8by4(kls, words, wordhashes64, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, verbose);
+						best_nbuckets = searchhash_8by4(kls, words, wordhashes64, numwords, wordlen, startpos, buckets, start_buckets, max_buckets, rounds, options->Verbose);
 
 						if (best_nbuckets != 0)
 						{
@@ -686,7 +717,7 @@ loadkeywords(bool verbose)
 }
 
 int32
-process_word(uint32 wordlen, uint32 rounds, bool verbose)
+process_word(uint32 wordlen, uint32 rounds, Options *options)
 {
 	KeywordLengthSpecific *kls;
 	uint32 nbuckets;
@@ -719,12 +750,12 @@ process_word(uint32 wordlen, uint32 rounds, bool verbose)
 
 	last = i;
 
-	if (verbose)
+	if (options->Verbose)
 		printf("* Num keywords = %u wordlen = %u\n", last - first, wordlen);
 
 	nbuckets = guess_initial_hash_size(last - first);
 	kls = addKeywordLengthSpecific();
-	best_nbuckets = search(kls, &keywords[first], last - first, wordlen, nbuckets, 1024, rounds, verbose);
+	best_nbuckets = search(kls, &keywords[first], last - first, wordlen, nbuckets, 1024, rounds, options);
 
 	if (best_nbuckets != 0)
 		return best_nbuckets;
@@ -735,12 +766,12 @@ process_word(uint32 wordlen, uint32 rounds, bool verbose)
 	}
 }
 
-typedef struct Options {
-	char	*prefix;				/* Prefix for the output global variable names */
-	bool	NullTerminateKeyWords;	/* Keywords go into a single string const, should we put a NUL terminator between each? */
-	bool	EmptyHashSlotReturnFirstKeyWord;	/* Store 0 instead of -1 in empty perfect hash slots */
-	bool	ExtraOffsetElement; /* Useful so it's possible to get length of keyword by always being table to subtract offset from next keyword's offset */
-} Options;
+static const char *AsciiLowerCaseMask[] = {
+	[1] = "0x20U",
+	[2] = "0x2020U",
+	[4] = "0x20202020U",
+	[8] = "0x2020202020202020U"
+};
 
 void
 print_final_code(Options *options)
@@ -810,6 +841,148 @@ print_final_code(Options *options)
 	}
 	printf("\n};\n\n");
 
+	if (options->CaseInsensitive)
+	{
+		printf("static inline uint64\n");
+		printf("ascii_tolower_64(uint64 octets)\n");
+		printf("{\n");
+		printf("	uint64 all_bytes = 0x0101010101010101;\n");
+		printf("\n");
+		printf("	uint64 heptets = octets & (0x7F * all_bytes);\n");
+		printf("\n");
+		printf("	uint64 is_gt_Z = heptets + (0x7F - 'Z') * all_bytes;\n");
+		printf("\n");
+		printf("	uint64 is_ge_A = heptets + (0x80 - 'A') * all_bytes;\n");
+		printf("\n");
+		printf("	uint64 is_ascii = ~octets;\n");
+		printf("\n");
+		printf("	uint64 is_upper = is_ascii & (is_ge_A ^ is_gt_Z);\n");
+		printf("\n");
+		printf("	uint64 to_lower = (is_upper >> 2) & (0x20 * all_bytes);\n");
+		printf("\n");
+		printf("	return (octets | to_lower);\n");
+		printf("}\n");
+		printf("\n");
+		printf("static inline uint32\n");
+		printf("ascii_tolower_32(uint32 octets)\n");
+		printf("{\n");
+		printf("	uint32 all_bytes = 0x01010101;\n");
+		printf("\n");
+		printf("	uint32 heptets = octets & (0x7F * all_bytes);\n");
+		printf("\n");
+		printf("	uint32 is_gt_Z = heptets + (0x7F - 'Z') * all_bytes;\n");
+		printf("\n");
+		printf("	uint32 is_ge_A = heptets + (0x80 - 'A') * all_bytes;\n");
+		printf("\n");
+		printf("	uint32 is_ascii = ~octets;\n");
+		printf("\n");
+		printf("	uint32 is_upper = is_ascii & (is_ge_A ^ is_gt_Z);\n");
+		printf("\n");
+		printf("	uint32 to_lower = (is_upper >> 2) & (0x20 * all_bytes);\n");
+		printf("\n");
+		printf("	return (octets | to_lower);\n");
+		printf("}\n");
+		printf("\n");
+		printf("static inline uint16\n");
+		printf("ascii_tolower_16(uint16 octets)\n");
+		printf("{\n");
+		printf("	uint16 all_bytes = 0x0101;\n");
+		printf("\n");
+		printf("	uint16 heptets = octets & (0x7F * all_bytes);\n");
+		printf("\n");
+		printf("	uint16 is_gt_Z = heptets + (0x7F - 'Z') * all_bytes;\n");
+		printf("\n");
+		printf("	uint16 is_ge_A = heptets + (0x80 - 'A') * all_bytes;\n");
+		printf("\n");
+		printf("	uint16 is_ascii = ~octets;\n");
+		printf("\n");
+		printf("	uint16 is_upper = is_ascii & (is_ge_A ^ is_gt_Z);\n");
+		printf("\n");
+		printf("	uint16 to_lower = (is_upper >> 2) & (0x20 * all_bytes);\n");
+		printf("\n");
+		printf("	return (octets | to_lower);\n");
+		printf("}\n");
+		printf("\n");
+		printf("static inline bool\n");
+		printf("matches_ascii_lowercase_string(const char *mixed_case, const char *lower_case,\n");
+		printf("							   size_t len)\n");
+		printf("{\n");
+		printf("	const char *mc = mixed_case;\n");
+		printf("	const char *lc = lower_case;\n");
+		printf("\n");
+		printf("	/* Vectorize comparison by lower casing doing up to 8 bytes at a time */\n");
+		printf("	while (len >= sizeof(uint64))\n");
+		printf("	{\n");
+		printf("		uint64 lowered;\n");
+		printf("		uint64 lcbits;\n");
+		printf("\n");
+		printf("		memcpy(&lowered, mc, sizeof(uint64));\n");
+		printf("		memcpy(&lcbits, lc, sizeof(uint64));\n");
+		printf("\n");
+		printf("		/* fold to lower case */\n");
+		printf("		lowered = ascii_tolower_64(lowered);\n");
+		printf("\n");
+		printf("		if (lowered != lcbits)\n");
+		printf("			return false;\n");
+		printf("\n");
+		printf("		mc += sizeof(uint64);\n");
+		printf("		lc += sizeof(uint64);\n");
+		printf("		len -= sizeof(uint64);\n");
+		printf("	}\n");
+		printf("\n");
+		printf("	while (len >= sizeof(uint32))\n");
+		printf("	{\n");
+		printf("		uint32 lowered;\n");
+		printf("		uint32 lcbits;\n");
+		printf("\n");
+		printf("		memcpy(&lowered, mc, sizeof(uint32));\n");
+		printf("		memcpy(&lcbits, lc, sizeof(uint32));\n");
+		printf("\n");
+		printf("		/* fold to lower case */\n");
+		printf("		lowered = ascii_tolower_32(lowered);\n");
+		printf("\n");
+		printf("		if (lowered != lcbits)\n");
+		printf("			return false;\n");
+		printf("\n");
+		printf("		mc += sizeof(uint32);\n");
+		printf("		lc += sizeof(uint32);\n");
+		printf("		len -= sizeof(uint32);\n");
+		printf("	}\n");
+		printf("\n");
+		printf("	while (len >= sizeof(uint16))\n");
+		printf("	{\n");
+		printf("		uint16 lowered;\n");
+		printf("		uint16 lcbits;\n");
+		printf("\n");
+		printf("		memcpy(&lowered, mc, sizeof(uint16));\n");
+		printf("		memcpy(&lcbits, lc, sizeof(uint16));\n");
+		printf("\n");
+		printf("		/* fold to lower case */\n");
+		printf("		lowered = ascii_tolower_16(lowered);\n");
+		printf("\n");
+		printf("		if (lowered != lcbits)\n");
+		printf("			return false;\n");
+		printf("\n");
+		printf("		mc += sizeof(uint16);\n");
+		printf("		lc += sizeof(uint16);\n");
+		printf("		len -= sizeof(uint16);\n");
+		printf("	}\n");
+		printf("\n");
+		printf("	/* handle remainder */\n");
+		printf("	while (len-- > 0)\n");
+		printf("	{\n");
+		printf("		char ch = *mc++;\n");
+		printf("\n");
+		printf("		if (ch >= 'A' && ch <= 'Z')\n");
+		printf("			ch += 'a' - 'A';\n");
+		printf("		if (ch != *lc++)\n");
+		printf("			return false;\n");
+		printf("	}\n");
+		printf("\n");
+		printf("	return true;\n");
+		printf("}\n");
+	}
+
 	for (uint32 i = 0; i < nkeywordlengthspecifics; i++)
 	{
 		KeywordLengthSpecific *kls = &keywordlengthspecific[i];
@@ -825,6 +998,8 @@ print_final_code(Options *options)
 			if (kls->hashway == 1)
 			{
 				printf("\n\tmemcpy(&value, word + %u, %u);\n\n", kls->startpositions[0], kls->hashkeysize);
+				if (options->CaseInsensitive)
+					printf("\tvalue |= %s;\n", AsciiLowerCaseMask[kls->hashkeysize]);
 			}
 			else
 			{
@@ -839,6 +1014,8 @@ print_final_code(Options *options)
 					int tmp = kls->hashway - j - 1;
 					printf("(uint%u) values[%u] << %u%s", kls->hashkeysize * 8, tmp, tmp * 8 * (kls->hashkeysize / kls->hashway), j + 1 == kls->hashway ? ";\n" : " | ");
 				}
+				if (options->CaseInsensitive)
+					printf("\tvalue |= %s;\n", AsciiLowerCaseMask[kls->hashkeysize]);
 			}
 
 			printf("\tbucketidx = ((value * (uint32) %u) >> %u) %% %u;\n", kls->hashseed, kls->rightshift, kls->nbuckets);
@@ -851,7 +1028,10 @@ print_final_code(Options *options)
 				printf("\tif (keywordidx == -1)\n");
 				printf("\t\treturn -1; /* no match, slot empty */\n\n");
 			}
-			printf("\tif (memcmp(&%s_kw_string[%s_kw_offsets[keywordidx]], word, %u) == 0)\n", options->prefix, options->prefix, kls->keywordlen);
+			if (options->CaseInsensitive)
+				printf("\tif (matches_ascii_lowercase_string(word, &%s_kw_string[%s_kw_offsets[keywordidx]], %u))\n", options->prefix, options->prefix, kls->keywordlen);
+			else
+				printf("\tif (memcmp(word, &%s_kw_string[%s_kw_offsets[keywordidx]], %u) == 0)\n", options->prefix, options->prefix, kls->keywordlen);
 			printf("\t\treturn keywordidx; /* match! */\n\n");
 			printf("\t/* no match */\n");
 			printf("\treturn -1;\n");
@@ -859,7 +1039,10 @@ print_final_code(Options *options)
 		else
 		{
 			/* When there's only 1 bucket, don't bother with hashing, just compare to the keyword stored in the bucket */
-			printf("\tif (memcmp(&%s_kw_string[%s_kw_offsets[%u]], word, %u) == 0)\n", options->prefix, options->prefix, lookupbuckets[offsetbase], kls->keywordlen);
+			if (options->CaseInsensitive)
+				printf("\tif (matches_ascii_lowercase_string(word, &%s_kw_string[%s_kw_offsets[%u]], %u))\n", options->prefix, options->prefix, lookupbuckets[offsetbase], kls->keywordlen);
+			else
+				printf("\tif (memcmp(word, &%s_kw_string[%s_kw_offsets[%u]], %u) == 0)\n", options->prefix, options->prefix, lookupbuckets[offsetbase], kls->keywordlen);
 			printf("\t\treturn %u; /* match! */\n\n", offsetbase);
 			printf("\t/* no match */\n");
 			printf("\treturn -1;\n");
@@ -875,7 +1058,6 @@ int main(int argc, char **argv)
 	uint32 rshift;
 	uint32 wordlen;
 	uint32 rounds;
-	bool 	verbose = false;
 	Options options;
 
 	if (argc < 3)
@@ -885,20 +1067,22 @@ int main(int argc, char **argv)
 	}
 
 	options.prefix = "ScanKeywords";
-	options.NullTerminateKeyWords = false;
+	options.NullTerminateKeyWords = true;
 	options.EmptyHashSlotReturnFirstKeyWord = true;
 	options.ExtraOffsetElement = true;
+	options.CaseInsensitive = true;
+	options.Verbose = false;
 
 	wordlen = atoi(argv[1]);
 	rounds = atoi(argv[2]);
 
-	loadkeywords(verbose);
+	loadkeywords(options.Verbose);
 
 	if (wordlen != 0)
 	{
 		uint32 best_nbuckets;
 
-		best_nbuckets = process_word(wordlen, rounds, true);
+		best_nbuckets = process_word(wordlen, rounds, &options);
 	}
 	else
 	{
@@ -910,7 +1094,7 @@ int main(int argc, char **argv)
 		{
 			int32 best_nbuckets;
 
-			best_nbuckets = process_word(wordlen, rounds, verbose);
+			best_nbuckets = process_word(wordlen, rounds, &options);
 
 			if (best_nbuckets == 0)
 			{
