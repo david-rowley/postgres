@@ -18,8 +18,9 @@ PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words,
 	uint32 best_nbuckets = UINT_MAX;
 	uint32 best_rshift = 0;
 	int32 *best_buckets = malloc(sizeof(int32) * max_buckets);
-	uint32 *unset = malloc(sizeof(uint32) * numwords);
 	PH_HASHTYPE *seededwords = malloc(sizeof(PH_HASHTYPE) * numwords);
+	uint32 bloomfilter_size = (max_buckets + 7) / 8;
+	uint8 *bloomfilter = malloc(bloomfilter_size);
 
 	/*
 	 * We use this array below to record the kw_index and use it to check
@@ -48,43 +49,48 @@ PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words,
 
 		for (uint32 nbuckets = start_buckets; nbuckets < max_buckets; nbuckets++)
 		{
+			bloomfilter_size = (nbuckets + 7) / 8;
+			memset(bloomfilter, 0, bloomfilter_size);
+
 			for (uint32 rshift = PH_SHIFTSTART; rshift <= PH_SHIFTEND; rshift++)
 			{
-				uint32 i;
-
-				for (i = 0; i < numwords; i++)
+				for (uint32 i = 0; i < numwords; i++)
 				{
 					uint32 bucketidx = (seededwords[i] >> rshift) % nbuckets;
+					uint32 bf_idx = bucketidx >> 3;
+					uint32 bf_bit = (1 << (bucketidx & 7));
 
-					if (buckets[bucketidx] != -1)
-					{
+					if (bloomfilter[bf_idx] & bf_bit)
 						goto resetbuckets;
-					}
 
+					bloomfilter[bf_idx] |= bf_bit;
+				}
+
+				/* bloomfilter found no collisions, build the bucket array */
+				for (uint32 i = 0; i < numwords; i++)
+				{
+					uint32 bucketidx = (seededwords[i] >> rshift) % nbuckets;
 					buckets[bucketidx] = i;
-					unset[i] = bucketidx;
 				}
 
 				if (nbuckets < best_nbuckets)
 				{
+					/*
+					 * If we managed to fit the words in this number of buckets, then no need
+					 * to try a larger number of buckets again, in fact, no need to try the
+					 * same number again since we'll only accept a new better much if we beat
+					 * the last bucket count.
+					 */
+					max_buckets = nbuckets - 1;
+
 					best_nbuckets = nbuckets;
 					best_seed = seed;
 					best_rshift = rshift;
 					memcpy(best_buckets, buckets, sizeof(int32) * nbuckets);
 				}
+				memset(buckets, -1, sizeof(int32) * nbuckets);
 resetbuckets:
-#define SWAP(T, a, b) do { T tmp = a; a = b; a = tmp; } while (0)
-				SWAP(Keyword, words[buckets[i]], words[1]);
-				SWAP(Keyword, words[i], words[0]);
-
-				/* put -1 back in any buckets elements we've changed */
-				if (i >= numwords >> 1)
-					memset(buckets, -1, sizeof(int32) * nbuckets);
-				else
-				{
-					for (int j = 0; j < i; j++)
-						buckets[unset[j]] = -1;
-				}
+				memset(bloomfilter, 0, bloomfilter_size);
 			}
 		}
 	}
@@ -127,7 +133,6 @@ resetbuckets:
 		best_nbuckets = 0;
 	}
 
-	free(unset);
 	free(best_buckets);
 	free(seededwords);
 
