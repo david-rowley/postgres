@@ -2,8 +2,6 @@
 #define PH_FUNCNAME searchhash_2by1
 #define PH_IDENT "2by1"
 #define PH_WAYS 1
-#define PH_SHIFTSTART 29
-#define PH_SHIFTEND 10
 #define PH_HASHTYPE uint16
 #define PH_KEYSIZE 2
 */
@@ -11,66 +9,85 @@
 static inline uint32
 PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words,
 			PH_HASHTYPE *wordhashes, uint32 numwords, uint32 wordlen,
-			uint32 *startpos, int32 *buckets, uint32 start_buckets,
+			uint32 *startpos, int16 *buckets, uint32 start_buckets,
 			uint32 max_buckets, uint32 rounds, bool verbose)
 {
 	uint32 best_seed = 0;
 	uint32 best_nbuckets = UINT_MAX;
 	uint32 best_rshift = 0;
-	int32 *best_buckets = malloc(sizeof(int32) * max_buckets);
-	PH_HASHTYPE *seededwords = malloc(sizeof(PH_HASHTYPE) * numwords);
+	int16 *best_buckets = malloc(sizeof(int16) * max_buckets);
+	uint32 *seededwords = malloc(sizeof(uint32) * numwords);
 	uint32 bloomfilter_size = (max_buckets + 7) / 8;
 	uint8 *bloomfilter = malloc(bloomfilter_size);
+	SeedGenerator seeder;
+	uint32 seed;
 
-	/*
-	 * We use this array below to record the kw_index and use it to check
-	 * for collisions with other words.  When we find a collision we need
-	 * to retry with another rshift amount or another seed.  To save from
-	 * having to set this to -1 each retry we record the indexes of the
-	 * elements we've changed in the 'unset' array and just do those ones.
-	 * This seems to help performance
-	 */
-	memset(buckets, -1, sizeof(int32) * max_buckets);
+	memset(buckets, -1, sizeof(int16) * max_buckets);
+
+	SeedGenerator_Setup(&seeder, rounds);
 
 	/*
 	 * Start looking for the smallest number of buckets we can use for this
 	 * set of words.
 	 */
-	for (uint32 r = 0; r < rounds; r++)
+	while ((seed = SeedGenerator_NextSeed(&seeder)) != 0)
+	//for (seed = 1; seed != 10000000; seed++) /* all 32-bit space apart from 0 */
 	{
-		uint32 seed = rand();
+		uint32 seededword_mask = 0;
 
+		/* We won't be able to shrink max_buckets lower than this, so just exit the loop */
+		if (max_buckets <= numwords)
+			break;
 		/*
 		 * Precalculate the hashes before the bitshift portion so that we
 		 * don't have to recalculate this every time in the loop below.
 		 */
 		for (uint32 w = 0; w < numwords; w++)
+		{
 			seededwords[w] = (wordhashes[w] * seed);
+			seededword_mask |= seededwords[w];
+		}
 
 		for (uint32 nbuckets = start_buckets; nbuckets < max_buckets; nbuckets++)
 		{
 			bloomfilter_size = (nbuckets + 7) / 8;
-			memset(bloomfilter, 0, bloomfilter_size);
 
-			for (uint32 rshift = PH_SHIFTSTART; rshift <= PH_SHIFTEND; rshift++)
+			/*
+			 * The bloom filter could only have grown by 1 element as we only
+			 * increase nbuckets 1 at a time, so just zero the final one in
+			 * case it's new.
+			 */
+			bloomfilter[bloomfilter_size - 1] = 0;
+
+			for (uint32 rshift = 0; rshift <= 31; rshift++)
 			{
+				/*
+				 * Don't bother with this rshift if it causes the
+				 * mask of all the seeded hashes to become 0.  This
+				 * saves a little work being done in the code below.
+				 */
+				if (seededword_mask >> rshift == 0)
+					continue;
+
 				for (uint32 i = 0; i < numwords; i++)
 				{
 					uint32 bucketidx = (seededwords[i] >> rshift) % nbuckets;
 					uint32 bf_idx = bucketidx >> 3;
 					uint32 bf_bit = (1 << (bucketidx & 7));
 
+					/* Check for collisions in the bloom filter. */
 					if (bloomfilter[bf_idx] & bf_bit)
-						goto resetbuckets;
+						goto resetbloomfilter;
 
 					bloomfilter[bf_idx] |= bf_bit;
 				}
 
-				/* bloomfilter found no collisions, build the bucket array */
+				//suitable_hashes_found++;
+				/* bloomfilter found no collisions; build the bucket array */
 				for (uint32 i = 0; i < numwords; i++)
 				{
 					uint32 bucketidx = (seededwords[i] >> rshift) % nbuckets;
-					buckets[bucketidx] = i;
+					buckets[bucketidx] = words[i].kw_index;
 				}
 
 				if (nbuckets < best_nbuckets)
@@ -78,7 +95,7 @@ PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words,
 					/*
 					 * If we managed to fit the words in this number of buckets, then no need
 					 * to try a larger number of buckets again, in fact, no need to try the
-					 * same number again since we'll only accept a new better much if we beat
+					 * same number again since we'll only accept a new better match if we beat
 					 * the last bucket count.
 					 */
 					max_buckets = nbuckets - 1;
@@ -86,14 +103,14 @@ PH_FUNCNAME(KeywordLengthSpecific *kls, Keyword *words,
 					best_nbuckets = nbuckets;
 					best_seed = seed;
 					best_rshift = rshift;
-					memcpy(best_buckets, buckets, sizeof(int32) * nbuckets);
+					memcpy(best_buckets, buckets, sizeof(int16) * nbuckets);
 				}
-				memset(buckets, -1, sizeof(int32) * nbuckets);
-resetbuckets:
+				memset(buckets, -1, sizeof(int16) * nbuckets);
+resetbloomfilter:
 				memset(bloomfilter, 0, bloomfilter_size);
-			}
-		}
-	}
+			} /* Try another shift size */
+		} /* Try bigger bucket count */
+	} /* Another seed */
 
 	if (best_nbuckets < UINT_MAX)
 	{
@@ -102,7 +119,6 @@ resetbuckets:
 		kls->hashkeysize = PH_KEYSIZE;
 		kls->hashseed = best_seed;
 		kls->rightshift = best_rshift;
-		kls->startpositions[4];
 		kls->nbuckets = best_nbuckets;
 		memcpy(kls->startpositions, startpos, sizeof(uint32) * PH_WAYS);
 
@@ -120,12 +136,7 @@ resetbuckets:
 
 		/* record the best buckets for this wordlen in the global bucket array */
 		for (uint32 i = 0; i < best_nbuckets; i++)
-		{
-			if (best_buckets[i] == -1)
-				addLookupBucket(-1);
-			else
-				addLookupBucket(words[best_buckets[i]].kw_index);
-		}
+			addLookupBucket(best_buckets[i]);
 	}
 	else
 	{
@@ -135,6 +146,7 @@ resetbuckets:
 
 	free(best_buckets);
 	free(seededwords);
+	free(bloomfilter);
 
 	return best_nbuckets;
 }

@@ -226,21 +226,51 @@ has_duplicates64(uint64 *wordhashes, uint32 numwords)
 	return 0;
 }
 
-static void
-print_buckets(const char **words, int32 *buckets, uint32 nbuckets)
-{
-	 for (uint32 i = 0; i < nbuckets; i++)
-		printf("%d %s\n", buckets[i], buckets[i] == -1 ? "" : words[buckets[i]]);
-}
-
 static void addLookupBucket(int16 value);
 
+typedef struct SeedGenerator {
+	uint32 total_rounds;
+	uint32 rounds_complete;
+	bool do_random;
+} SeedGenerator;
+
+static void
+SeedGenerator_Setup(SeedGenerator *seeder, uint32 rounds)
+{
+	seeder->total_rounds = rounds;
+	seeder->rounds_complete = 0;
+	seeder->do_random = false;
+}
+
+static uint32 SeedGenerator_NextSeed(SeedGenerator *seeder)
+{
+	/* These are just seeds I got from searching near-exhaustively for PostgreSQL keywords */
+	static const uint32 SeedsToTry[] = {73, 16535903, 66526991, 213128516, 66154, 3689746, 1765843, 4226644, 2047307, 483, 55, 11, 1, 0 };
+	uint32 seed;
+
+	if (!seeder->do_random)
+	{
+		if (seeder->rounds_complete >= sizeof(SeedsToTry) / sizeof(uint32))
+		{
+			seeder->do_random = true;
+			seeder->rounds_complete = 0;
+		}
+		else
+			return SeedsToTry[seeder->rounds_complete++];
+	}
+
+	if (seeder->rounds_complete == seeder->total_rounds)
+		return 0;
+
+	seeder->rounds_complete++;
+	while ((seed = rand()) == 0)
+		;
+	return seed;
+}
 
 #define PH_FUNCNAME searchhash_2by1
 #define PH_IDENT "2by1"
 #define PH_WAYS 1
-#define PH_SHIFTSTART 1
-#define PH_SHIFTEND 14
 #define PH_HASHTYPE uint16
 #define PH_KEYSIZE 2
 #include "phash.h"
@@ -248,8 +278,6 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_2by2
 #define PH_IDENT "2by2"
 #define PH_WAYS 2
-#define PH_SHIFTSTART 1
-#define PH_SHIFTEND 14
 #define PH_HASHTYPE uint16
 #define PH_KEYSIZE 2
 #include "phash.h"
@@ -257,8 +285,6 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_4by1
 #define PH_IDENT "4by1"
 #define PH_WAYS 1
-#define PH_SHIFTSTART 8
-#define PH_SHIFTEND 30
 #define PH_HASHTYPE uint32
 #define PH_KEYSIZE 4
 #include "phash.h"
@@ -266,8 +292,6 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_4by2
 #define PH_IDENT "4by2"
 #define PH_WAYS 2
-#define PH_SHIFTSTART 8
-#define PH_SHIFTEND 30
 #define PH_HASHTYPE uint32
 #define PH_KEYSIZE 4
 #include "phash.h"
@@ -275,8 +299,6 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_4by4
 #define PH_IDENT "4by4"
 #define PH_WAYS 4
-#define PH_SHIFTSTART 8
-#define PH_SHIFTEND 30
 #define PH_HASHTYPE uint32
 #define PH_KEYSIZE 4
 #include "phash.h"
@@ -284,8 +306,6 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_8by1
 #define PH_IDENT "8by1"
 #define PH_WAYS 1
-#define PH_SHIFTSTART 8
-#define PH_SHIFTEND 61
 #define PH_HASHTYPE uint64
 #define PH_KEYSIZE 8
 #include "phash.h"
@@ -293,8 +313,6 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_8by2
 #define PH_IDENT "8by2"
 #define PH_WAYS 2
-#define PH_SHIFTSTART 8
-#define PH_SHIFTEND 61
 #define PH_HASHTYPE uint64
 #define PH_KEYSIZE 8
 #include "phash.h"
@@ -302,8 +320,6 @@ static void addLookupBucket(int16 value);
 #define PH_FUNCNAME searchhash_8by4
 #define PH_IDENT "8by4"
 #define PH_WAYS 4
-#define PH_SHIFTSTART 8
-#define PH_SHIFTEND 61
 #define PH_HASHTYPE uint64
 #define PH_KEYSIZE 8
 #include "phash.h"
@@ -315,7 +331,7 @@ search(KeywordLengthSpecific *kls, Keyword *words, uint32 numwords, int32 wordle
 	uint16 *wordhashes16 = aligned_alloc(64, sizeof(uint16) * numwords);
 	uint32 *wordhashes32 = aligned_alloc(64, sizeof(uint32) * numwords);
 	uint64 *wordhashes64 = aligned_alloc(64, sizeof(uint64) * numwords);
-	int32 *buckets = aligned_alloc(64, sizeof(int32) * max_buckets);
+	int16 *buckets = aligned_alloc(64, sizeof(int16) * max_buckets);
 
 	int found = 0;
 
@@ -543,7 +559,7 @@ int32
 guess_initial_hash_size(int32 n)
 {
 	int32 i = 1;
-	int guess = (int) ((double) n * 1.25);
+	int guess = (int) ((double) n * 1);
 	while (i < guess)
 		i *= 2;
 	return i;
@@ -719,8 +735,15 @@ process_word(uint32 wordlen, uint32 rounds, bool verbose)
 	}
 }
 
+typedef struct Options {
+	char	*prefix;				/* Prefix for the output global variable names */
+	bool	NullTerminateKeyWords;	/* Keywords go into a single string const, should we put a NUL terminator between each? */
+	bool	EmptyHashSlotReturnFirstKeyWord;	/* Store 0 instead of -1 in empty perfect hash slots */
+	bool	ExtraOffsetElement; /* Useful so it's possible to get length of keyword by always being table to subtract offset from next keyword's offset */
+} Options;
+
 void
-print_final_code(const char *prefix, bool addstringterm)
+print_final_code(Options *options)
 {
 	uint32 offsetbase = 0;
 	Keyword *alphabetical_keywords = malloc(sizeof(Keyword) * nkeywords);
@@ -729,19 +752,19 @@ print_final_code(const char *prefix, bool addstringterm)
 	memcpy(alphabetical_keywords, keywords, sizeof(Keyword) * nkeywords);
 	qsort(alphabetical_keywords, nkeywords, sizeof(Keyword), cmp_keyword_by_name);
 
-	printf("static const char %s_kw_string[] =\n", prefix);
+	printf("static const char %s_kw_string[] =\n", options->prefix);
 
 	curoffset = 0;
 	for (uint32 i = 0; i < nkeywords; i++)
 	{
 		const char *word = alphabetical_keywords[i].keyword;
 		if (i + 1 != nkeywords)
-			printf("\t\"%s%s\"\n", word, addstringterm ? "\\0" : "");
+			printf("\t\"%s%s\"\n", word, options->NullTerminateKeyWords ? "\\0" : "");
 		else
 			printf("\t\"%s\";\n\n", word);
 
 		offsets[i] = (uint16) curoffset;
-		curoffset += strlen(word) + (addstringterm == true); /* length + \0 */
+		curoffset += strlen(word) + (options->NullTerminateKeyWords == true); /* length + \0 */
 	}
 
 	if (curoffset >= USHRT_MAX)
@@ -751,22 +774,37 @@ print_final_code(const char *prefix, bool addstringterm)
 	}
 
 	/* write out offset array to index the keyword string from the keyword number */
-	printf("static const uint16 %s_kw_offsets[] = {\n", prefix);
+	printf("static const uint16 %s_kw_offsets[] = {\n", options->prefix);
 	for (uint32 i = 0; i < nkeywords; i++)
 		printf("\t%u,\n", offsets[i]);
+
+	/* Add extra offset element, if requested */
+	if (options->ExtraOffsetElement)
+		printf("\t%lu,\n", curoffset);
 	printf("};\n\n");
 
-	printf("#define %s_NUM_KEYWORDS %u\n\n", prefix, nkeywords);
+	printf("#define %s_NUM_KEYWORDS %u\n\n", options->prefix, nkeywords);
 
-	printf("static const int16 %s_kw_perfecthash[%u] = {\n", prefix, nlookupbuckets);
+	printf("static const int16 %s_kw_perfecthash[%u] = {\n", options->prefix, nlookupbuckets);
 
 #define ITEMS_PER_LINE 8
 	for (uint32 i = 0; i < nlookupbuckets; i++)
 	{
 		bool notlast = i + 1 != nlookupbuckets;
+		int kw_index = lookupbuckets[i];
+
+		/*
+		 * Allow an option to store zero instead of -1.  When doing this
+		 * we don't write out the -1 check in the lookup function.  This
+		 * means it falls back on comparing the given word with the first
+		 * keyword.  If most lookups are keywords then this is faster as
+		 * it saves a needless -1 check and makes the code smaller.
+		 */
+		if (options->EmptyHashSlotReturnFirstKeyWord && kw_index == -1)
+			kw_index = 0;
 
 		printf("%s%d%s%s", i % ITEMS_PER_LINE == 0 ? "\t" : " ",
-			   lookupbuckets[i],
+			   kw_index,
 			   notlast ? "," : "",
 			   i % ITEMS_PER_LINE == ITEMS_PER_LINE - 1 && notlast ? "\n" : "");
 	}
@@ -807,10 +845,13 @@ print_final_code(const char *prefix, bool addstringterm)
 
 			if (offsetbase > 0)
 				printf("\tbucketidx += %u;\n", offsetbase);
-			printf("\tkeywordidx = %s_kw_perfecthash[bucketidx];\n", prefix);
-			printf("\tif (keywordidx == -1)\n");
-			printf("\t\treturn -1; /* no match, slot empty */\n\n");
-			printf("\tif (memcmp(&%s_kw_string[%s_kw_offsets[keywordidx]], word, %u) == 0)\n", prefix, prefix, kls->keywordlen);
+			printf("\tkeywordidx = %s_kw_perfecthash[bucketidx];\n", options->prefix);
+			if (!options->EmptyHashSlotReturnFirstKeyWord)
+			{
+				printf("\tif (keywordidx == -1)\n");
+				printf("\t\treturn -1; /* no match, slot empty */\n\n");
+			}
+			printf("\tif (memcmp(&%s_kw_string[%s_kw_offsets[keywordidx]], word, %u) == 0)\n", options->prefix, options->prefix, kls->keywordlen);
 			printf("\t\treturn keywordidx; /* match! */\n\n");
 			printf("\t/* no match */\n");
 			printf("\treturn -1;\n");
@@ -818,7 +859,7 @@ print_final_code(const char *prefix, bool addstringterm)
 		else
 		{
 			/* When there's only 1 bucket, don't bother with hashing, just compare to the keyword stored in the bucket */
-			printf("\tif (memcmp(&%s_kw_string[%s_kw_offsets[%u]], word, %u) == 0)\n", prefix, prefix, lookupbuckets[offsetbase], kls->keywordlen);
+			printf("\tif (memcmp(&%s_kw_string[%s_kw_offsets[%u]], word, %u) == 0)\n", options->prefix, options->prefix, lookupbuckets[offsetbase], kls->keywordlen);
 			printf("\t\treturn %u; /* match! */\n\n", offsetbase);
 			printf("\t/* no match */\n");
 			printf("\treturn -1;\n");
@@ -835,12 +876,18 @@ int main(int argc, char **argv)
 	uint32 wordlen;
 	uint32 rounds;
 	bool 	verbose = false;
+	Options options;
 
 	if (argc < 3)
 	{
 		fprintf(stderr, "Usage: %s <word len> <rounds>\n", argv[0]);
 		return -1;
 	}
+
+	options.prefix = "ScanKeywords";
+	options.NullTerminateKeyWords = false;
+	options.EmptyHashSlotReturnFirstKeyWord = true;
+	options.ExtraOffsetElement = true;
 
 	wordlen = atoi(argv[1]);
 	rounds = atoi(argv[2]);
@@ -873,7 +920,7 @@ int main(int argc, char **argv)
 			total_buckets += best_nbuckets;
 		}
 
-		print_final_code("ScanKeywords", false);
+		print_final_code(&options);
 	}
 
 	return 0;
