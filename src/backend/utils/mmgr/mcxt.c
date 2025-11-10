@@ -1225,6 +1225,7 @@ MemoryContextSizeFailure(MemoryContext context, Size size, int flags)
  * This could be turned into a macro, but we'd have to import
  * nodes/memnodes.h into postgres.h which seems a bad idea.
  */
+__attribute__((alloc_size(2), malloc))
 void *
 MemoryContextAlloc(MemoryContext context, Size size)
 {
@@ -1259,6 +1260,7 @@ MemoryContextAlloc(MemoryContext context, Size size)
  *	We could just call MemoryContextAlloc then clear the memory, but this
  *	is a very common combination, so we provide the combined operation.
  */
+__attribute__((alloc_size(2), malloc))
 void *
 MemoryContextAllocZero(MemoryContext context, Size size)
 {
@@ -1282,6 +1284,7 @@ MemoryContextAllocZero(MemoryContext context, Size size)
  * MemoryContextAllocExtended
  *		Allocate space within the specified context using the given flags.
  */
+__attribute__((alloc_size(2), malloc))
 void *
 MemoryContextAllocExtended(MemoryContext context, Size size, int flags)
 {
@@ -1361,6 +1364,7 @@ ProcessLogMemoryContextInterrupt(void)
 	MemoryContextStatsDetail(TopMemoryContext, 100, 100, false);
 }
 
+__attribute__((alloc_size(1), malloc))
 void *
 palloc(Size size)
 {
@@ -1391,6 +1395,7 @@ palloc(Size size)
 	return ret;
 }
 
+__attribute__((alloc_size(1), malloc))
 void *
 palloc0(Size size)
 {
@@ -1413,6 +1418,7 @@ palloc0(Size size)
 	return ret;
 }
 
+__attribute__((alloc_size(1), malloc))
 void *
 palloc_extended(Size size, int flags)
 {
@@ -1456,6 +1462,7 @@ palloc_extended(Size size, int flags)
  * 'alignto' must be a power of 2.
  * 'flags' may be 0 or set the same as MemoryContextAllocExtended().
  */
+__attribute__((alloc_size(2), malloc))
 void *
 MemoryContextAllocAligned(MemoryContext context,
 						  Size size, Size alignto, int flags)
@@ -1580,6 +1587,7 @@ MemoryContextAllocAligned(MemoryContext context,
  * 'alignto' must be a power of 2.
  * 'flags' may be 0 or set the same as MemoryContextAllocExtended().
  */
+__attribute__((alloc_size(1), malloc))
 void *
 palloc_aligned(Size size, Size alignto, int flags)
 {
@@ -1606,6 +1614,7 @@ pfree(void *pointer)
  * repalloc
  *		Adjust the size of a previously allocated chunk.
  */
+__attribute__((alloc_size(2), malloc))
 void *
 repalloc(void *pointer, Size size)
 {
@@ -1678,6 +1687,7 @@ repalloc_extended(void *pointer, Size size, int flags)
  *		Adjust the size of a previously allocated chunk and zero out the added
  *		space.
  */
+__attribute__((alloc_size(3), malloc))
 void *
 repalloc0(void *pointer, Size oldsize, Size size)
 {
@@ -1699,6 +1709,7 @@ repalloc0(void *pointer, Size oldsize, Size size)
  *
  * See considerations in comment at MaxAllocHugeSize.
  */
+__attribute__((alloc_size(2), malloc))
 void *
 MemoryContextAllocHuge(MemoryContext context, Size size)
 {
@@ -1731,6 +1742,7 @@ MemoryContextAllocHuge(MemoryContext context, Size size)
  *		Adjust the size of a previously allocated chunk, permitting a large
  *		value.  The previous allocation need not have been "huge".
  */
+__attribute__((alloc_size(2), malloc))
 void *
 repalloc_huge(void *pointer, Size size)
 {
