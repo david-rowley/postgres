@@ -43,8 +43,10 @@ begin
     execute 'explain (analyze, format ''json'') ' || query
   loop
     hash_node := find_hash(json_extract_path(whole_plan, '0', 'Plan'));
-    original := hash_node->>'Original Hash Batches';
-    final := hash_node->>'Hash Batches';
+    original := greatest(hash_node->>'Original Hash Batches',
+                         (select max(a->>'Original Hash Batches') from json_array_elements(hash_node->'Workers') a));
+    final := greatest(hash_node->>'Hash Batches',
+                      (select max(a->>'Hash Batches') from json_array_elements(hash_node->'Workers') a));
     return next;
   end loop;
 end;

@@ -3375,83 +3375,38 @@ show_incremental_sort_info(IncrementalSortState *incrsortstate,
 }
 
 /*
- * Show information on hash buckets/batches.
+ * Helper function for show_hash_info().
  */
 static void
-show_hash_info(HashState *hashstate, ExplainState *es)
+show_hash_instrumentation(HashInstrumentation *hinstrument, ExplainState* es)
 {
-	HashInstrumentation hinstrument = {0};
-
-	/*
-	 * Collect stats from the local process, even when it's a parallel query.
-	 * In a parallel query, the leader process may or may not have run the
-	 * hash join, and even if it did it may not have built a hash table due to
-	 * timing (if it started late it might have seen no tuples in the outer
-	 * relation and skipped building the hash table).  Therefore we have to be
-	 * prepared to get instrumentation data from all participants.
-	 */
-	if (hashstate->hinstrument)
-		memcpy(&hinstrument, hashstate->hinstrument,
-			   sizeof(HashInstrumentation));
-
-	/*
-	 * Merge results from workers.  In the parallel-oblivious case, the
-	 * results from all participants should be identical, except where
-	 * participants didn't run the join at all so have no data.  In the
-	 * parallel-aware case, we need to consider all the results.  Each worker
-	 * may have seen a different subset of batches and we want to report the
-	 * highest memory usage across all batches.  We take the maxima of other
-	 * values too, for the same reasons as in ExecHashAccumInstrumentation.
-	 */
-	if (hashstate->shared_info)
+	if (hinstrument->nbatch > 0)
 	{
-		SharedHashInfo *shared_info = hashstate->shared_info;
-		int			i;
-
-		for (i = 0; i < shared_info->num_workers; ++i)
-		{
-			HashInstrumentation *worker_hi = &shared_info->hinstrument[i];
-
-			hinstrument.nbuckets = Max(hinstrument.nbuckets,
-									   worker_hi->nbuckets);
-			hinstrument.nbuckets_original = Max(hinstrument.nbuckets_original,
-												worker_hi->nbuckets_original);
-			hinstrument.nbatch = Max(hinstrument.nbatch,
-									 worker_hi->nbatch);
-			hinstrument.nbatch_original = Max(hinstrument.nbatch_original,
-											  worker_hi->nbatch_original);
-			hinstrument.space_peak = Max(hinstrument.space_peak,
-										 worker_hi->space_peak);
-		}
-	}
-
-	if (hinstrument.nbatch > 0)
-	{
-		uint64		spacePeakKb = BYTES_TO_KILOBYTES(hinstrument.space_peak);
+		uint64 spacePeakKb = BYTES_TO_KILOBYTES(hinstrument->space_peak);
 
 		if (es->format != EXPLAIN_FORMAT_TEXT)
 		{
 			ExplainPropertyInteger("Hash Buckets", NULL,
-								   hinstrument.nbuckets, es);
+								   hinstrument->nbuckets, es);
 			ExplainPropertyInteger("Original Hash Buckets", NULL,
-								   hinstrument.nbuckets_original, es);
-			ExplainPropertyInteger("Hash Batches", NULL,
-								   hinstrument.nbatch, es);
+								   hinstrument->nbuckets_original, es);
+			ExplainPropertyInteger("Hash Batches", NULL, hinstrument->nbatch,
+								   es);
 			ExplainPropertyInteger("Original Hash Batches", NULL,
-								   hinstrument.nbatch_original, es);
-			ExplainPropertyUInteger("Peak Memory Usage", "kB",
-									spacePeakKb, es);
+								   hinstrument->nbatch_original, es);
+			ExplainPropertyUInteger("Peak Memory Usage", "kB", spacePeakKb,
+									es);
 		}
-		else if (hinstrument.nbatch_original != hinstrument.nbatch ||
-				 hinstrument.nbuckets_original != hinstrument.nbuckets)
+		else if (hinstrument->nbatch_original != hinstrument->nbatch ||
+				 hinstrument->nbuckets_original != hinstrument->nbuckets)
 		{
 			ExplainIndentText(es);
 			appendStringInfo(es->str,
 							 "Buckets: %d (originally %d)  Batches: %d (originally %d)  Memory Usage: " UINT64_FORMAT "kB\n",
-							 hinstrument.nbuckets,
-							 hinstrument.nbuckets_original,
-							 hinstrument.nbatch,
-							 hinstrument.nbatch_original,
+							 hinstrument->nbuckets,
+							 hinstrument->nbuckets_original,
+							 hinstrument->nbatch,
+							 hinstrument->nbatch_original,
 							 spacePeakKb);
 		}
 		else
@@ -3459,8 +3414,38 @@ show_hash_info(HashState *hashstate, ExplainState *es)
 			ExplainIndentText(es);
 			appendStringInfo(es->str,
 							 "Buckets: %d  Batches: %d  Memory Usage: " UINT64_FORMAT "kB\n",
-							 hinstrument.nbuckets, hinstrument.nbatch,
+							 hinstrument->nbuckets, hinstrument->nbatch,
 							 spacePeakKb);
+		}
+	}
+}
+
+/*
+ * Show information on hash buckets/batches.
+ */
+static void
+show_hash_info(HashState *hashstate, ExplainState *es)
+{
+	/* Display instrumentation from the leader, if it participated. */
+	if (hashstate->hinstrument)
+		show_hash_instrumentation(hashstate->hinstrument, es);
+
+	/* Now display the instrumentation from each worker that helped. */
+	if (hashstate->shared_info)
+	{
+		SharedHashInfo *shared_info = hashstate->shared_info;
+
+		for (int i = 0; i < shared_info->num_workers; ++i)
+		{
+			HashInstrumentation *worker_hi = &shared_info->hinstrument[i];
+
+			if (es->workers_state)
+				ExplainOpenWorker(i, es);
+
+			show_hash_instrumentation(&shared_info->hinstrument[i], es);
+
+			if (es->workers_state)
+				ExplainCloseWorker(i, es);
 		}
 	}
 }
