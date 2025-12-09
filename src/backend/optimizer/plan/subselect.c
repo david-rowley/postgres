@@ -244,6 +244,18 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 						   subLinkType, subLinkId,
 						   testexpr, NIL, isTopQual);
 
+	if (plan_params != NIL && subLinkType == EXPR_SUBLINK)
+	{
+		AlternativeSubPlan *asplan;
+
+		/* Leave it to setrefs.c to decide which plan to use */
+		asplan = makeNode(AlternativeSubPlan);
+		asplan->subplans = list_make1(result);
+		result = (Node *) asplan;
+		root->hasAlternativeSubPlans = true;
+
+	}
+
 	/*
 	 * If it's a correlated EXISTS with an unimportant targetlist, we might be
 	 * able to transform it to the equivalent of an IN and then implement it
