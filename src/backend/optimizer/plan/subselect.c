@@ -244,16 +244,22 @@ make_subplan(PlannerInfo *root, Query *orig_subquery,
 						   subLinkType, subLinkId,
 						   testexpr, NIL, isTopQual);
 
+	/*
+	 * For parameterized subplans, we don't have enough information yet to
+	 * know if using a Memoize node would save any effort as we don't yet
+	 * know how many times the sublink will be called, or with how many
+	 * distinct values.  We'll need to plan the outer query first, so here we
+	 * check if Memoize is safe, and we'll come back and check the costs in
+	 * setrefs.c to figure out of Memoize will save us anything.
+	 */
+	/* XXX Support MULTIEXPR_SUBLINK too? What else? */
 	if (plan_params != NIL && subLinkType == EXPR_SUBLINK)
 	{
-		AlternativeSubPlan *asplan;
+		SubPlan *splan = (SubPlan *) result;
+		Assert(IsA(result, SubPlan));
 
-		/* Leave it to setrefs.c to decide which plan to use */
-		asplan = makeNode(AlternativeSubPlan);
-		asplan->subplans = list_make1(result);
-		result = (Node *) asplan;
-		root->hasAlternativeSubPlans = true;
-
+		/* XXX check hashability first */
+		splan->tryMemoize = true;
 	}
 
 	/*

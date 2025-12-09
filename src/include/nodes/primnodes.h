@@ -1111,6 +1111,9 @@ typedef struct SubPlan
 	bool		isInitPlan;		/* true if it's an InitPlan */
 	bool		useHashTable;	/* true to store subselect output in a hash
 								 * table (implies we are doing "IN") */
+	bool		tryMemoize;		/* Try costing Memoize during setrefs.c to
+								 * attempt to avoid repeat scans.  True means
+								 * safe to try, but may not be cheaper */
 	bool		unknownEqFalse; /* true if it's okay to return FALSE when the
 								 * spec result is UNKNOWN; this allows much
 								 * simpler handling of null values */
