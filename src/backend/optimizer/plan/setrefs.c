@@ -2132,6 +2132,10 @@ fix_expr_common(PlannerInfo *root, Node *node)
 				g->cols = cols;
 		}
 	}
+	else if (IsA(node, SubPlan))
+	{
+
+	}
 }
 
 /*
