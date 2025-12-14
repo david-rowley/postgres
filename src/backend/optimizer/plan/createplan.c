@@ -6570,6 +6570,55 @@ make_memoize(Plan *lefttree, Oid *hashoperators, Oid *collations,
 	return node;
 }
 
+Plan *
+memoize_finished_plan(Plan *subplan, Oid *hashoperators, Oid *collations,
+					  List *param_exprs, bool singlerow, bool binary_mode,
+					  uint32 est_entries, Bitmapset keyparamids,
+					  Cardinality est_calls, Cardinality est_unique_keys,
+					  double est_hit_ratio)
+{
+	Plan	   *mplan;
+	Path		mpath;		/* dummy for result of cost_material */
+	Cost		initplan_cost;
+	bool		unsafe_initplans;
+
+	mplan = (Plan *) make_memoize(subplan, hashoperators, collactions, param_exprs, singlerow, binary_mode, est_entries, keyparamids, est_calls, est_unique_keys, est_hit_ratio);
+
+	/*
+	 * XXX horrid kluge: if there are any initPlans attached to the subplan,
+	 * move them up to the Memoize node, which is now effectively the top
+	 * plan node in its query level.  This prevents failure in
+	 * SS_finalize_plan(), which see for comments.
+	 */
+	mplan->initPlan = subplan->initPlan;
+	subplan->initPlan = NIL;
+
+	/* Move the initplans' cost delta, as well */
+	SS_compute_initplan_cost(mplan->initPlan,
+							 &initplan_cost, &unsafe_initplans);
+	subplan->startup_cost -= initplan_cost;
+	subplan->total_cost -= initplan_cost;
+
+	/* Set cost data */
+	cost_memoize(&mpath,
+				 subplan->disabled_nodes,
+				 subplan->startup_cost,
+				 subplan->total_cost,
+				 subplan->plan_rows,
+				 subplan->plan_width);
+	mplan->disabled_nodes = subplan->disabled_nodes;
+	mplan->startup_cost = mpath.startup_cost + initplan_cost;
+	mplan->total_cost = mpath.total_cost + initplan_cost;
+	mplan->plan_rows = subplan->plan_rows;
+	mplan->plan_width = subplan->plan_width;
+	mplan->parallel_aware = false;
+	mplan->parallel_safe = subplan->parallel_safe;
+
+	return mplan;
+
+}
+
+
 Agg *
 make_agg(List *tlist, List *qual,
 		 AggStrategy aggstrategy, AggSplit aggsplit,
