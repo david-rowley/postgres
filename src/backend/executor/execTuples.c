@@ -1017,7 +1017,8 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	bits8	   *bp;				/* ptr to null bitmap in tuple */
 	int			attnum;
 	int			firstNonCacheOffsetAttr;
-//#define OPTIMIZE_BYVAL
+
+/* #define OPTIMIZE_BYVAL */
 #ifdef OPTIMIZE_BYVAL
 	int			firstByRefAttr;
 #endif
@@ -1059,6 +1060,7 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	tp = (char *) tup + tup->t_hoff;
 
 #ifdef OPTIMIZE_BYVAL
+
 	/*
 	 * Many tuples have leading byval attributes, try and process as many of
 	 * those as possible with a special loop that can't handle byref types.
@@ -1091,9 +1093,9 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 #endif
 
 	/*
-	 * Handle the portion of the tuple that we have cached the offset for
-	 * up to the first NULL attribute.  The offset is effectively fixed for
-	 * these so we can use the CompactAttribute's attcacheoff.
+	 * Handle the portion of the tuple that we have cached the offset for up
+	 * to the first NULL attribute.  The offset is effectively fixed for these
+	 * so we can use the CompactAttribute's attcacheoff.
 	 */
 	if (attnum < firstNonCacheOffsetAttr)
 	{
@@ -1157,15 +1159,15 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 		 * trouble of calling att_isnull(), we instead do some processing on
 		 * the bit mask to find the next NULL bit and how many follow that
 		 * then process using two loops, the first of the inner loops here
-		 * never sees a NULL attribute as the loop will end before we get to
-		 * a NULL attr, the 2nd loop takes over and processes all the NULLs
-		 * and we'll go back to the first loop and handle any remaining
-		 * non-NULL attributes.
+		 * never sees a NULL attribute as the loop will end before we get to a
+		 * NULL attr, the 2nd loop takes over and processes all the NULLs and
+		 * we'll go back to the first loop and handle any remaining non-NULL
+		 * attributes.
 		 */
 		while (attnum < natts)
 		{
-			int firstNull;
-			int nullsUntil;
+			int			firstNull;
+			int			nullsUntil;
 
 			next_null_until(bp, attnum, natts, &firstNull, &nullsUntil);
 

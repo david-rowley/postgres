@@ -249,8 +249,8 @@ nocache_index_getattr(IndexTuple tup,
 	 * which is common with indexes, then we can use a slightly cheaper method
 	 * of offset calculation, as we just need to add the attlen to the aligned
 	 * offset when skipping over columns.  When the tuple contains
-	 * variable-width types, we must use att_addlength_pointer(), which does
-	 * a bit more branching and is slightly less efficient.
+	 * variable-width types, we must use att_addlength_pointer(), which does a
+	 * bit more branching and is slightly less efficient.
 	 */
 	data_off = IndexInfoFindDataOffset(tup->t_info);
 	tp = (char *) tup + data_off;
@@ -347,7 +347,7 @@ nocache_index_getattr(IndexTuple tup,
 	}
 
 	cattr = TupleDescCompactAttr(tupleDesc, attnum);
-	off = att_pointer_alignby(off,  cattr->attalignby,
+	off = att_pointer_alignby(off, cattr->attalignby,
 							  cattr->attlen, tp + off);
 	return fetchatt(cattr, tp + off);
 }

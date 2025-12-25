@@ -144,8 +144,9 @@ typedef struct TupleDescData
 	Oid			tdtypeid;		/* composite type ID for tuple type */
 	int32		tdtypmod;		/* typmod for tuple type */
 	int			tdrefcount;		/* reference count, or -1 if not counting */
-	int			firstNonCachedOffAttr; /* index of last att with an attcacheoff */
-	int			firstByRefAttr;	/* index of the first attr with !attbyval, or
+	int			firstNonCachedOffAttr;	/* index of last att with an
+										 * attcacheoff */
+	int			firstByRefAttr; /* index of the first attr with !attbyval, or
 								 * natts if none. */
 	TupleConstr *constr;		/* constraints, or NULL if none */
 	/* compact_attrs[N] is the compact metadata of Attribute Number N+1 */

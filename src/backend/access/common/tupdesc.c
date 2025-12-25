@@ -519,9 +519,9 @@ TupleDescCopyEntry(TupleDesc dst, AttrNumber dstAttno,
 void
 TupleDescFinalize(TupleDesc tupdesc)
 {
-	int firstNonCachedOffAttr = -1;
-	int firstByRefAttr = tupdesc->natts;
-	int offp = 0;
+	int			firstNonCachedOffAttr = -1;
+	int			firstByRefAttr = tupdesc->natts;
+	int			offp = 0;
 
 	for (int i = 0; i < tupdesc->natts; i++)
 	{

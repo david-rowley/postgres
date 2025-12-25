@@ -141,7 +141,7 @@ index_getattr(IndexTuple tup, int attnum, TupleDesc tupleDesc, bool *isnull)
 	if (attr->attcacheoff >= 0 && !IndexTupleHasNulls(tup))
 		return fetchatt(attr,
 						(char *) tup + IndexInfoFindDataOffset(tup->t_info) +
-								attr->attcacheoff);
+						attr->attcacheoff);
 
 	if (!IndexTupleHasNulls(tup))
 		return nocache_index_getattr(tup, attnum, tupleDesc);

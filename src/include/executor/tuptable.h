@@ -96,7 +96,7 @@
 #define TTS_SHOULDFREE(slot) (((slot)->tts_flags & TTS_FLAG_SHOULDFREE) != 0)
 
 /* fixed tuple descriptor */
-#define			TTS_FLAG_FIXED		(1 << 4) /* XXX change to #3? */
+#define			TTS_FLAG_FIXED		(1 << 4)	/* XXX change to #3? */
 #define TTS_FIXED(slot) (((slot)->tts_flags & TTS_FLAG_FIXED) != 0)
 
 struct TupleTableSlotOps;

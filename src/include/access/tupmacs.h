@@ -83,12 +83,12 @@ fetch_att(const void *T, bool attbyval, int attlen)
 static inline void
 next_null_until(const bits8 *bits, int startAttr, int natts, int *firstNull, int *nullsUntil)
 {
-	int		lastByte = natts >> 3;
-	int		firstByte = startAttr >> 3;
-	int		first = natts;
-	int		until = natts;
-	bits8	byte;
-	bits8	mask;
+	int			lastByte = natts >> 3;
+	int			firstByte = startAttr >> 3;
+	int			first = natts;
+	int			until = natts;
+	bits8		byte;
+	bits8		mask;
 
 	/*
 	 * Start searching for the first 0 bit starting at startAttr.
@@ -170,13 +170,13 @@ done:
 static inline int
 first_null_attr(const bits8 *bits, int natts)
 {
-	int		lastByte = natts >> 3;
-	uint8	mask;
-	int		res = natts;
-	uint8	byte;
+	int			lastByte = natts >> 3;
+	uint8		mask;
+	int			res = natts;
+	uint8		byte;
 
 #ifdef USE_ASSERT_CHECKING
-	int firstnull_check = natts;
+	int			firstnull_check = natts;
 
 	/* Do it the slow way and check we get the same answer. */
 	for (int i = 0; i < natts; i++)
