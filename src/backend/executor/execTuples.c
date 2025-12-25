@@ -1017,12 +1017,12 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	bits8	   *bp;				/* ptr to null bitmap in tuple */
 	int			attnum;
 	int			firstNonCacheOffsetAttr;
-
-/* #define OPTIMIZE_BYVAL */
+//#define OPTIMIZE_BYVAL
 #ifdef OPTIMIZE_BYVAL
 	int			firstByRefAttr;
 #endif
-	int			firstNullAttr;
+	int			nextNullAttr;
+	int			nextNullSeqEnd;
 	Datum	   *values;
 	bool	   *isnull;
 	char	   *tp;				/* ptr to tuple data */
@@ -1036,13 +1036,20 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	if (hasnulls)
 	{
 		bp = tup->t_bits;
-		firstNullAttr = first_null_attr(bp, natts);
-		firstNonCacheOffsetAttr = Min(firstNonCacheOffsetAttr, firstNullAttr);
+		next_null_until(bp, 0, natts, &nextNullAttr, &nextNullSeqEnd);
+		firstNonCacheOffsetAttr = Min(firstNonCacheOffsetAttr, nextNullAttr);
+
+		/*
+		 * While we're here, we can unset hasnulls if there's no NULL found.
+		 * Remember that we might not be deforming the entire tuple here, so
+		 * HeapTupleHasNulls() may just be true for some later attribute.
+		 */
+		hasnulls = (nextNullAttr < natts);
 	}
 	else
 	{
 		bp = NULL;
-		firstNullAttr = natts;
+		nextNullAttr = natts;
 	}
 
 #ifdef OPTIMIZE_BYVAL
@@ -1053,7 +1060,6 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 	tp = (char *) tup + tup->t_hoff;
 
 #ifdef OPTIMIZE_BYVAL
-
 	/*
 	 * Many tuples have leading byval attributes, try and process as many of
 	 * those as possible with a special loop that can't handle byref types.
@@ -1086,9 +1092,9 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 #endif
 
 	/*
-	 * Handle the portion of the tuple that we have cached the offset for up
-	 * to the first NULL attribute.  The offset is effectively fixed for these
-	 * so we can use the CompactAttribute's attcacheoff.
+	 * Handle the portion of the tuple that we have cached the offset for
+	 * up to the first NULL attribute.  The offset is effectively fixed for
+	 * these so we can use the CompactAttribute's attcacheoff.
 	 */
 	if (attnum < firstNonCacheOffsetAttr)
 	{
@@ -1121,54 +1127,76 @@ slot_deform_heap_tuple(TupleTableSlot *slot, HeapTuple tuple, uint32 *offp,
 		off = *offp;
 	}
 
-	/*
-	 * Handle any portion of the tuple that doesn't have a fixed offset up
-	 * until the first NULL attribute.  This loops only differs from the one
-	 * after it by the NULL checks.
-	 */
-	for (; attnum < firstNullAttr; attnum++)
+	/* Handle the remaining part of the tuple. */
+	if (!hasnulls)
 	{
-		cattr = TupleDescCompactAttr(tupleDesc, attnum);
-
-		/* align the offset for this attribute */
-		off = att_pointer_alignby(off,
-								  cattr->attalignby,
-								  cattr->attlen,
-								  tp + off);
-
-		values[attnum] = fetchatt(cattr, tp + off);
-		isnull[attnum] = false;
-
-		/* move the offset beyond this attribute */
-		off = att_addlength_pointer(off, cattr->attlen, tp + off);
-	}
-
-	/*
-	 * Now handle any remaining tuples, this time include NULL checks as we're
-	 * now at the first NULL attribute.
-	 */
-	for (; attnum < natts; attnum++)
-	{
-		if (att_isnull(attnum, bp))
+		/*
+		 * If there are no NULLs before natts, then use a simple loop without
+		 * NULL handling.
+		 */
+		for (; attnum < natts; attnum++)
 		{
-			values[attnum] = (Datum) 0;
-			isnull[attnum] = true;
-			continue;
+			cattr = TupleDescCompactAttr(tupleDesc, attnum);
+
+			/* align the offset for this attribute */
+			off = att_pointer_alignby(off,
+									  cattr->attalignby,
+									  cattr->attlen,
+									  tp + off);
+
+			values[attnum] = fetchatt(cattr, tp + off);
+			isnull[attnum] = false;
+
+			/* move the offset beyond this attribute */
+			off = att_addlength_pointer(off, cattr->attlen, tp + off);
 		}
+	}
+	else
+	{
+		/*
+		 * Otherwise, we need to handle NULLs.  Rather than going to the
+		 * trouble of calling att_isnull(), we instead do some processing on
+		 * the bit mask to find the next NULL bit and how many follow that
+		 * then process using two loops, the first of the inner loops here
+		 * never sees a NULL attribute as the loop will end before we get to a
+		 * NULL attr, the 2nd loop takes over and processes all the NULLs and
+		 * we'll go back to the first loop and handle any remaining non-NULL
+		 * attributes.
+		 */
+		for (;;)
+		{
+			for (; attnum < nextNullAttr; attnum++)
+			{
+				Assert(!att_isnull(attnum, bp));
 
-		cattr = TupleDescCompactAttr(tupleDesc, attnum);
+				cattr = TupleDescCompactAttr(tupleDesc, attnum);
 
-		/* align the offset for this attribute */
-		off = att_pointer_alignby(off,
-								  cattr->attalignby,
-								  cattr->attlen,
-								  tp + off);
+				/* align the offset for this attribute */
+				off = att_pointer_alignby(off,
+										  cattr->attalignby,
+										  cattr->attlen,
+										  tp + off);
 
-		values[attnum] = fetchatt(cattr, tp + off);
-		isnull[attnum] = false;
+				values[attnum] = fetchatt(cattr, tp + off);
+				isnull[attnum] = false;
 
-		/* move the offset beyond this attribute */
-		off = att_addlength_pointer(off, cattr->attlen, tp + off);
+				/* move the offset beyond this attribute */
+				off = att_addlength_pointer(off, cattr->attlen, tp + off);
+			}
+
+			if (attnum == natts)
+				break;
+
+			/* Handle the NULLs */
+			for (; attnum < nextNullSeqEnd; attnum++)
+			{
+				Assert(att_isnull(attnum, bp));
+				isnull[attnum] = true;
+			}
+
+			/* Locate the next NULL, if any */
+			next_null_until(bp, attnum, natts, &nextNullAttr, &nextNullSeqEnd);
+		}
 	}
 
 	/*
