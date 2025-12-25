@@ -72,6 +72,97 @@ fetch_att(const void *T, bool attbyval, int attlen)
 }
 
 /*
+ * next_null_until
+ *		Process 'bits' and look for the next bit marked as NULL (a 0 bit)
+ *		starting at startAttr and set the 0-based position of the first NULL
+ *		in *firstNull.  The function then continues to determine the index of
+ *		the last consecutive NULL that comes directly after the firstNull.
+ *		When no NULLs are found, *firstNull and *nullsUntil are both set to
+ *		natts.
+ */
+static inline void
+next_null_until(const bits8 *bits, int startAttr, int natts, int *firstNull, int *nullsUntil)
+{
+	int			lastByte = natts >> 3;
+	int			firstByte = startAttr >> 3;
+	int			first = natts;
+	int			until = natts;
+	bits8		byte;
+	bits8		mask;
+
+	/*
+	 * Start searching for the first 0 bit starting at startAttr.
+	 */
+
+	/* Don't consider bits prior to startAttr */
+	mask = 0xFF >> (startAttr & 7) << (startAttr & 7);
+	for (int i = firstByte; i < lastByte; i++)
+	{
+		byte = (~bits[i]) & mask;
+
+		/* did we find a NULL? */
+		if (byte != 0)
+		{
+			first = i * 8 + pg_rightmost_one_pos[byte];
+			goto searchUntil;
+		}
+
+		/* consider all bits for whole intermediate bytes */
+		mask = 0xFF;
+	}
+
+	/* consider the final byte, but only up until the natts'th bit */
+	mask &= ((((bits8) 1) << (natts & 7)) - 1);
+	byte = (~bits[lastByte]) & mask;
+
+	/*
+	 * Record the position of the 0 value bit, or if we didn't find one, then
+	 * we're done.
+	 */
+	if (byte != 0)
+		first = lastByte * 8 + pg_rightmost_one_pos[byte];
+	else
+		goto done;
+
+searchUntil:
+
+	/*
+	 * Now check how many 0 bits follow the 'first' bit.
+	 */
+
+	firstByte = (first + 1) >> 3;
+
+	/* don't consider bits before first + 1 */
+	mask = 0xFF >> ((first + 1) & 7) << ((first + 1) & 7);
+	for (int i = firstByte; i < lastByte; i++)
+	{
+		byte = bits[i] & mask;
+
+		/*
+		 * If we found a 1-bit (a non-NULL) then record that the 0-bits ended
+		 * one bit prior to that.
+		 */
+		if (byte != 0)
+		{
+			until = i * 8 + pg_rightmost_one_pos[byte];
+			goto done;
+		}
+		/* switch to considering all bits for intermediate bytes */
+		mask = 0xFF;
+	}
+
+	/* Update the mask to mask out anything after natts */
+	mask &= ((((bits8) 1) << (natts & 7)) - 1);
+	byte = bits[lastByte] & mask;
+	if (byte != 0)
+		until = lastByte * 8 + pg_rightmost_one_pos[byte];
+
+done:
+	*firstNull = first;
+	*nullsUntil = until;
+}
+
+/*
  * first_null_attr
  *		Inspect a NULL bitmask from a tuple and return the 0-based attnum of the
  *		first NULL attribute.  Returns natts if no NULLs were found.
