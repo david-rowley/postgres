@@ -2174,6 +2174,8 @@ ExecTypeFromTLInternal(List *targetList, bool skipjunk)
 		cur_resno++;
 	}
 
+	TupleDescFinalize(typeInfo);
+
 	return typeInfo;
 }
 
@@ -2207,6 +2209,8 @@ ExecTypeFromExprList(List *exprList)
 									exprCollation(e));
 		cur_resno++;
 	}
+
+	TupleDescFinalize(typeInfo);
 
 	return typeInfo;
 }
