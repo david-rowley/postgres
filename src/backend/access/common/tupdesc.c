@@ -530,6 +530,16 @@ TupleDescFinalize(TupleDesc tupdesc)
 
 		off = att_nominal_alignby(off, cattr->attalignby);
 
+		/*
+		 * attcacheoff is an int16, so don't try to cache any offsets larger
+		 * than will fit in that type.  Any attributes which are offset more
+		 * than 2^15 are likely due to variable-length attributes.  Since we
+		 * don't cache offsets for or beyond variable-length attributes, using
+		 * an int16 rather than an int32 here is unlikely to cost us anything.
+		 */
+		if (off > PG_INT16_MAX)
+			break;
+
 		cattr->attcacheoff = off;
 
 		off += cattr->attlen;
