@@ -118,7 +118,8 @@ static ModifyTable *create_modifytable_plan(PlannerInfo *root, ModifyTablePath *
 static Limit *create_limit_plan(PlannerInfo *root, LimitPath *best_path,
 								int flags);
 static SeqScan *create_seqscan_plan(PlannerInfo *root, Path *best_path,
-									List *tlist, List *scan_clauses);
+									List *tlist, List *scan_clauses,
+									Bitmapset *tlist_varattnos);
 static SampleScan *create_samplescan_plan(PlannerInfo *root, Path *best_path,
 										  List *tlist, List *scan_clauses);
 static Scan *create_indexscan_plan(PlannerInfo *root, IndexPath *best_path,
@@ -178,7 +179,8 @@ static void label_sort_with_costsize(PlannerInfo *root, Sort *plan,
 									 double limit_tuples);
 static void label_incrementalsort_with_costsize(PlannerInfo *root, IncrementalSort *plan,
 												List *pathkeys, double limit_tuples);
-static SeqScan *make_seqscan(List *qptlist, List *qpqual, Index scanrelid);
+static SeqScan *make_seqscan(List *qptlist, List *qpqual, Index scanrelid,
+							 Bitmapset *scan_varattnos);
 static SampleScan *make_samplescan(List *qptlist, List *qpqual, Index scanrelid,
 								   TableSampleClause *tsc);
 static IndexScan *make_indexscan(List *qptlist, List *qpqual, Index scanrelid,
@@ -550,6 +552,7 @@ create_plan_recurse(PlannerInfo *root, Path *best_path, int flags)
 static Plan *
 create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 {
+	Bitmapset  *tlist_varattnos = NULL;
 	RelOptInfo *rel = best_path->parent;
 	List	   *scan_clauses;
 	List	   *gating_clauses;
@@ -578,6 +581,14 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 			scan_clauses = rel->baserestrictinfo;
 			break;
 	}
+
+	/*
+	 * Figure out which attributes we need from the scan before applying the
+	 * physical tlist optimization.
+	 */
+	pull_varattnos((Node *) best_path->pathtarget->exprs,
+				   rel->relid,
+				   &tlist_varattnos);
 
 	/*
 	 * If this is a parameterized scan, we also need to enforce all the join
@@ -672,7 +683,8 @@ create_scan_plan(PlannerInfo *root, Path *best_path, int flags)
 			plan = (Plan *) create_seqscan_plan(root,
 												best_path,
 												tlist,
-												scan_clauses);
+												scan_clauses,
+												tlist_varattnos);
 			break;
 
 		case T_SampleScan:
@@ -2752,10 +2764,13 @@ create_limit_plan(PlannerInfo *root, LimitPath *best_path, int flags)
  */
 static SeqScan *
 create_seqscan_plan(PlannerInfo *root, Path *best_path,
-					List *tlist, List *scan_clauses)
+					List *tlist, List *scan_clauses, Bitmapset *tlist_varattnos)
 {
 	SeqScan    *scan_plan;
 	Index		scan_relid = best_path->parent->relid;
+	Bitmapset  *scan_varattnos = tlist_varattnos;
+	Bitmapset  *non_sys_attrs = NULL;
+	int			i;
 
 	/* it should be a base rel... */
 	Assert(scan_relid > 0);
@@ -2767,6 +2782,19 @@ create_seqscan_plan(PlannerInfo *root, Path *best_path,
 	/* Reduce RestrictInfo list to bare expressions; ignore pseudoconstants */
 	scan_clauses = extract_actual_clauses(scan_clauses, false);
 
+	/* Pull varattnos from WHERE clause Vars */
+	pull_varattnos((Node *) scan_clauses, scan_relid, &scan_varattnos);
+
+	/* Don't set these when whole-row var is present */
+	if (!bms_is_member(0 - FirstLowInvalidHeapAttributeNumber, scan_varattnos))
+	{
+		/* XXX invent bms_right_shift_members()? */
+		i = 0 - FirstLowInvalidHeapAttributeNumber;
+		while ((i = bms_next_member(scan_varattnos, i)) >= 0)
+			non_sys_attrs = bms_add_member(non_sys_attrs,
+										   i - 1 + FirstLowInvalidHeapAttributeNumber);
+	}
+
 	/* Replace any outer-relation variables with nestloop params */
 	if (best_path->param_info)
 	{
@@ -2776,7 +2804,8 @@ create_seqscan_plan(PlannerInfo *root, Path *best_path,
 
 	scan_plan = make_seqscan(tlist,
 							 scan_clauses,
-							 scan_relid);
+							 scan_relid,
+							 non_sys_attrs);
 
 	copy_generic_path_info(&scan_plan->scan.plan, best_path);
 
@@ -5487,7 +5516,8 @@ bitmap_subplan_mark_shared(Plan *plan)
 static SeqScan *
 make_seqscan(List *qptlist,
 			 List *qpqual,
-			 Index scanrelid)
+			 Index scanrelid,
+			 Bitmapset *scan_varattnos)
 {
 	SeqScan    *node = makeNode(SeqScan);
 	Plan	   *plan = &node->scan.plan;
@@ -5497,6 +5527,7 @@ make_seqscan(List *qptlist,
 	plan->lefttree = NULL;
 	plan->righttree = NULL;
 	node->scan.scanrelid = scanrelid;
+	node->scan.scan_varattnos = scan_varattnos;
 
 	return node;
 }

@@ -580,8 +580,7 @@ ExecGetCommonChildSlotOps(PlanState *ps)
  * ----------------
  */
 void
-ExecAssignProjectionInfo(PlanState *planstate,
-						 TupleDesc inputDesc)
+ExecAssignProjectionInfo(PlanState *planstate, TupleDesc inputDesc)
 {
 	planstate->ps_ProjInfo =
 		ExecBuildProjectionInfo(planstate->plan->targetlist,
@@ -589,6 +588,28 @@ ExecAssignProjectionInfo(PlanState *planstate,
 								planstate->ps_ResultTupleSlot,
 								planstate,
 								inputDesc);
+}
+
+/* ----------------
+ *		ExecAssignProjectionInfoWithScanAttrs
+ *
+ * As ExecAssignScanProjectionInfo but when 'scan_attrs' is set, use
+ * EEOP_SCAN_SELECTSOME instead of EEOP_SCAN_FETCHSOME to deform only the
+ * mentioned 'scan_attrs' from the scan tuple.
+ * ----------------
+*/
+void
+ExecAssignProjectionInfoWithScanAttrs(PlanState *planstate,
+									  TupleDesc inputDesc,
+									  Bitmapset *scan_attrs)
+{
+	planstate->ps_ProjInfo =
+		ExecBuildProjectionInfoWithScanAttrs(planstate->plan->targetlist,
+											 planstate->ps_ExprContext,
+											 planstate->ps_ResultTupleSlot,
+											 planstate,
+											 inputDesc,
+											 scan_attrs);
 }
 
 
@@ -602,6 +623,26 @@ ExecAssignProjectionInfo(PlanState *planstate,
 void
 ExecConditionalAssignProjectionInfo(PlanState *planstate, TupleDesc inputDesc,
 									int varno)
+{
+	ExecConditionalAssignProjectionInfoWithScanAttrs(planstate,
+													 inputDesc,
+													 varno,
+													 NULL);
+}
+
+/* ----------------
+ *		ExecConditionalAssignProjectionInfoWithScanAttrs
+ *
+ * As ExecConditionalAssignProjectionInfo but when 'scan_attrs' is set, use
+ * EEOP_SCAN_SELECTSOME instead of EEOP_SCAN_FETCHSOME to deform only the
+ * mentioned 'scan_attrs' from the scan tuple.
+ * ----------------
+*/
+void
+ExecConditionalAssignProjectionInfoWithScanAttrs(PlanState *planstate,
+												 TupleDesc inputDesc,
+												 int varno,
+												 Bitmapset *scan_attrs)
 {
 	if (tlist_matches_tupdesc(planstate,
 							  planstate->plan->targetlist,
@@ -622,7 +663,7 @@ ExecConditionalAssignProjectionInfo(PlanState *planstate, TupleDesc inputDesc,
 			planstate->resultopsfixed = true;
 			planstate->resultopsset = true;
 		}
-		ExecAssignProjectionInfo(planstate, inputDesc);
+		ExecAssignProjectionInfoWithScanAttrs(planstate, inputDesc, scan_attrs);
 	}
 }
 
