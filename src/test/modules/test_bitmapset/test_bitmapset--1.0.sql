@@ -120,6 +120,10 @@ CREATE FUNCTION test_bms_replace_members(text, text)
 RETURNS text
 AS 'MODULE_PATHNAME' LANGUAGE C;
 
+CREATE FUNCTION test_bms_left_shift_members(text, integer)
+RETURNS text
+AS 'MODULE_PATHNAME' LANGUAGE C;
+
 CREATE FUNCTION test_bms_join(text, text)
 RETURNS text
 AS 'MODULE_PATHNAME' LANGUAGE C;
@@ -134,6 +138,10 @@ AS 'MODULE_PATHNAME' LANGUAGE C;
 
 -- Test utility functions
 CREATE FUNCTION test_random_operations(integer, integer, integer, integer)
+RETURNS integer STRICT
+AS 'MODULE_PATHNAME' LANGUAGE C;
+
+CREATE FUNCTION test_random_shift_operations(integer, integer, integer, integer)
 RETURNS integer STRICT
 AS 'MODULE_PATHNAME' LANGUAGE C;
 

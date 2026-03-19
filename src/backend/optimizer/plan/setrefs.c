@@ -2064,6 +2064,7 @@ offset_relid_set(Relids relids, int rtoffset)
 	if (rtoffset == 0)
 		return relids;
 	rtindex = -1;
+	/* XXX here */
 	while ((rtindex = bms_next_member(relids, rtindex)) >= 0)
 		result = bms_add_member(result, rtindex + rtoffset);
 	return result;

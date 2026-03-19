@@ -1646,6 +1646,7 @@ statext_is_compatible_clause(PlannerInfo *root, Node *clause, Index relid,
 		 * while attnums within *attnums aren't.  Convert *attnums to the
 		 * offset style so we can combine the results.
 		 */
+		/* XXX */
 		while ((attnum = bms_next_member(*attnums, attnum)) >= 0)
 		{
 			clause_attnums =

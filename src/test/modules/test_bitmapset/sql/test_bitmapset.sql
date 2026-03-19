@@ -403,4 +403,7 @@ SELECT test_bms_nonempty_difference('(b 1 2)', '(b 50 100)') AS result;
 -- random operations
 SELECT test_random_operations(-1, 10000, 81920, 0) > 0 AS result;
 
+-- perform some random test on bms_left_shift_members()
+SELECT test_random_shift_operations(-1, 10000, 1024, 0) AS result;
+
 DROP EXTENSION test_bitmapset;

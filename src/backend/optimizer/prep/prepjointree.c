@@ -3757,6 +3757,7 @@ has_notnull_forced_var(PlannerInfo *root, List *forced_null_vars,
 		 * numbers.
 		 */
 		attno = -1;
+		/* XXX can this be improved? */
 		while ((attno = bms_next_member(attrs, attno)) >= 0)
 		{
 			AttrNumber	real_attno = attno + FirstLowInvalidHeapAttributeNumber;

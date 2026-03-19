@@ -1575,4 +1575,11 @@ SELECT test_random_operations(-1, 10000, 81920, 0) > 0 AS result;
  t
 (1 row)
 
+-- perform some random test on bms_left_shift_members()
+SELECT test_random_shift_operations(-1, 10000, 1024, 0) AS result;
+ result 
+--------
+  10000
+(1 row)
+
 DROP EXTENSION test_bitmapset;

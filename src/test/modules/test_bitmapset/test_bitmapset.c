@@ -59,12 +59,16 @@ PG_FUNCTION_INFO_V1(test_bms_add_members);
 PG_FUNCTION_INFO_V1(test_bms_int_members);
 PG_FUNCTION_INFO_V1(test_bms_del_members);
 PG_FUNCTION_INFO_V1(test_bms_replace_members);
+PG_FUNCTION_INFO_V1(test_bms_left_shift_members);
+PG_FUNCTION_INFO_V1(test_bms_left_shift_members2);
 PG_FUNCTION_INFO_V1(test_bms_join);
 PG_FUNCTION_INFO_V1(test_bitmap_hash);
 PG_FUNCTION_INFO_V1(test_bitmap_match);
 
 /* Test utility functions */
 PG_FUNCTION_INFO_V1(test_random_operations);
+PG_FUNCTION_INFO_V1(test_random_shift_operations);
+
 
 /* Convenient macros to test results */
 #define EXPECT_TRUE(expr)	\
@@ -531,6 +535,35 @@ test_bms_replace_members(PG_FUNCTION_ARGS)
 }
 
 Datum
+test_bms_left_shift_members(PG_FUNCTION_ARGS)
+{
+	Bitmapset  *bms1 = PG_ARG_GETBITMAPSET(0);
+	int			left_positions = PG_GETARG_INT32(1);
+
+	/* left input gets recycled */
+	bms1 = bms_left_shift_members(bms1, left_positions);
+
+	PG_RETURN_BITMAPSET_AS_TEXT(bms1);
+}
+
+Datum
+test_bms_left_shift_members2(PG_FUNCTION_ARGS)
+{
+	Bitmapset  *bms1 = PG_ARG_GETBITMAPSET(0);
+	int			left_positions = PG_GETARG_INT32(1);
+	Bitmapset  *bms2 = NULL;
+	int			i = -1;
+
+	while ((i = bms_next_member(bms1, i)) >= 0)
+	{
+		if (i + left_positions >= 0)
+			bms2 = bms_add_member(bms2, i + left_positions);
+	}
+
+	PG_RETURN_BITMAPSET_AS_TEXT(bms2);
+}
+
+Datum
 test_bms_join(PG_FUNCTION_ARGS)
 {
 	Bitmapset  *bms1 = PG_ARG_GETBITMAPSET(0);
@@ -580,7 +613,7 @@ test_bitmap_match(PG_FUNCTION_ARGS)
 }
 
 /*
- * Contrary to all the other functions which are one-one mappings with the
+ * Contrary to most of the other functions which are one-one mappings with the
  * equivalent C functions, this stresses Bitmapsets in a random fashion for
  * various operations.
  *
@@ -741,4 +774,73 @@ test_random_operations(PG_FUNCTION_ARGS)
 	pfree(members);
 
 	PG_RETURN_INT32(total_ops);
+}
+
+/*
+ * Random testing for bms_left_shift_members().  Generates a random set and
+ * then picks a number of bits to left or right shift the set by.  We then
+ * create another set which is build by looping over the members of the random
+ * set and performing bms_add_member and adding on the shift to create known
+ * good shifted set to compare the result of bms_left_shift_members() to.
+ *
+ * Arguments:
+ *	arg1: optional random seed, or < 0 to use a random seed.
+ *  arg2: the number of operations to perform.
+ *  arg3: the maximum bitmapset member number to use in the random set.
+ *  arg4: the minimum bitmapset member number to use in the random set.
+ */
+Datum
+test_random_shift_operations(PG_FUNCTION_ARGS)
+{
+	Bitmapset  *bms1;
+	Bitmapset  *bms2;
+	pg_prng_state state;
+	uint64		seed = GetCurrentTimestamp();
+	int			num_ops;
+	int			max_range;
+	int			min_value;
+	int			member;
+
+	if (PG_GETARG_INT32(0) > 0)
+		seed = PG_GETARG_INT32(0);
+
+	num_ops = PG_GETARG_INT32(1);
+	max_range = PG_GETARG_INT32(2);
+	min_value = PG_GETARG_INT32(3);
+
+	pg_prng_seed(&state, seed);
+
+	/* Phase 5: perform tests on bms_left_shift_members */
+	for (int op = 0; op < num_ops; op++)
+	{
+		int			shift;
+
+		bms1 = NULL;
+		for (int i = 0; i < 10; i++)
+		{
+			member = pg_prng_uint32(&state) % max_range + min_value;
+
+			bms1 = bms_add_member(bms1, member);
+		}
+
+		shift = (pg_prng_uint32(&state) % max_range) - (pg_prng_uint32(&state) % max_range);
+
+		bms2 = NULL;
+		member = -1;
+		while ((member = bms_next_member(bms1, member)) >= 0)
+		{
+			if (member + shift >= 0)
+				bms2 = bms_add_member(bms2, member + shift);
+		}
+
+		bms1 = bms_left_shift_members(bms1, shift);
+
+		if (!bms_equal(bms1, bms2))
+			elog(ERROR, "bms_left_shift_members failed with shift %d", shift);
+
+		bms_free(bms1);
+		bms_free(bms2);
+	}
+
+	PG_RETURN_INT32(num_ops);
 }

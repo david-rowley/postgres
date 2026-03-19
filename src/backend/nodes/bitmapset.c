@@ -992,6 +992,152 @@ bms_replace_members(Bitmapset *a, const Bitmapset *b)
 }
 
 /*
+ * bms_left_shift_members
+ *		Perform bit shifting on the existing members of 'a' shifting them left
+ *		by the specified number of positions, (or right when the value is
+ *		negative).  Modifies the given set in place, when possible.  Right
+ *		shifting will cause any members which would go below zero to disappear
+ *		from the set.  Can result in an ERROR if the highest member would go
+ *		beyond INT32_MAX.
+ */
+Bitmapset *
+bms_left_shift_members(Bitmapset *a, int left_positions)
+{
+	int			shift_words;
+	int			shift_bits;
+	int			new_nwords;
+	int			old_nwords;
+	int32		high_bit;
+
+	Assert(bms_is_valid_set(a));
+
+	if (a == NULL)
+		return NULL;
+
+	old_nwords = a->nwords;
+	shift_words = WORDNUM(left_positions);
+	shift_bits = BITNUM(left_positions);
+	new_nwords = a->nwords + shift_words;
+	high_bit = bmw_leftmost_one_pos(a->words[a->nwords - 1]);
+
+	/* Adjust the number of words in the new set to how many we'll need */
+	new_nwords += (shift_bits + high_bit) >= BITS_PER_BITMAPWORD;
+	new_nwords -= (shift_bits + high_bit) < 0;
+
+	/* If we don't need any words then it must be an empty set */
+	if (new_nwords <= 0)
+	{
+		pfree(a);
+		return NULL;
+	}
+
+	/*
+	 * Unlikely, but check to see that we're not going to make the new highest
+	 * member larger than what an int can represent.  Since we expect both
+	 * PG_INT32_MAX + 1 and BITS_PER_BITMAPWORD to be powers of two, we
+	 * simplify this to check the new_nwords didn't go over the WORDNUM for
+	 * PG_INT32_MAX + 1
+	 */
+	if (new_nwords > WORDNUM((uint64) PG_INT32_MAX + 1))
+		elog(ERROR, "bitmapset overflow");
+
+	/*
+	 * Reuse input set if the number of words does not change, else we're
+	 * going to need a bigger set.
+	 */
+	if (new_nwords > a->nwords)
+	{
+
+		/* enlarge the set so it's big enough for all members */
+		a = (Bitmapset *) repalloc0(a, BITMAPSET_SIZE(old_nwords),
+									BITMAPSET_SIZE(new_nwords));
+		a->nwords = new_nwords;
+	}
+	else
+		a->nwords = new_nwords;
+
+	if (left_positions > 0)
+	{
+		int			carry_bits = BITS_PER_BITMAPWORD - shift_bits;
+
+		/* Handle shifting entire words */
+		if (shift_words > 0)
+		{
+			/* shift words up to higher elements */
+			for (int i = old_nwords - 1; i >= 0; i--)
+				a->words[i + shift_words] = a->words[i];
+			/* wipe out the old members from the lower, now unused words */
+			for (int i = 0; i < shift_words; i++)
+				a->words[i] = 0;
+		}
+
+		/* Now handle shifting up the bits, if needed */
+		if (shift_bits > 0)
+		{
+			bitmapword	prev_carry = 0;
+
+			for (int i = shift_words; i < new_nwords; i++)
+			{
+				bitmapword	carry = (a->words[i] >> carry_bits);
+
+				/* shift bits up and carry the bits from the previous word */
+				a->words[i] = (a->words[i] << shift_bits) | prev_carry;
+				prev_carry = carry;
+			}
+		}
+	}
+	else
+	{
+		int			carry_bits;
+
+		shift_words = 0 - shift_words;
+		shift_bits = 0 - shift_bits;
+		carry_bits = BITS_PER_BITMAPWORD - shift_bits;
+
+		if (shift_words > 0)
+		{
+			/* shift words down to lower elements */
+			for (int i = 0; i <= new_nwords; i++)
+				a->words[i] = (i + shift_words) >= old_nwords ? 0 : a->words[i + shift_words];
+
+			/*
+			 * don't bother with wiping upper words we handle those by
+			 * shrinking the set
+			 */
+		}
+
+		/* Now handle shifting down the bits, if needed */
+		if (shift_bits > 0)
+		{
+			bitmapword	prev_carry = 0;
+
+			if (new_nwords < old_nwords)
+				prev_carry = (a->words[new_nwords] << carry_bits);
+
+			for (int i = new_nwords - 1; i >= 0; i--)
+			{
+				bitmapword	carry = (a->words[i] << carry_bits);
+
+				/* shift bits down and carry the bits from the previous word */
+				a->words[i] = (a->words[i] >> shift_bits) | prev_carry;
+				prev_carry = carry;
+			}
+		}
+	}
+
+#ifdef REALLOCATE_BITMAPSETS
+
+	/*
+	 * There's no guarantee that the repalloc returned a new pointer, so copy
+	 * and free unconditionally here.
+	 */
+	a = bms_copy_and_free(a);
+#endif
+
+	return a;
+}
+
+/*
  * bms_add_range
  *		Add members in the range of 'lower' to 'upper' to the set.
  *
