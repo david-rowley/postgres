@@ -2261,7 +2261,6 @@ typedef struct MaterialState
 } MaterialState;
 
 struct MemoizeEntry;
-struct MemoizeTuple;
 struct MemoizeKey;
 
 /* ----------------
@@ -2289,10 +2288,9 @@ typedef struct MemoizeState
 	uint64		mem_limit;		/* memory limit in bytes for the cache */
 	MemoryContext tableContext; /* memory context to store cache data */
 	dlist_head	lru_list;		/* least recently used entry list */
-	struct MemoizeTuple *last_tuple;	/* Used to point to the last tuple
-										 * returned during a cache hit and the
-										 * tuple we last stored when
-										 * populating the cache. */
+	MinimalTuple last_tuple;	/* Used to point to the last tuple returned
+								 * during a cache hit and the tuple we last
+								 * stored when populating the cache. */
 	struct MemoizeEntry *entry; /* the entry that 'last_tuple' belongs to or
 								 * NULL if 'last_tuple' is NULL. */
 	bool		singlerow;		/* true if the cache entry is to be marked as
