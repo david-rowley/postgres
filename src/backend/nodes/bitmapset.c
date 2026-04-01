@@ -1042,30 +1042,25 @@ bms_left_shift_members(Bitmapset *a, int left_positions)
 		elog(ERROR, "bitmapset overflow");
 
 	/*
-	 * Reuse input set if the number of words does not change, else we're
-	 * going to need a bigger set.
+	 * Reallocate the memory for the set if we need more words, otherwise we
+	 * reuse the existing set.
 	 */
 	if (new_nwords > a->nwords)
-	{
-
-		/* enlarge the set so it's big enough for all members */
 		a = (Bitmapset *) repalloc0(a, BITMAPSET_SIZE(old_nwords),
 									BITMAPSET_SIZE(new_nwords));
-		a->nwords = new_nwords;
-	}
-	else
-		a->nwords = new_nwords;
+
+	a->nwords = new_nwords;
 
 	if (left_positions > 0)
 	{
 		int			carry_bits = BITS_PER_BITMAPWORD - shift_bits;
 
-		/* Handle shifting entire words */
+		/* Shift words up to higher elements, if needed */
 		if (shift_words > 0)
 		{
-			/* shift words up to higher elements */
 			for (int i = old_nwords - 1; i >= 0; i--)
 				a->words[i + shift_words] = a->words[i];
+
 			/* wipe out the old members from the lower, now unused words */
 			for (int i = 0; i < shift_words; i++)
 				a->words[i] = 0;
@@ -1086,7 +1081,7 @@ bms_left_shift_members(Bitmapset *a, int left_positions)
 			}
 		}
 	}
-	else
+	else if (shift_words < 0)
 	{
 		int			carry_bits;
 
@@ -1094,15 +1089,15 @@ bms_left_shift_members(Bitmapset *a, int left_positions)
 		shift_bits = 0 - shift_bits;
 		carry_bits = BITS_PER_BITMAPWORD - shift_bits;
 
+		/* Shift words down to lower elements, if needed */
 		if (shift_words > 0)
 		{
-			/* shift words down to lower elements */
 			for (int i = 0; i <= new_nwords; i++)
 				a->words[i] = (i + shift_words) >= old_nwords ? 0 : a->words[i + shift_words];
 
 			/*
-			 * don't bother with wiping upper words we handle those by
-			 * shrinking the set
+			 * Don't bother with zeroing the upper words.  We handle those by
+			 * shrinking the set.
 			 */
 		}
 
