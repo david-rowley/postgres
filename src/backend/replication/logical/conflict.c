@@ -232,8 +232,7 @@ append_tuple_value_detail(StringInfo buf, List *tuple_values,
 		first = false;
 	}
 
-	/* translator: This is the terminator of a conflict message */
-	appendStringInfoString(buf, _("."));
+	appendStringInfoChar(buf, '.');
 
 	if (need_newline)
 		appendStringInfoChar(buf, '\n');

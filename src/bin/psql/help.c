@@ -34,6 +34,7 @@
  */
 
 /* Some helper macros to make the code less verbose */
+#define HELPC(chr) appendPQExpBufferChar(&buf, chr)
 #define HELP0(str) appendPQExpBufferStr(&buf, _(str))
 #define HELPN(str,...) appendPQExpBuffer(&buf, _(str), __VA_ARGS__)
 #define ON(var) ((var) ? _("on") : _("off"))
@@ -178,7 +179,7 @@ slashUsage(unsigned short int pager)
 	HELP0("  \\watch [[i=]SEC] [c=N] [m=MIN]\n"
 		  "                         execute query every SEC seconds, up to N times,\n"
 		  "                         stop if less than MIN rows are returned\n");
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Help\n");
 
@@ -186,7 +187,7 @@ slashUsage(unsigned short int pager)
 	HELP0("  \\? options             show help on psql command-line options\n");
 	HELP0("  \\? variables           show help on special variables\n");
 	HELP0("  \\h [NAME]              help on syntax of SQL commands, * for all commands\n");
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Query Buffer\n");
 	HELP0("  \\e [FILE] [LINE]       edit the query buffer (or file) with external editor\n");
@@ -198,7 +199,7 @@ slashUsage(unsigned short int pager)
 	HELP0("  \\s [FILE]              display history or save it to file\n");
 #endif
 	HELP0("  \\w FILE                write query buffer to file\n");
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Input/Output\n");
 	HELP0("  \\copy ...              perform SQL COPY with data stream to the client host\n");
@@ -208,14 +209,14 @@ slashUsage(unsigned short int pager)
 	HELP0("  \\o [FILE]              send all query results to file or |pipe\n");
 	HELP0("  \\qecho [-n] [STRING]   write string to \\o output stream (-n for no newline)\n");
 	HELP0("  \\warn [-n] [STRING]    write string to standard error (-n for no newline)\n");
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Conditional\n");
 	HELP0("  \\if EXPR               begin conditional block\n");
 	HELP0("  \\elif EXPR             alternative within current conditional block\n");
 	HELP0("  \\else                  final alternative within current conditional block\n");
 	HELP0("  \\endif                 end conditional block\n");
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Informational\n");
 	HELP0("  (options: S = show system objects, x = expanded mode, + = additional detail)\n");
@@ -274,7 +275,7 @@ slashUsage(unsigned short int pager)
 	HELP0("  \\sf[+]   FUNCNAME      show a function's definition\n");
 	HELP0("  \\sv[+]   VIEWNAME      show a view's definition\n");
 	HELP0("  \\z[Sx]   [PATTERN]     same as \\dp\n");
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Large Objects\n");
 	HELP0("  \\lo_export LOBOID FILE write large object to file\n");
@@ -282,7 +283,7 @@ slashUsage(unsigned short int pager)
 		  "                         read large object from file\n");
 	HELP0("  \\lo_list[x+]           list large objects\n");
 	HELP0("  \\lo_unlink LOBOID      delete a large object\n");
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Formatting\n");
 	HELP0("  \\a                     toggle between unaligned and aligned output mode\n");
@@ -297,7 +298,7 @@ slashUsage(unsigned short int pager)
 	HELP0("  \\T [STRING]            set HTML <table> tag attributes, or unset if none\n");
 	HELPN("  \\x [on|off|auto]       toggle expanded output (currently %s)\n",
 		  pset.popt.topt.expanded == 2 ? _("auto") : ON(pset.popt.topt.expanded));
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Connection\n");
 	if (currdb)
@@ -310,7 +311,7 @@ slashUsage(unsigned short int pager)
 	HELP0("  \\conninfo              display information about current connection\n");
 	HELP0("  \\encoding [ENCODING]   show or set client encoding\n");
 	HELP0("  \\password [USERNAME]   securely change the password for a user\n");
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Operating System\n");
 	HELP0("  \\cd [DIR]              change the current working directory\n");
@@ -319,13 +320,13 @@ slashUsage(unsigned short int pager)
 	HELPN("  \\timing [on|off]       toggle timing of commands (currently %s)\n",
 		  ON(pset.timing));
 	HELP0("  \\! [COMMAND]           execute command in shell or start interactive shell\n");
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Variables\n");
 	HELP0("  \\prompt [TEXT] NAME    prompt user to set internal variable\n");
 	HELP0("  \\set [NAME [VALUE]]    set internal variable, or list all if no parameters\n");
 	HELP0("  \\unset NAME            unset (delete) internal variable\n");
-	HELP0("\n");
+	HELPC('\n');
 
 	HELP0("Extended Query Protocol\n");
 	HELP0("  \\bind [PARAM]...       set query parameters\n");

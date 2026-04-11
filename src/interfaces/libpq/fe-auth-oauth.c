@@ -196,6 +196,12 @@ struct json_ctx
 		(ctx)->errmsg = (ctx)->errbuf.data; \
 	} while (0)
 
+#define oauth_json_set_error_string(ctx, str) \
+	do { \
+		appendPQExpBufferStr(&(ctx)->errbuf, libpq_gettext(str)); \
+		(ctx)->errmsg = (ctx)->errbuf.data; \
+	} while (0)
+
 /* An untranslated version of oauth_json_set_error(). */
 #define oauth_json_set_error_internal(ctx, ...) \
 	do { \
@@ -219,7 +225,7 @@ oauth_json_object_start(void *state)
 
 	++ctx->nested;
 	if (ctx->nested > MAX_SASL_NESTING_LEVEL)
-		oauth_json_set_error(ctx, "JSON is too deeply nested");
+		oauth_json_set_error_string(ctx, "JSON is too deeply nested");
 
 	return oauth_json_has_error(ctx) ? JSON_SEM_ACTION_FAILED : JSON_SUCCESS;
 }
@@ -268,7 +274,7 @@ oauth_json_array_start(void *state)
 
 	if (!ctx->nested)
 	{
-		oauth_json_set_error(ctx, "top-level element must be an object");
+		oauth_json_set_error_string(ctx, "top-level element must be an object");
 	}
 	else if (ctx->target_field)
 	{
@@ -281,7 +287,7 @@ oauth_json_array_start(void *state)
 
 	++ctx->nested;
 	if (ctx->nested > MAX_SASL_NESTING_LEVEL)
-		oauth_json_set_error(ctx, "JSON is too deeply nested");
+		oauth_json_set_error_string(ctx, "JSON is too deeply nested");
 
 	return oauth_json_has_error(ctx) ? JSON_SEM_ACTION_FAILED : JSON_SUCCESS;
 }
@@ -302,7 +308,7 @@ oauth_json_scalar(void *state, char *token, JsonTokenType type)
 
 	if (!ctx->nested)
 	{
-		oauth_json_set_error(ctx, "top-level element must be an object");
+		oauth_json_set_error_string(ctx, "top-level element must be an object");
 		return JSON_SEM_ACTION_FAILED;
 	}
 
